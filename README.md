@@ -202,20 +202,7 @@ Aynı seed aynı diziyi, farklı seed farklı diziyi üretiyor.
 
 ### Unit testler
 
-`dotnet test erp-simulator` — 23/23 geçti.
-
-| Test | Kontrol |
-|---|---|
-| Aynı seed | 500 çekilişte aynı dizi |
-| Farklı seed | Farklı dizi |
-| Hata oranları 0 | 1000 çekilişin tamamı Success |
-| Tek hata türü %100 (4 test) | Yalnızca o davranış seçiliyor |
-| Varsayılan oranlar | 100.000 çekilişte her oran hedefin ±1 puan içinde |
-| Retry-After aralığı | En küçük 5, en büyük 30 |
-| Oranlar normalize | Success 30, Busy 10 → Busy %25 |
-| Geçersiz ayar | Negatif oran veya tüm oranlar 0 ise uygulama açılmıyor |
-| Ayar dosyasından okuma | On değerin hepsi ayar dosyasından geliyor |
-| Eksik ayar (10 test) | On anahtardan herhangi biri eksikse uygulama açılmıyor |
+`dotnet test erp-simulator`: 23/23 geçti (seed, oranlar, Retry-After aralığı, ayar doğrulama).
 
 ---
 
@@ -228,7 +215,3 @@ Aynı seed aynı diziyi, farklı seed farklı diziyi üretiyor.
 | Loglar | `docker compose logs -f erp-simulator` — her isteğin seçilen davranışı |
 
 Her POST seed'li dizideki bir sonraki davranışı alır; aynı istek art arda 202, 429 veya 500 dönebilir.
-
-```bash
-dotnet test erp-simulator
-```
