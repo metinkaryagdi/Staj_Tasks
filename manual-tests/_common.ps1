@@ -159,8 +159,7 @@ function Get-SqlScalar([string]$Sql) {
 }
 
 # ---------------------------------------------------------------------------
-# Veritabanı kontrolleri. Test script'leri bunları testin sonunda çağırır;
-# db-kontrol.ps1 de aynı kontrolleri testi tekrar çalıştırmadan, son çalıştırma üzerinde yapar.
+# Veritabanı kontrolleri. Her test script'i bunları kendi çıktısının hemen ardından çağırır.
 # Her biri başlık, SQL, veritabanından gelen tablo ve beklenen/gelen karşılaştırmasını basar,
 # sonuç olarak $true/$false döner.
 # ---------------------------------------------------------------------------

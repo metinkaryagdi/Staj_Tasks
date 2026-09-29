@@ -49,16 +49,6 @@ veritabanını temizlemeden art arda çalıştırılabilir.
 
 6. testte iki çalıştırmanın log satırları `manual-tests\output\` altına kaydedilir.
 
-## Veritabanı kontrolünü tekrar görmek
-
-Testi yeniden çalıştırmadan, her testin **en son çalıştırmasını** veritabanında kontrol eder
-(test script'lerinin sonundaki bölümle aynı kontroller):
-
-```powershell
-.\manual-tests\db-kontrol.ps1          # 7 testin hepsi, sonunda özet
-.\manual-tests\db-kontrol.ps1 -Test 3  # sadece test 3
-```
-
 ## Veritabanını açmak
 
 ```powershell
