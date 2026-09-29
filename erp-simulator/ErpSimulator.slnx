@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ErpSimulator/ErpSimulator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ErpSimulator.Tests/ErpSimulator.Tests.csproj" />
+  </Folder>
+</Solution>

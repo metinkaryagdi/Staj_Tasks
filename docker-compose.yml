@@ -1,0 +1,43 @@
+name: staj-tasks
+
+services:
+  erp-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: erp_simulator
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: erp
+    ports:
+      - "5433:5432"
+    volumes:
+      - erp-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp -d erp_simulator"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  erp-simulator:
+    build: ./erp-simulator
+    ports:
+      - "5080:8080"
+    environment:
+      ConnectionStrings__ErpDb: "Host=erp-db;Database=erp_simulator;Username=erp;Password=erp;GSS Encryption Mode=Disable"
+      # Optional overrides, passed through from the shell only when set there
+      # (e.g. `Simulator__Rates__Busy=100 docker compose up -d erp-simulator`).
+      Simulator__Seed:
+      Simulator__Rates__Busy:
+      Simulator__Rates__ServerError:
+      Simulator__Rates__SaveThenError:
+      Simulator__Rates__LateResponse:
+      Simulator__LateResponseDelaySeconds:
+      Simulator__RetryAfterFormat:
+    volumes:
+      # Settings file is mounted so rates can be changed without rebuilding; restart the container to apply.
+      - ./erp-simulator/src/ErpSimulator/appsettings.json:/app/appsettings.json:ro
+    depends_on:
+      erp-db:
+        condition: service_healthy
+
+volumes:
+  erp-db-data:
