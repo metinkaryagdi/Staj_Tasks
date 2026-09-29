@@ -19,11 +19,9 @@ Write-Response $first
 $second = Send-Invoice $number
 Write-Response $second
 
-$rows = Get-DbCount $number
-$distinct = [int](Get-SqlScalar "SELECT count(DISTINCT erp_reference) FROM invoices WHERE invoice_number = '$number';")
-Show-DbRows $number
+$dbOk = Test-DbDuplicate -Title 'Test 5: aynı numarayla 2 kayıt, 2 farklı referans' -InvoiceNumber $number
 
-Write-Result ($first.Status -eq 202 -and $second.Status -eq 202 -and $rows -eq 2 -and $distinct -eq 2) `
-    "cevaplar: $($first.Status), $($second.Status); referanslar: $($first.ErpReference), $($second.ErpReference); veritabanı: $rows kayıt, $distinct farklı referans"
+Write-Result ($first.Status -eq 202 -and $second.Status -eq 202 -and $dbOk) `
+    "cevaplar: $($first.Status), $($second.Status); referanslar: $($first.ErpReference), $($second.ErpReference); veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'kaldı' })"
 
 Restart-Simulator

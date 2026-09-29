@@ -36,12 +36,12 @@ $results = foreach ($i in 1..$Count) {
 
 $busy = @($results | Where-Object Status -eq 429).Count
 $validHeader = @($results | Where-Object { $_.RetrySeconds -ne $null -and $_.RetrySeconds -ge 5 -and $_.RetrySeconds -le 30 }).Count
-$rows = Get-DbCount $prefix
-Show-DbRows $prefix
-
 Write-Host ''
 Write-Host "  Retry-After değerleri (sn): $(($results | ForEach-Object RetrySeconds) -join ' ')"
-Write-Result ($busy -eq $Count -and $validHeader -eq $Count -and $rows -eq 0) `
-    "429 cevap: $busy/$Count, 5-30 sn arası Retry-After: $validHeader/$Count, veritabanı: $rows kayıt"
+
+$dbOk = Test-DbNoneSaved -Title 'Test 2: hiç kayıt olmamalı' -Prefix $prefix
+
+Write-Result ($busy -eq $Count -and $validHeader -eq $Count -and $dbOk) `
+    "429 cevap: $busy/$Count, 5-30 sn arası Retry-After: $validHeader/$Count, veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'kaldı' })"
 
 Restart-Simulator

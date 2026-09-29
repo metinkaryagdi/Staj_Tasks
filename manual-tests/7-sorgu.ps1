@@ -33,10 +33,11 @@ $missing = Get-Invoice $MissingInvoiceNumber
 Write-Host "  Durum: $($missing.Status)"
 Write-Host "  Gövde: $($missing.Body)"
 
-Show-DbRows $InvoiceNumber
+$dbOk = Test-DbLookup -Title 'Test 7: GET sonucu veritabanıyla aynı' -InvoiceNumber $InvoiceNumber `
+    -Reference $reference -MissingInvoiceNumber $MissingInvoiceNumber
 
 $referenceOk = $reference -like 'ERP-*' -and (-not $expectedReference -or $reference -eq $expectedReference)
-Write-Result ($found.Status -eq 200 -and $referenceOk -and $missing.Status -eq 404) `
-    "kayıtlı: $($found.Status) (erpReference=$reference), olmayan: $($missing.Status)"
+Write-Result ($found.Status -eq 200 -and $referenceOk -and $missing.Status -eq 404 -and $dbOk) `
+    "kayıtlı: $($found.Status) (erpReference=$reference), olmayan: $($missing.Status), veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'kaldı' })"
 
 if ($expectedReference) { Restart-Simulator }

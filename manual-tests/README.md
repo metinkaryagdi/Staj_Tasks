@@ -1,8 +1,14 @@
 # Elle test — Gün 1 kontrol listesi
 
-Her madde için ayrı bir PowerShell script'i var. Script simülatörü o testin ayarlarıyla yeniden başlatır,
-istekleri gönderip her cevabı ekrana yazar, veritabanındaki kayıtları gösterir ve en sonda `SONUÇ: GEÇTİ / KALDI` basar.
-Test bitince simülatörü `appsettings.json` ayarlarıyla tekrar başlatır.
+Her madde için ayrı bir PowerShell script'i var. Script:
+
+1. Simülatörü o testin ayarlarıyla yeniden başlatır.
+2. İstekleri gönderip her cevabı ekrana yazar.
+3. **VERİTABANI KONTROLÜ** bölümünde çalıştırdığı SQL'i, veritabanından gelen tabloyu ve beklenen/gelen karşılaştırmasını gösterir.
+4. En sonda HTTP ve veritabanı sonucunu birleştirip `SONUÇ: GEÇTİ / KALDI` basar.
+5. Simülatörü `appsettings.json` ayarlarıyla tekrar başlatır.
+
+Veritabanına ayrıca girmeye gerek yoktur.
 
 ## Hazırlık (bir kez)
 
@@ -39,9 +45,19 @@ Parametreler:
 ```
 
 Her script fatura numaralarına test numarası ve saat ekler (ör. `T1-20260929-131500-7`), bu yüzden testler
-veritabanını temizlemeden art arda çalıştırılabilir. Script'in sonunda veritabanını kontrol eden SQL de yazılır.
+veritabanını temizlemeden art arda çalıştırılabilir.
 
 6. testte iki çalıştırmanın log satırları `manual-tests\output\` altına kaydedilir.
+
+## Veritabanı kontrolünü tekrar görmek
+
+Testi yeniden çalıştırmadan, her testin **en son çalıştırmasını** veritabanında kontrol eder
+(test script'lerinin sonundaki bölümle aynı kontroller):
+
+```powershell
+.\manual-tests\db-kontrol.ps1          # 7 testin hepsi, sonunda özet
+.\manual-tests\db-kontrol.ps1 -Test 3  # sadece test 3
+```
 
 ## Veritabanını açmak
 

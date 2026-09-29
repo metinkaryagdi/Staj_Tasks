@@ -25,10 +25,9 @@ $results = foreach ($i in 1..$Count) {
 }
 
 $late = @($results | Where-Object { $_.Status -eq 202 -and $_.Seconds -ge 30 -and $_.Seconds -lt 35 }).Count
-$rows = Get-DbCount $prefix
-Show-DbRows $prefix
+$dbOk = Test-DbAllSaved -Title "Test 4: geç cevap verilen $Count faturanın hepsi kayıtlı" -Prefix $prefix -Count $Count -Behavior 'LateResponse' -ShowRows
 
-Write-Result ($late -eq $Count -and $rows -eq $Count) `
-    "30-35 sn içinde 202: $late/$Count (süreler: $(($results | ForEach-Object { "$($_.Seconds)s" }) -join ', ')), veritabanı: $rows kayıt"
+Write-Result ($late -eq $Count -and $dbOk) `
+    "30-35 sn içinde 202: $late/$Count (süreler: $(($results | ForEach-Object { "$($_.Seconds)s" }) -join ', ')), veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'kaldı' })"
 
 Restart-Simulator

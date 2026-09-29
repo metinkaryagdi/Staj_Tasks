@@ -22,9 +22,8 @@ $results = foreach ($i in 1..$Count) {
 }
 
 $errors = @($results | Where-Object Status -eq 500).Count
-$rows = Get-DbCount $prefix
-Show-DbRows $prefix
+$dbOk = Test-DbAllSaved -Title "Test 3: 500 dönen $Count faturanın hepsi kayıtlı" -Prefix $prefix -Count $Count -Behavior 'SaveThenError'
 
-Write-Result ($errors -eq $Count -and $rows -eq $Count) "500 cevap: $errors/$Count, veritabanı: $rows kayıt"
+Write-Result ($errors -eq $Count -and $dbOk) "500 cevap: $errors/$Count, veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'kaldı' })"
 
 Restart-Simulator

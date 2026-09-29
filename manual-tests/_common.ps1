@@ -158,15 +158,117 @@ function Get-SqlScalar([string]$Sql) {
     finally { Pop-Location }
 }
 
-function Get-DbCount([string]$Prefix) {
-    [int](Get-SqlScalar "SELECT count(*) FROM invoices WHERE invoice_number LIKE '$Prefix%';")
+# ---------------------------------------------------------------------------
+# Veritabanı kontrolleri. Test script'leri bunları testin sonunda çağırır;
+# db-kontrol.ps1 de aynı kontrolleri testi tekrar çalıştırmadan, son çalıştırma üzerinde yapar.
+# Her biri başlık, SQL, veritabanından gelen tablo ve beklenen/gelen karşılaştırmasını basar,
+# sonuç olarak $true/$false döner.
+# ---------------------------------------------------------------------------
+
+function Write-DbHeader([string]$Title, [string]$Subject) {
+    Write-Host ''
+    Write-Host ('-' * 70) -ForegroundColor Magenta
+    Write-Host " VERİTABANI KONTROLÜ - $Title" -ForegroundColor Magenta
+    Write-Host ('-' * 70) -ForegroundColor Magenta
+    if ($Subject) { Write-Host " $Subject" -ForegroundColor Magenta }
 }
 
-# Veritabanındaki kayıtları gösterir ve aynı sorguyu db.ps1 içinde elle çalıştırmak için yazdırır.
-function Show-DbRows([string]$Prefix) {
-    $sql = "SELECT id, invoice_number, erp_reference, behavior, received_at FROM invoices WHERE invoice_number LIKE '$Prefix%' ORDER BY id;"
-    Write-Step 'Veritabanındaki kayıtlar:'
-    Invoke-Sql $sql
-    Write-Host '  Aynı sorguyu elle çalıştırmak için: .\manual-tests\db.ps1 açıp şu satırı yapıştırın:' -ForegroundColor DarkGray
-    Write-Host "  $sql" -ForegroundColor DarkGray
+function Show-Query([string]$Sql) {
+    Write-Host ''
+    Write-Host "SQL: $Sql" -ForegroundColor DarkGray
+    Invoke-Sql $Sql | Out-Host
+}
+
+function Write-DbVerdict([string]$Expected, [string]$Actual, [bool]$Passed) {
+    Write-Host "  Beklenen: $Expected"
+    if ($Passed) { Write-Host "  Gelen   : $Actual  -> GEÇTİ" -ForegroundColor Green }
+    else         { Write-Host "  Gelen   : $Actual  -> KALDI" -ForegroundColor Red }
+    $Passed
+}
+
+function Write-ManualQuery([string]$Sql) {
+    Write-Host "  Kayıtları tek tek görmek için: .\manual-tests\db.ps1 -Sql `"$Sql`"" -ForegroundColor DarkGray
+}
+
+# Test 1, 3, 4: öneki taşıyan $Count kaydın hepsi veritabanında, hepsi $Behavior ve hepsinin referansı farklı olmalı.
+function Test-DbAllSaved([string]$Title, [string]$Prefix, [int]$Count, [string]$Behavior, [switch]$ShowRows) {
+    Write-DbHeader $Title "Fatura öneki: $Prefix"
+    $where = "invoice_number LIKE '$Prefix%'"
+    $listSql = "SELECT id, invoice_number, erp_reference, behavior, received_at FROM invoices WHERE $where ORDER BY id;"
+
+    if ($ShowRows) { Show-Query $listSql }
+    else {
+        Show-Query ("SELECT behavior, count(*) AS kayit, count(DISTINCT erp_reference) AS farkli_referans, " +
+            "min(erp_reference) AS ilk_referans, max(erp_reference) AS son_referans FROM invoices WHERE $where GROUP BY behavior;")
+        Write-ManualQuery $listSql
+    }
+
+    $total    = [int](Get-SqlScalar "SELECT count(*) FROM invoices WHERE $where;")
+    $matching = [int](Get-SqlScalar "SELECT count(*) FROM invoices WHERE $where AND behavior = '$Behavior';")
+    $distinct = [int](Get-SqlScalar "SELECT count(DISTINCT erp_reference) FROM invoices WHERE $where;")
+
+    Write-Host ''
+    Write-DbVerdict "$Count kayıt, hepsi $Behavior, $Count farklı ERP referansı" `
+        "$total kayıt, $matching tanesi $Behavior, $distinct farklı ERP referansı" `
+        ($total -eq $Count -and $matching -eq $Count -and $distinct -eq $Count)
+}
+
+# Test 2: öneki taşıyan hiçbir kayıt olmamalı.
+function Test-DbNoneSaved([string]$Title, [string]$Prefix) {
+    Write-DbHeader $Title "Fatura öneki: $Prefix"
+    Show-Query "SELECT count(*) AS kayit FROM invoices WHERE invoice_number LIKE '$Prefix%';"
+    $total = [int](Get-SqlScalar "SELECT count(*) FROM invoices WHERE invoice_number LIKE '$Prefix%';")
+
+    Write-Host ''
+    Write-DbVerdict '0 kayıt' "$total kayıt" ($total -eq 0)
+}
+
+# Test 5: aynı fatura numarasıyla iki kayıt, iki farklı ERP referansı.
+function Test-DbDuplicate([string]$Title, [string]$InvoiceNumber) {
+    Write-DbHeader $Title "Fatura numarası: $InvoiceNumber"
+    $where = "invoice_number = '$InvoiceNumber'"
+    Show-Query "SELECT id, invoice_number, erp_reference, behavior, received_at FROM invoices WHERE $where ORDER BY id;"
+
+    $total    = [int](Get-SqlScalar "SELECT count(*) FROM invoices WHERE $where;")
+    $distinct = [int](Get-SqlScalar "SELECT count(DISTINCT erp_reference) FROM invoices WHERE $where;")
+
+    Write-Host ''
+    Write-DbVerdict '2 kayıt, 2 farklı ERP referansı' "$total kayıt, $distinct farklı ERP referansı" `
+        ($total -eq 2 -and $distinct -eq 2)
+}
+
+# Test 6: A ve B çalıştırmalarında aynı istek numaraları aynı davranışla kaydedilmiş olmalı.
+# Busy ve ServerError kaydedilmediği için veritabanında yalnızca Success, LateResponse ve SaveThenError görünür;
+# davranış dizisinin tamamı loglardan karşılaştırılır.
+function Test-DbSeed([string]$Title, [string]$Base) {
+    Write-DbHeader $Title "Fatura öneki: ${Base}A- ve ${Base}B-"
+    Show-Query ("SELECT split_part(invoice_number, '-', 4) AS calistirma, behavior, count(*) AS kayit " +
+        "FROM invoices WHERE invoice_number LIKE '$Base%' GROUP BY 1, 2 ORDER BY 2, 1;")
+
+    $sequence = "SELECT coalesce(string_agg(split_part(invoice_number, '-', 5) || '=' || behavior, ' ' " +
+        "ORDER BY split_part(invoice_number, '-', 5)::int), '') FROM invoices WHERE invoice_number LIKE '{0}%';"
+    $a = Get-SqlScalar ($sequence -f "${Base}A-")
+    $b = Get-SqlScalar ($sequence -f "${Base}B-")
+    $countA = if ($a) { @($a -split ' ').Count } else { 0 }
+    $countB = if ($b) { @($b -split ' ').Count } else { 0 }
+
+    Write-Host ''
+    Write-DbVerdict 'A ve B''de aynı istek numaraları, aynı davranışla kayıtlı' `
+        "A: $countA kayıt, B: $countB kayıt, istek numarası + davranış eşleşmesi: $(if ($a -and $a -eq $b) { 'birebir aynı' } else { 'FARKLI' })" `
+        ([bool]$a -and $a -eq $b)
+}
+
+# Test 7: sorgulanan fatura veritabanında o referansla kayıtlı, olmayan fatura hiç yok.
+function Test-DbLookup([string]$Title, [string]$InvoiceNumber, [string]$Reference, [string]$MissingInvoiceNumber) {
+    Write-DbHeader $Title "Kayıtlı: $InvoiceNumber, olmayan: $MissingInvoiceNumber"
+    Show-Query ("SELECT invoice_number, erp_reference, behavior, received_at FROM invoices " +
+        "WHERE invoice_number IN ('$InvoiceNumber', '$MissingInvoiceNumber') ORDER BY id;")
+
+    $dbReference = Get-SqlScalar "SELECT erp_reference FROM invoices WHERE invoice_number = '$InvoiceNumber' ORDER BY id LIMIT 1;"
+    $missing = [int](Get-SqlScalar "SELECT count(*) FROM invoices WHERE invoice_number = '$MissingInvoiceNumber';")
+
+    Write-Host ''
+    Write-DbVerdict "kayıtlı faturanın referansı GET ile aynı ($Reference), olmayan fatura 0 kayıt" `
+        "veritabanındaki referans: $(if ($dbReference) { $dbReference } else { 'yok' }), olmayan fatura: $missing kayıt" `
+        ($dbReference -and $dbReference -eq $Reference -and $missing -eq 0)
 }

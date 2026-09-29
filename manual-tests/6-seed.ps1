@@ -44,5 +44,7 @@ $summary = ($a | Group-Object | Sort-Object Name | ForEach-Object { "$($_.Name)=
 Write-Host ''
 Write-Host "  Dağılım: $summary"
 
-Write-Result ($a.Count -eq $Count -and $b.Count -eq $Count -and $different -eq 0) `
-    "A: $($a.Count) davranış, B: $($b.Count) davranış, farklı sıra: $different"
+$dbOk = Test-DbSeed -Title 'Test 6: iki çalıştırmada aynı istekler aynı davranışla kayıtlı' -Base "T6-$stamp-"
+
+Write-Result ($a.Count -eq $Count -and $b.Count -eq $Count -and $different -eq 0 -and $dbOk) `
+    "loglar: A $($a.Count) davranış, B $($b.Count) davranış, farklı sıra: $different; veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'kaldı' })"

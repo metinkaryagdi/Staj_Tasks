@@ -21,9 +21,8 @@ $results = foreach ($i in 1..$Count) {
 }
 
 $accepted = @($results | Where-Object Status -eq 202).Count
-$rows = Get-DbCount $prefix
-Show-DbRows $prefix
+$dbOk = Test-DbAllSaved -Title "Test 1: $Count kayıt, hepsi Success" -Prefix $prefix -Count $Count -Behavior 'Success'
 
-Write-Result ($accepted -eq $Count -and $rows -eq $Count) "202 cevap: $accepted/$Count, veritabanı: $rows kayıt"
+Write-Result ($accepted -eq $Count -and $dbOk) "202 cevap: $accepted/$Count, veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'kaldı' })"
 
 Restart-Simulator
