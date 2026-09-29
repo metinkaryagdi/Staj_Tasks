@@ -107,42 +107,49 @@ Senaryo 6 davranış dizisi (iki çalıştırmada aynı):
 Busy Success Success Busy Success Success Success Success Success ServerError Success Success ServerError Success Success Busy Success Success ServerError Success Busy Success Success Busy Success Success Success Busy Success Busy Success Success Success Success Success Success Success ServerError Success Busy LateResponse Success Busy Success Success Success Success Success Success LateResponse
 ```
 
-### Oranlar tutuyor mu
+### Dağılım ve tutarlılık
 
-`./scripts/erp-simulator-distribution.sh 22000` — varsayılan oranlar, seed 42, geç cevap süresi 0 sn (yalnızca ölçüm süresini kısaltmak için). 22.000 istek gönderildi, davranışlar loglardan sayıldı. Aynı seed ile tekrar çalıştırıldığında aynı sayılar çıkar.
+Amaç: simülatörün istenen oranları gerçekten karşıladığını ve sonuçların tutarlı olduğunu göstermek.
+`./scripts/erp-simulator-distribution.sh <adet>` ile ölçüldü — varsayılan oranlar, seed 42, geç cevap süresi 0 sn
+(yalnızca ölçüm süresini kısaltmak için). Davranışlar HTTP üzerinden gönderilen isteklerin loglarından sayıldı.
 
-| Davranış | Hedef | Gözlenen | Adet |
-|---|---|---|---|
-| Success | %60 | %59,84 | 13.165 |
-| Busy | %15 | %14,83 | 3.262 |
-| ServerError | %10 | %10,36 | 2.279 |
-| LateResponse | %10 | %9,96 | 2.192 |
-| SaveThenError | %5 | %5,01 | 1.102 |
+**Oranlar**
 
-Ki-kare uyum testi: 3,40 (serbestlik derecesi 4, %5 kritik değer 9,49) — gözlenen dağılım hedefle uyumlu.
+| Davranış | Hedef | 22.000 istek | 1.000.000 istek | Adet (1.000.000) |
+|---|---|---|---|---|
+| Success | %60 | %59,84 | %60,01 | 600.086 |
+| Busy | %15 | %14,83 | %15,04 | 150.392 |
+| ServerError | %10 | %10,36 | %10,02 | 100.206 |
+| LateResponse | %10 | %9,96 | %9,95 | 99.466 |
+| SaveThenError | %5 | %5,01 | %4,99 | 49.850 |
+| Ki-kare (kritik değer 9,49) | | 3,40 | 4,76 | |
 
-Ölçümün doğruluğu üç bağımsız kaynakla kontrol edildi:
+Her iki ölçümde de gözlenen dağılım hedefle uyumlu. Örnek büyüdükçe sapma küçülüyor: 22.000 istekte en büyük sapma 0,36 puan, 1.000.000 istekte 0,05 puan.
 
-| Kaynak | Sonuç | Durum |
-|---|---|---|
-| HTTP durum kodları | 202 = 15.357 (Success + LateResponse), 429 = 3.262 (Busy), 500 = 3.381 (ServerError + SaveThenError) | Loglarla aynı |
-| Veritabanı | Success 13.165, LateResponse 2.192, SaveThenError 1.102; Busy ve ServerError 0 | Loglarla aynı |
-| Seçim kodunun HTTP'siz çalıştırılması (seed 42) | Aynı 22.000 davranış; kayıt açan 16.459 isteğin tamamı DB'deki sıra numarasıyla eşleşti | Birebir aynı |
-
-### Seçim rastgele mi
-
-Bir önceki davranışa göre bir sonraki davranışın dağılımı (22.000 istek):
+**Bağımsızlık** — bir önceki davranışa göre bir sonraki davranışın dağılımı (1.000.000 istek):
 
 | Önceki \ Sonraki | Success | Busy | ServerError | SaveThenError | LateResponse |
 |---|---|---|---|---|---|
-| Success | %59,9 | %14,8 | %10,6 | %4,9 | %9,8 |
-| Busy | %59,6 | %15,1 | %9,6 | %5,2 | %10,5 |
-| ServerError | %60,2 | %14,7 | %10,0 | %5,2 | %10,0 |
-| SaveThenError | %59,7 | %14,8 | %9,9 | %4,5 | %11,2 |
-| LateResponse | %59,4 | %14,8 | %10,8 | %5,4 | %9,6 |
+| Success | %60,0 | %15,1 | %10,1 | %5,0 | %10,0 |
+| Busy | %60,0 | %15,1 | %10,0 | %5,0 | %9,9 |
+| ServerError | %60,1 | %14,9 | %10,1 | %5,0 | %9,9 |
+| SaveThenError | %60,0 | %14,9 | %10,0 | %5,0 | %10,1 |
+| LateResponse | %60,3 | %15,1 | %9,8 | %4,9 | %9,9 |
 | **Hedef** | %60 | %15 | %10 | %5 | %10 |
 
-Her satır hedef dağılıma yakın: önceki davranış bir sonrakini etkilemiyor.
+Her satır hedef dağılımda: önceki davranış bir sonrakini etkilemiyor.
+
+**Tutarlılık** — loglardan sayılan sonuçlar üç bağımsız kaynakla karşılaştırıldı (1.000.000 istek):
+
+| Kaynak | Sonuç | Durum |
+|---|---|---|
+| Gönderilen / loglanan istek | 1.000.000 / 1.000.000 | Kayıp yok |
+| HTTP durum kodları | 202 = 699.552 (Success + LateResponse), 429 = 150.392 (Busy), 500 = 150.056 (ServerError + SaveThenError) | Loglarla aynı |
+| Veritabanı | Success 600.086, LateResponse 99.466, SaveThenError 49.850; Busy ve ServerError 0 | Loglarla aynı |
+| Seçim kodunun HTTP'siz çalıştırılması, seed 42 ([`erp-simulator-replay.cs`](scripts/erp-simulator-replay.cs)) | Beş davranışın adetleri | Birebir aynı |
+
+22.000 isteklik ölçümde ayrıca kayıt açan 16.459 isteğin her biri, HTTP'siz çalıştırmadaki aynı sıra numaralı kararla tek tek eşleştirildi.
+Script bu karşılaştırmayı artık her çalıştırmada karar karar yapıyor (`Cross-check seed`).
 
 ### Seed
 
@@ -188,6 +195,8 @@ dotnet test erp-simulator
 ```bash
 ./scripts/erp-simulator-checklist.sh
 ```
+Dağılım ölçümü (1.000.000 istek yaklaşık 32 dk sürer; daha kısa bir kontrol için adet küçültülebilir):
+
 ```bash
-./scripts/erp-simulator-distribution.sh 22000
+./scripts/erp-simulator-distribution.sh 1000000
 ```

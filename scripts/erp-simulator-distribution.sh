@@ -6,6 +6,8 @@
 # - Counts behaviors from the simulator log, compares them to the configured rates (chi-square),
 #   checks that each behavior is independent of the previous one, and cross-checks the counts
 #   against the HTTP status codes and the database rows.
+# - If the .NET SDK is installed, replays the seed offline (scripts/erp-simulator-replay.cs) and checks
+#   that the logged sequence is identical, decision by decision.
 # - Restores the simulator to the settings in appsettings.json when done.
 #
 # Usage: ./scripts/erp-simulator-distribution.sh [count=20000] [seed=from appsettings.json]
@@ -115,6 +117,23 @@ END {
   exit !(ok && httpOk && dbOk)
 }' "$WORK/decisions.txt"
 result=$?
+
+# Replay: run the simulator's own selector without HTTP and compare the full sequence line by line.
+if command -v dotnet >/dev/null 2>&1; then
+  seed="$(echo "$settings" | grep -oE 'seed=-?[0-9]+' | cut -d= -f2)"
+  if dotnet run scripts/erp-simulator-replay.cs -- "$COUNT" "$seed" \
+       "$(rate busy)" "$(rate serverError)" "$(rate saveThenError)" "$(rate lateResponse)" 2>/dev/null \
+       | tr -d '\r' | grep -E '^[0-9]+ [A-Za-z]+$' > "$WORK/replay.txt" \
+     && cmp -s "$WORK/replay.txt" "$WORK/decisions.txt"; then
+    echo "Cross-check seed : logged sequence == offline replay of seed $seed ($COUNT decisions) -> PASS"
+  else
+    first="$(diff <(cat "$WORK/replay.txt") "$WORK/decisions.txt" | head -3 | tr '\n' ' ')"
+    echo "Cross-check seed : logged sequence differs from offline replay of seed $seed: $first-> FAIL"
+    result=1
+  fi
+else
+  echo "Cross-check seed : skipped (dotnet SDK not installed)"
+fi
 
 # Back to the settings in appsettings.json.
 docker compose up -d --force-recreate erp-simulator >/dev/null 2>&1
