@@ -109,7 +109,7 @@ Busy Success Success Busy Success Success Success Success Success ServerError Su
 
 ### Oranlar tutuyor mu
 
-Varsayılan oranlar, seed 42, geç cevap süresi 0 sn (yalnızca ölçüm süresini kısaltmak için). 22.000 istek gönderildi, davranışlar loglardan sayıldı.
+`./scripts/erp-simulator-distribution.sh 22000` — varsayılan oranlar, seed 42, geç cevap süresi 0 sn (yalnızca ölçüm süresini kısaltmak için). 22.000 istek gönderildi, davranışlar loglardan sayıldı. Aynı seed ile tekrar çalıştırıldığında aynı sayılar çıkar.
 
 | Davranış | Hedef | Gözlenen | Adet |
 |---|---|---|---|
@@ -121,21 +121,28 @@ Varsayılan oranlar, seed 42, geç cevap süresi 0 sn (yalnızca ölçüm süres
 
 Ki-kare uyum testi: 3,40 (serbestlik derecesi 4, %5 kritik değer 9,49) — gözlenen dağılım hedefle uyumlu.
 
-Veritabanı kontrolü: kayıtların tamamı `Success`, `LateResponse` ve `SaveThenError` davranışlarından geldi; `Busy` ve `ServerError` hiç kayıt açmadı.
+Ölçümün doğruluğu üç bağımsız kaynakla kontrol edildi:
+
+| Kaynak | Sonuç | Durum |
+|---|---|---|
+| HTTP durum kodları | 202 = 15.357 (Success + LateResponse), 429 = 3.262 (Busy), 500 = 3.381 (ServerError + SaveThenError) | Loglarla aynı |
+| Veritabanı | Success 13.165, LateResponse 2.192, SaveThenError 1.102; Busy ve ServerError 0 | Loglarla aynı |
+| Seçim kodunun HTTP'siz çalıştırılması (seed 42) | Aynı 22.000 davranış; kayıt açan 16.459 isteğin tamamı DB'deki sıra numarasıyla eşleşti | Birebir aynı |
 
 ### Seçim rastgele mi
 
-Bir önceki davranışın bir sonrakini etkileyip etkilemediği (22.000 istek):
+Bir önceki davranışa göre bir sonraki davranışın dağılımı (22.000 istek):
 
-| Önceki davranış | Sonrakinin `Busy` olma oranı |
-|---|---|
-| Busy | %15,1 |
-| ServerError | %14,7 |
-| LateResponse | %14,8 |
-| SaveThenError | %14,8 |
-| Success | %14,8 |
+| Önceki \ Sonraki | Success | Busy | ServerError | SaveThenError | LateResponse |
+|---|---|---|---|---|---|
+| Success | %59,9 | %14,8 | %10,6 | %4,9 | %9,8 |
+| Busy | %59,6 | %15,1 | %9,6 | %5,2 | %10,5 |
+| ServerError | %60,2 | %14,7 | %10,0 | %5,2 | %10,0 |
+| SaveThenError | %59,7 | %14,8 | %9,9 | %4,5 | %11,2 |
+| LateResponse | %59,4 | %14,8 | %10,8 | %5,4 | %9,6 |
+| **Hedef** | %60 | %15 | %10 | %5 | %10 |
 
-Önceki davranıştan bağımsız olarak hedef oran (%15) korunuyor.
+Her satır hedef dağılıma yakın: önceki davranış bir sonrakini etkilemiyor.
 
 ### Seed
 
@@ -180,4 +187,7 @@ dotnet test erp-simulator
 ```
 ```bash
 ./scripts/erp-simulator-checklist.sh
+```
+```bash
+./scripts/erp-simulator-distribution.sh 22000
 ```
