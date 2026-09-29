@@ -18,6 +18,7 @@ docker compose up -d --build
 | Servis | Adres |
 |---|---|
 | ERP Simülatörü | http://localhost:5080 |
+| Swagger UI | http://localhost:5080/swagger |
 | ERP veritabanı | `localhost:5433` (db/kullanıcı/şifre: `erp_simulator` / `erp` / `erp`) |
 
 ## ERP Simülatörü
@@ -89,6 +90,14 @@ Her POST isteği için tek bir seed'li `Random`'dan bir davranış seçilir:
 **Determinizm:** her istek RNG'den sabit sayıda (2) değer çeker, bu yüzden davranış dizisi yalnızca seed'e ve isteklerin **geliş sırasına** bağlıdır. Sayaç süreç başına tutulur; aynı diziyi tekrar almak için simülatör yeniden başlatılır. Eşzamanlı isteklerde sıra, isteklerin simülatöre ulaşma sırasıdır.
 
 ### Testler
+
+> **TODO (README son düzenleme):** "Nasıl test edilir?" bölümü mentor için adım adım yazılacak.
+> Elle test için iki yol hazır:
+> - **Swagger UI:** http://localhost:5080/swagger → endpoint'i aç → *Try it out* → *Execute*. Örnek gövde hazır gelir;
+>   her *Execute* seed'li dizideki bir sonraki davranışı alır (202 / 429 + `Retry-After` / 500 / 30 sn gecikme).
+> - **`.http` dosyası:** [`erp-simulator/src/ErpSimulator/ErpSimulator.http`](erp-simulator/src/ErpSimulator/ErpSimulator.http) —
+>   Visual Studio, Rider veya VS Code (REST Client eklentisi) ile her isteğin üstündeki *Send Request*.
+> - Seçilen davranışı canlı izlemek için: `docker compose logs -f erp-simulator`
 
 ```bash
 # Unit testler (davranış seçici, oranlar, seed)

@@ -10,9 +10,30 @@ public static class InvoiceEndpoints
 {
     public static IEndpointRouteBuilder MapInvoiceEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/invoices");
-        group.MapPost("/", CreateInvoice);
-        group.MapGet("/{invoiceNumber}", GetInvoice);
+        var group = app.MapGroup("/api/v1/invoices").WithTags("Invoices");
+
+        group.MapPost("/", CreateInvoice)
+            .WithName("CreateInvoice")
+            .WithSummary("Submit an invoice to the ERP")
+            .WithDescription(
+                "The simulator picks one behavior per request from the configured rates: " +
+                "Success (202, saved), Busy (429 + Retry-After, not saved), ServerError (500, not saved), " +
+                "SaveThenError (500, but saved), LateResponse (saved, 202 after the configured delay, default 30s). " +
+                "Duplicates are NOT prevented: the same invoice number creates a new record with a new ERP reference.")
+            .Produces<InvoiceAcceptedResponse>(StatusCodes.Status202Accepted)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        group.MapGet("/{invoiceNumber}", GetInvoice)
+            .WithName("GetInvoice")
+            .WithSummary("Look up an invoice by invoice number")
+            .WithDescription(
+                "Returns the ERP reference(s) recorded for the invoice number. No faults are injected here. " +
+                "erpReference is the first record; records lists all of them when duplicates exist.")
+            .Produces<InvoiceLookupResponse>()
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return app;
     }
 

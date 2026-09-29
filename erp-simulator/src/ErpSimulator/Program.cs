@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using ErpSimulator.Data;
 using ErpSimulator.Invoices;
 using ErpSimulator.Simulation;
@@ -24,6 +25,32 @@ builder.Services.AddDbContext<ErpDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("ErpDb")));
 
 builder.Services.AddProblemDetails();
+builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
+{
+    doc.Info.Title = "ERP Simulator";
+    doc.Info.Description =
+        "Fault-injecting ERP used by the invoice integration. Every POST picks a seeded random behavior " +
+        "(Success / Busy / ServerError / SaveThenError / LateResponse), so repeated calls intentionally return different results.";
+    return Task.CompletedTask;
+}).AddSchemaTransformer((schema, context, _) =>
+{
+    // A valid example so Swagger's "Try it out" works without editing the body.
+    if (context.JsonTypeInfo.Type == typeof(CreateInvoiceRequest))
+    {
+        schema.Examples =
+        [
+            new JsonObject
+            {
+                ["invoiceNumber"] = "INV-2026-0001",
+                ["customerCode"] = "C-001",
+                ["amount"] = 1250.50m,
+                ["currency"] = "TRY",
+                ["invoiceDate"] = "2026-09-29"
+            }
+        ];
+    }
+    return Task.CompletedTask;
+}));
 
 var app = builder.Build();
 
@@ -33,7 +60,16 @@ LogSimulatorSettings(app);
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// Swagger is enabled in every environment on purpose: this is a test tool, not a production service.
+app.MapOpenApi();
+app.UseSwaggerUI(o =>
+{
+    o.SwaggerEndpoint("/openapi/v1.json", "ERP Simulator v1");
+    o.DocumentTitle = "ERP Simulator";
+});
+app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
+
+app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
 app.MapInvoiceEndpoints();
 
 app.Run();

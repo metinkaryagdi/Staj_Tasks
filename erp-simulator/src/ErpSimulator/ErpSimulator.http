@@ -1,0 +1,54 @@
+### ERP Simulator — manual test requests
+# Works in Visual Studio, Rider and VS Code (REST Client extension): click "Send Request" above each block.
+# Start the stack first: docker compose up -d --build
+#
+# Every POST gets a seeded random behavior, so the same request may return 202, 429 or 500 on different calls.
+# Watch the chosen behavior live: docker compose logs -f erp-simulator
+
+@baseUrl = http://localhost:5080
+@invoiceNumber = INV-2026-0001
+
+### 1) Submit an invoice (202 / 429 / 500, or 202 after 30s)
+POST {{baseUrl}}/api/v1/invoices
+Content-Type: application/json
+
+{
+  "invoiceNumber": "{{invoiceNumber}}",
+  "customerCode": "C-001",
+  "amount": 1250.50,
+  "currency": "TRY",
+  "invoiceDate": "2026-09-29"
+}
+
+### 2) Look up the invoice (200 with ERP reference(s), or 404 if it was never saved)
+GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}
+
+### 3) Look up an invoice that does not exist (404)
+GET {{baseUrl}}/api/v1/invoices/DOES-NOT-EXIST
+
+### 4) Duplicate: send the same invoice number again, then run request 2 — recordCount grows, each record has its own ERP reference
+POST {{baseUrl}}/api/v1/invoices
+Content-Type: application/json
+
+{
+  "invoiceNumber": "{{invoiceNumber}}",
+  "customerCode": "C-001",
+  "amount": 1250.50,
+  "currency": "TRY",
+  "invoiceDate": "2026-09-29"
+}
+
+### 5) Invalid body (400, rejected before a behavior is drawn, so the seeded sequence is not affected)
+POST {{baseUrl}}/api/v1/invoices
+Content-Type: application/json
+
+{
+  "invoiceNumber": "",
+  "customerCode": "C-001",
+  "amount": -5,
+  "currency": "lira",
+  "invoiceDate": "2026-09-29"
+}
+
+### 6) OpenAPI document (also browsable at {{baseUrl}}/swagger)
+GET {{baseUrl}}/openapi/v1.json
