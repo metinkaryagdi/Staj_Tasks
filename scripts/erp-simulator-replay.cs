@@ -3,14 +3,14 @@
 // Used by erp-simulator-distribution.sh to check that the behaviors logged over HTTP are exactly
 // the sequence the seed should produce.
 //
-// Usage: dotnet run scripts/erp-simulator-replay.cs -- <count> <seed> <busy> <serverError> <saveThenError> <lateResponse>
+// Usage: dotnet run scripts/erp-simulator-replay.cs -- <count> <seed> <success> <busy> <serverError> <saveThenError> <lateResponse>
 using System.Globalization;
 using ErpSimulator.Simulation;
 using Microsoft.Extensions.Options;
 
-if (args.Length != 6)
+if (args.Length != 7)
 {
-    Console.Error.WriteLine("Usage: <count> <seed> <busy> <serverError> <saveThenError> <lateResponse>");
+    Console.Error.WriteLine("Usage: <count> <seed> <success> <busy> <serverError> <saveThenError> <lateResponse>");
     return 1;
 }
 
@@ -19,7 +19,10 @@ double Rate(int i) => double.Parse(args[i], CultureInfo.InvariantCulture);
 var selector = new BehaviorSelector(Options.Create(new SimulatorOptions
 {
     Seed = int.Parse(args[1], CultureInfo.InvariantCulture),
-    Rates = new BehaviorRates { Busy = Rate(2), ServerError = Rate(3), SaveThenError = Rate(4), LateResponse = Rate(5) }
+    Rates = new BehaviorRates
+    {
+        Success = Rate(2), Busy = Rate(3), ServerError = Rate(4), SaveThenError = Rate(5), LateResponse = Rate(6)
+    }
 }));
 
 var count = int.Parse(args[0], CultureInfo.InvariantCulture);

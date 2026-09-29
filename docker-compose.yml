@@ -26,6 +26,7 @@ services:
       # Optional overrides, passed through from the shell only when set there
       # (e.g. `Simulator__Rates__Busy=100 docker compose up -d erp-simulator`).
       Simulator__Seed:
+      Simulator__Rates__Success:
       Simulator__Rates__Busy:
       Simulator__Rates__ServerError:
       Simulator__Rates__SaveThenError:

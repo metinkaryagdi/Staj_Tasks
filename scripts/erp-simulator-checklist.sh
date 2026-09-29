@@ -79,7 +79,7 @@ record $s "1 zero-failure" "202 responses=$ok/100, db rows=$rows"
 
 # ---------------------------------------------------------------------------
 log "2) Busy 100% -> every request 429 + Retry-After (5..30), no rows"
-restart_simulator Simulator__Rates__Busy=100 Simulator__Rates__ServerError=0 Simulator__Rates__SaveThenError=0 Simulator__Rates__LateResponse=0
+restart_simulator Simulator__Rates__Success=0 Simulator__Rates__Busy=100 Simulator__Rates__ServerError=0 Simulator__Rates__SaveThenError=0 Simulator__Rates__LateResponse=0
 prefix="T2-$RUN_ID-"
 ok=0; bad_header=0; values=()
 for i in $(seq 1 20); do
@@ -93,7 +93,7 @@ record $s "2 busy" "429 responses=$ok/20, invalid Retry-After=$bad_header, value
 
 # ---------------------------------------------------------------------------
 log "3) SaveThenError 100% -> every request 500, every invoice in DB"
-restart_simulator Simulator__Rates__Busy=0 Simulator__Rates__ServerError=0 Simulator__Rates__SaveThenError=100 Simulator__Rates__LateResponse=0
+restart_simulator Simulator__Rates__Success=0 Simulator__Rates__Busy=0 Simulator__Rates__ServerError=0 Simulator__Rates__SaveThenError=100 Simulator__Rates__LateResponse=0
 prefix="T3-$RUN_ID-"
 ok=0
 for i in $(seq 1 20); do
@@ -105,7 +105,7 @@ record $s "3 save-then-error" "500 responses=$ok/20, db rows=$rows"
 
 # ---------------------------------------------------------------------------
 log "4) LateResponse 100% -> 202 after ~30s, invoice in DB"
-restart_simulator Simulator__Rates__Busy=0 Simulator__Rates__ServerError=0 Simulator__Rates__SaveThenError=0 Simulator__Rates__LateResponse=100
+restart_simulator Simulator__Rates__Success=0 Simulator__Rates__Busy=0 Simulator__Rates__ServerError=0 Simulator__Rates__SaveThenError=0 Simulator__Rates__LateResponse=100
 prefix="T4-$RUN_ID-"
 ok=0; times=()
 for i in 1 2; do

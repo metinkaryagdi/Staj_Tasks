@@ -39,6 +39,7 @@ public class BehaviorSelectorTests
     {
         var rates = new BehaviorRates
         {
+            Success = 0,
             Busy = expected == Behavior.Busy ? 100 : 0,
             ServerError = expected == Behavior.ServerError ? 100 : 0,
             SaveThenError = expected == Behavior.SaveThenError ? 100 : 0,
@@ -71,9 +72,29 @@ public class BehaviorSelectorTests
     }
 
     [Fact]
-    public void Validator_rejects_rates_that_exceed_100()
+    public void Rates_are_normalized_by_their_total()
     {
-        var options = new SimulatorOptions { Rates = new BehaviorRates { Busy = 60, ServerError = 50 } };
+        const int n = 100_000;
+        var selector = Create(rates: new BehaviorRates { Success = 30, Busy = 10, ServerError = 0, SaveThenError = 0, LateResponse = 0 });
+        var busy = Draw(selector, n).Count(b => b == Behavior.Busy) * 100.0 / n;
+
+        Assert.InRange(busy, 24, 26);
+    }
+
+    [Fact]
+    public void Validator_rejects_negative_rate()
+    {
+        var options = new SimulatorOptions { Rates = new BehaviorRates { Busy = -1 } };
+        Assert.True(new SimulatorOptionsValidator().Validate(null, options).Failed);
+    }
+
+    [Fact]
+    public void Validator_rejects_all_rates_zero()
+    {
+        var options = new SimulatorOptions
+        {
+            Rates = new BehaviorRates { Success = 0, Busy = 0, ServerError = 0, SaveThenError = 0, LateResponse = 0 }
+        };
         Assert.True(new SimulatorOptionsValidator().Validate(null, options).Failed);
     }
 }

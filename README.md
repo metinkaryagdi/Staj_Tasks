@@ -61,7 +61,7 @@ POST /api/v1/invoices
 |---|---|
 | Retry-After 5–30 sn arası rastgele | Her 429'da 5–30 arası değer. Başlık iki biçimde gönderilebilir (RFC 9110): saniye `Retry-After: 17` (varsayılan) veya HTTP-date `Retry-After: Tue, 29 Sep 2026 07:00:17 GMT` — `RetryAfterFormat` ayarı ile seçilir. |
 | Çift kayıt engellenmeyecek | Aynı fatura numarası her gelişte yeni ERP referansıyla yeni kayıt açar. |
-| Oranlar ve geç cevap süresi ayar dosyasından | `appsettings.json` → `Simulator` bölümü. `Success` = 100 − hata oranları; hata oranları 0 ise kusursuz ERP. |
+| Oranlar ve geç cevap süresi ayar dosyasından | `appsettings.json` → `Simulator:Rates` bölümünde beş oranın hepsi (`Success` dahil) ve `LateResponseDelaySeconds`. Oranlar toplamlarına bölünerek uygulanır; hata oranlarının hepsi 0 ise her istek `Success` olur, kusursuz ERP. |
 | Seed ile tekrarlanabilir seçim | `Simulator:Seed`. Aynı seed + aynı istek sırası = aynı davranış dizisi. |
 | Her istek seçilen davranışla loglanır | `ERP request #12 invoice=INV-2026-0001 behavior=Busy status=429 retryAfter=17s` |
 
@@ -72,7 +72,7 @@ POST /api/v1/invoices
 ```json
 "Simulator": {
   "Seed": 42,
-  "Rates": { "Busy": 15, "ServerError": 10, "SaveThenError": 5, "LateResponse": 10 },
+  "Rates": { "Success": 60, "Busy": 15, "ServerError": 10, "SaveThenError": 5, "LateResponse": 10 },
   "LateResponseDelaySeconds": 30,
   "RetryAfterMinSeconds": 5,
   "RetryAfterMaxSeconds": 30,
@@ -165,7 +165,7 @@ Aynı seed aynı diziyi, farklı seed farklı diziyi üretiyor.
 
 ### Unit testler
 
-`dotnet test erp-simulator` — 10/10 geçti.
+`dotnet test erp-simulator` — 12/12 geçti.
 
 | Test | Kontrol |
 |---|---|
@@ -175,7 +175,8 @@ Aynı seed aynı diziyi, farklı seed farklı diziyi üretiyor.
 | Tek hata türü %100 (4 test) | Yalnızca o davranış seçiliyor |
 | Varsayılan oranlar | 100.000 çekilişte her oran hedefin ±1 puan içinde |
 | Retry-After aralığı | En küçük 5, en büyük 30 |
-| Geçersiz ayar | Hata oranları toplamı 100'ü aşınca uygulama açılmıyor |
+| Oranlar normalize | Success 30, Busy 10 → Busy %25 |
+| Geçersiz ayar | Negatif oran veya tüm oranlar 0 ise uygulama açılmıyor |
 
 ---
 

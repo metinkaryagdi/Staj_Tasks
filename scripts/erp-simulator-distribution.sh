@@ -122,7 +122,7 @@ result=$?
 if command -v dotnet >/dev/null 2>&1; then
   seed="$(echo "$settings" | grep -oE 'seed=-?[0-9]+' | cut -d= -f2)"
   if dotnet run scripts/erp-simulator-replay.cs -- "$COUNT" "$seed" \
-       "$(rate busy)" "$(rate serverError)" "$(rate saveThenError)" "$(rate lateResponse)" 2>/dev/null \
+       "$(rate success)" "$(rate busy)" "$(rate serverError)" "$(rate saveThenError)" "$(rate lateResponse)" 2>/dev/null \
        | tr -d '\r' | grep -E '^[0-9]+ [A-Za-z]+$' > "$WORK/replay.txt" \
      && cmp -s "$WORK/replay.txt" "$WORK/decisions.txt"; then
     echo "Cross-check seed : logged sequence == offline replay of seed $seed ($COUNT decisions) -> PASS"

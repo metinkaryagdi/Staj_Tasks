@@ -9,7 +9,10 @@ public sealed class SimulatorOptions
     /// <summary>Seed for the behavior RNG. Same seed + same request order = same behavior sequence.</summary>
     public int Seed { get; set; } = 42;
 
-    /// <summary>Failure rates in percent. Success gets whatever is left up to 100.</summary>
+    /// <summary>
+    /// Behavior rates in percent. Each behavior's chance is its rate divided by <see cref="BehaviorRates.Total"/>,
+    /// so with every failure rate at 0 the simulator always succeeds regardless of the Success value.
+    /// </summary>
     public BehaviorRates Rates { get; set; } = new();
 
     public int LateResponseDelaySeconds { get; set; } = 30;
@@ -24,14 +27,16 @@ public sealed class SimulatorOptions
 
 public sealed class BehaviorRates
 {
+    public double Success { get; set; } = 60;
     public double Busy { get; set; } = 15;
     public double ServerError { get; set; } = 10;
     public double SaveThenError { get; set; } = 5;
     public double LateResponse { get; set; } = 10;
 
-    public double FailureTotal => Busy + ServerError + SaveThenError + LateResponse;
+    public double Total => Success + Busy + ServerError + SaveThenError + LateResponse;
 
-    public double Success => Math.Max(0, 100 - FailureTotal);
+    /// <summary>Actual chance of <paramref name="rate"/> in percent after normalizing by <see cref="Total"/>.</summary>
+    public double Effective(double rate) => Total > 0 ? rate * 100 / Total : 0;
 }
 
 public enum RetryAfterFormat
@@ -49,6 +54,7 @@ public sealed class SimulatorOptionsValidator : IValidateOptions<SimulatorOption
 
         foreach (var (rateName, value) in new[]
                  {
+                     (nameof(rates.Success), rates.Success),
                      (nameof(rates.Busy), rates.Busy),
                      (nameof(rates.ServerError), rates.ServerError),
                      (nameof(rates.SaveThenError), rates.SaveThenError),
@@ -59,8 +65,8 @@ public sealed class SimulatorOptionsValidator : IValidateOptions<SimulatorOption
                 errors.Add($"Simulator:Rates:{rateName} must be between 0 and 100 (was {value}).");
         }
 
-        if (rates.FailureTotal > 100)
-            errors.Add($"Sum of failure rates must not exceed 100 (was {rates.FailureTotal}).");
+        if (rates.Total <= 0)
+            errors.Add("At least one Simulator:Rates value must be greater than 0.");
 
         if (options.LateResponseDelaySeconds < 0)
             errors.Add("Simulator:LateResponseDelaySeconds must not be negative.");
