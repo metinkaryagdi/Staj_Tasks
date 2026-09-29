@@ -47,7 +47,9 @@ POST /api/v1/invoices
 { "erpReference": "ERP-00000001", "invoiceNumber": "INV-2026-0001", "receivedAt": "2026-09-29T07:00:00+00:00" }
 ```
 
-### Davranışlar
+### Simülatörün davranışı
+
+Her POST için aşağıdaki davranışlardan biri seed'li rastgele seçimle seçilir:
 
 | Davranış | Oran | Cevap | Fatura kaydedilir mi |
 |---|---|---|---|
@@ -57,15 +59,15 @@ POST /api/v1/invoices
 | `SaveThenError` | %5 | `500` | Evet |
 | `LateResponse` | %10 | 30 sn bekleyip `202` | Evet |
 
-| İstenen | Karşılığı |
-|---|---|
-| Retry-After 5–30 sn arası rastgele | Her 429'da 5–30 arası değer. Başlık iki biçimde gönderilebilir (RFC 9110): saniye `Retry-After: 17` (varsayılan) veya HTTP-date `Retry-After: Tue, 29 Sep 2026 07:00:17 GMT` — `RetryAfterFormat` ayarı ile seçilir. |
-| Çift kayıt engellenmeyecek | Aynı fatura numarası her gelişte yeni ERP referansıyla yeni kayıt açar. |
-| Oranlar ve geç cevap süresi ayar dosyasından | `appsettings.json` → `Simulator:Rates` bölümünde beş oranın hepsi (`Success` dahil) ve `LateResponseDelaySeconds`. Oranlar toplamlarına bölünerek uygulanır; hata oranlarının hepsi 0 ise her istek `Success` olur, kusursuz ERP. Kodda varsayılan değer yoktur: dosyada bir ayar eksikse uygulama açılmaz. |
-| Seed ile tekrarlanabilir seçim | `Simulator:Seed`. Aynı seed + aynı istek sırası = aynı davranış dizisi. |
-| Her istek seçilen davranışla loglanır | `ERP request #12 invoice=INV-2026-0001 behavior=Busy status=429 retryAfter=17s` |
+| # | İstenen | Karşılığı |
+|---|---|---|
+| 1 | Retry-After 5–30 sn arası rastgele; biçimleri araştırılacak | Her 429'da 5–30 arası değer. RFC 9110'a göre iki biçim var: saniye `Retry-After: 17` (varsayılan) veya HTTP-date `Retry-After: Tue, 29 Sep 2026 07:00:17 GMT`. `RetryAfterFormat` ayarı ile seçilir, ikisi de denendi. |
+| 2 | Çift kayıt engellenmeyecek | Aynı fatura numarası her gelişte yeni ERP referansıyla yeni kayıt açar (`invoice_number` unique değil). |
+| 3 | Oranların hepsi ve geç cevap süresi ayar dosyasından; hata oranları 0 ise kusursuz ERP | `appsettings.json` → `Simulator` bölümü: beş oranın hepsi (`Success` dahil) ve `LateResponseDelaySeconds`. Oranlar toplamlarına bölünerek uygulanır; hata oranlarının hepsi 0 ise her istek `Success` olur. Kodda varsayılan değer yoktur: dosyada bir ayar eksikse uygulama açılmaz. |
+| 4 | Ayar dosyasında seed; aynı seed aynı davranış dizisi | `Simulator:Seed`. Aynı seed + aynı istek sırası = aynı davranış dizisi (simülatör yeniden başlayınca dizi baştan başlar). |
+| 5 | Her istek seçilen davranışla loglanır | `ERP request #12 invoice=INV-2026-0001 behavior=Busy status=429 retryAfter=17s` |
 
-### Ayarlar
+#### Ayarlar
 
 [`erp-simulator/src/ErpSimulator/appsettings.json`](erp-simulator/src/ErpSimulator/appsettings.json) — container'a mount edilir, değişiklikten sonra `docker compose restart erp-simulator`.
 
@@ -80,41 +82,33 @@ POST /api/v1/invoices
 }
 ```
 
-| Ayar | Açıklama |
-|---|---|
-| `Seed` | Rastgele seçimin başlangıç değeri |
-| `Rates` | Beş davranışın oranı. Gerçek olasılık = oran / oranların toplamı. Varsayılanların toplamı 100 olduğu için doğrudan yüzde olarak okunur. |
-| `LateResponseDelaySeconds` | Geç cevapta bekleme süresi |
-| `RetryAfterMinSeconds` / `RetryAfterMaxSeconds` | Meşgul cevabındaki Retry-After aralığı |
-| `RetryAfterFormat` | `Seconds` (`Retry-After: 17`) veya `HttpDate` (`Retry-After: Tue, 29 Sep 2026 07:00:17 GMT`) |
-
-Bu on değerin hepsi zorunludur, kodda varsayılan karşılıkları yoktur. Biri eksikse uygulama başlamaz ve hangisinin
-eksik olduğunu yazar (ör. `Simulator:Rates:Success is missing from the settings file`). Açılışta etkin ayarlar loglanır:
-
-```
-Simulator settings: seed=42 success=60% busy=15% serverError=10% saveThenError=5% lateResponse=10% (configured total=100) lateDelay=30s ...
-```
+Bu on değerin hepsi zorunludur; biri eksikse uygulama başlamaz ve hangisinin eksik olduğunu yazar
+(ör. `Simulator:Rates:Success is missing from the settings file`). Açılışta etkin oranlar loglanır:
+`Simulator settings: seed=42 success=60% busy=15% serverError=10% saveThenError=5% lateResponse=10% (configured total=100) ...`
 
 Tek seferlik değişiklik ortam değişkeniyle de yapılabilir:
 `Simulator__Rates__Busy=100 docker compose up -d --force-recreate erp-simulator`
 
 ---
 
-## Sonuçlar
+## Test verisi — kontrol listesi
 
-### Kontrol listesi — otomatik (bash)
+Yedi madde iki yoldan çalıştırıldı ve ikisinde de geçti:
 
-`./scripts/erp-simulator-checklist.sh` ile docker compose üzerinde uçtan uca çalıştırıldı. Her senaryo simülatörü kendi oranlarıyla yeniden başlatır.
+- **Otomatik:** `./scripts/erp-simulator-checklist.sh` (bash, docker compose üzerinde uçtan uca)
+- **Elle:** [`manual-tests/`](manual-tests/README.md) altındaki PowerShell script'leri. Her script önce testin kendi çıktısını, ardından **veritabanı kontrolünü** (SQL, gelen tablo, beklenen/gelen) verir.
 
-| # | Senaryo | Beklenen | Sonuç | Durum |
-|---|---|---|---|---|
-| 1 | Hata oranları 0, 100 fatura | 100 başarılı, DB'de 100 kayıt | 202: 100/100, DB: 100 kayıt | Geçti |
-| 2 | Meşgul %100 | Hepsi 429 + Retry-After, DB'de kayıt yok | 429: 20/20, Retry-After değerleri `8 18 11 18 24 11 13 11 5 20 8 23 19 23 28 18 6 20 5 25`, DB: 0 kayıt | Geçti |
-| 3 | Kaydedip hata %100 | Hepsi 500, hepsi DB'de | 500: 20/20, DB: 20 kayıt | Geçti |
-| 4 | Geç cevap %100 | 30 sn sonra 202, DB'de | 202: 2/2, süreler 30,16 sn / 30,07 sn, DB: 2 kayıt | Geçti |
-| 5 | Aynı fatura no ile 2 istek | Farklı referanslı 2 kayıt | 202, 202 → `ERP-00000123`, `ERP-00000124` | Geçti |
-| 6 | Varsayılan oranlar, aynı seed, 50 fatura × 2 | Davranış dizileri birebir aynı | 50/50 aynı (Success 35, Busy 9, ServerError 4, LateResponse 2) | Geçti |
-| 7 | GET kayıtlı / kayıtsız | Referans döner / 404 | 200 (`ERP-00000001`) / 404 | Geçti |
+Her senaryo simülatörü kendi oranlarıyla yeniden başlatır. Tablodaki değerler elle test çalıştırmasından.
+
+| # | İstenen | Script | Sonuç (HTTP) | Veritabanı | Durum |
+|---|---|---|---|---|---|
+| 1 | Hata oranları 0 iken 100 fatura: 100 başarılı, 100 kayıt | `1-hata-yok.ps1` | 202: 100/100 | 100 kayıt, hepsi Success, 100 farklı referans | Geçti |
+| 2 | Meşgul %100: hepsi 429 + Retry-After, kayıt yok | `2-mesgul.ps1` | 429: 20/20, Retry-After `8 18 11 18 24 11 13 11 5 20 8 23 19 23 28 18 6 20 5 25` | 0 kayıt | Geçti |
+| 3 | Kaydedip hata %100: hepsi 500, hepsi veritabanında | `3-kaydet-hata.ps1` | 500: 20/20 | 20 kayıt, hepsi SaveThenError | Geçti |
+| 4 | Geç cevap %100: 30 sn sonra cevap, veritabanında | `4-gec-cevap.ps1` | 202: 2/2, 30,21 sn / 30,04 sn | 2 kayıt, LateResponse | Geçti |
+| 5 | Aynı fatura no ile 2 istek: farklı referanslı 2 kayıt | `5-cift-kayit.ps1` | 202, 202 | `ERP-00001935`, `ERP-00001936` | Geçti |
+| 6 | Varsayılan oranlar, aynı seed, 50 fatura × 2: loglardaki dizi aynı | `6-seed.ps1` | Loglarda 50/50 aynı (Success 35, Busy 9, ServerError 4, LateResponse 2) | A ve B'de aynı istekler aynı davranışla kayıtlı | Geçti |
+| 7 | GET kayıtlı → referans, olmayan → 404 | `7-sorgu.ps1` | 200 (`ERP-00002011`) / 404 | Veritabanındaki referans GET ile aynı | Geçti |
 
 Senaryo 6 davranış dizisi (iki çalıştırmada aynı):
 
@@ -122,23 +116,27 @@ Senaryo 6 davranış dizisi (iki çalıştırmada aynı):
 Busy Success Success Busy Success Success Success Success Success ServerError Success Success ServerError Success Success Busy Success Success ServerError Success Busy Success Success Busy Success Success Success Busy Success Busy Success Success Success Success Success Success Success ServerError Success Busy LateResponse Success Busy Success Success Success Success Success Success LateResponse
 ```
 
-### Kontrol listesi — elle test (PowerShell)
+### Nasıl çalıştırılır
 
-Aynı yedi madde [`manual-tests/`](manual-tests/README.md) altındaki PowerShell script'leriyle elle de çalıştırıldı.
-Her script önce testin kendi çıktısını (istekler ve cevaplar), ardından **veritabanı kontrolünü** (çalıştırılan SQL,
-gelen tablo, beklenen/gelen karşılaştırması) verir. Sonuç HTTP ve veritabanı kontrolünün ikisini birden kapsar.
+```powershell
+.\manual-tests\1-hata-yok.ps1
+```
 
-| # | Script | HTTP sonucu | Veritabanı kontrolü | Durum |
-|---|---|---|---|---|
-| 1 | `1-hata-yok.ps1` | 202: 100/100 | 100 kayıt, hepsi Success, 100 farklı referans (`ERP-00001813`–`ERP-00001912`) | Geçti |
-| 2 | `2-mesgul.ps1` | 429: 20/20, Retry-After 5–30 sn: 20/20 | 0 kayıt | Geçti |
-| 3 | `3-kaydet-hata.ps1` | 500: 20/20 | 20 kayıt, hepsi SaveThenError (`ERP-00001913`–`ERP-00001932`) | Geçti |
-| 4 | `4-gec-cevap.ps1` | 202: 2/2, 30,21 sn / 30,04 sn | 2 kayıt, LateResponse, kayıt saatleri arası 30 sn | Geçti |
-| 5 | `5-cift-kayit.ps1` | 202, 202 | Aynı numarayla 2 kayıt: `ERP-00001935`, `ERP-00001936` | Geçti |
-| 6 | `6-seed.ps1` | Loglarda A ve B dizisi 50/50 aynı | A ve B'de aynı istek numaraları aynı davranışla kayıtlı (Success 35, LateResponse 2) | Geçti |
-| 7 | `7-sorgu.ps1` | GET: 200 (`ERP-00002011`) / 404 | Veritabanındaki referans GET ile aynı, olmayan fatura için kayıt yok | Geçti |
+Diğerleri: `2-mesgul.ps1`, `3-kaydet-hata.ps1`, `4-gec-cevap.ps1`, `5-cift-kayit.ps1`, `6-seed.ps1`, `7-sorgu.ps1`.
+Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`. Parametreler ve ayrıntılar: [`manual-tests/README.md`](manual-tests/README.md).
 
-`2-mesgul.ps1 -HttpDate` ile Retry-After'ın HTTP-date biçimi de denendi; tarihten hesaplanan saniyeler sunucu logundaki değerlerle aynı.
+| Yardımcı | Kullanım |
+|---|---|
+| `.\manual-tests\db.ps1` | Veritabanını açar (`psql`, çıkmak için `\q`). Tek sorgu: `-Sql "SELECT ..."` |
+| `.\manual-tests\loglar.ps1` | Simülatör loglarını canlı izler; `-Tail 50` son 50 satır |
+
+```bash
+./scripts/erp-simulator-checklist.sh
+```
+
+---
+
+## Ek doğrulamalar
 
 ### Dağılım ve tutarlılık
 
@@ -184,6 +182,12 @@ Her satır hedef dağılımda: önceki davranış bir sonrakini etkilemiyor.
 22.000 isteklik ölçümde ayrıca kayıt açan 16.459 isteğin her biri, HTTP'siz çalıştırmadaki aynı sıra numaralı kararla tek tek eşleştirildi.
 Script bu karşılaştırmayı artık her çalıştırmada karar karar yapıyor (`Cross-check seed`).
 
+Dağılım ölçümü (1.000.000 istek yaklaşık 32 dk sürer; daha kısa bir kontrol için adet küçültülebilir):
+
+```bash
+./scripts/erp-simulator-distribution.sh 1000000
+```
+
 ### Seed
 
 İlk 12 istek:
@@ -215,25 +219,7 @@ Aynı seed aynı diziyi, farklı seed farklı diziyi üretiyor.
 
 ---
 
-## Elle test
-
-Kontrol listesinin her maddesi için PowerShell script'i (ayrıntılar: [`manual-tests/README.md`](manual-tests/README.md)):
-
-```powershell
-.\manual-tests\1-hata-yok.ps1
-```
-
-Diğerleri: `2-mesgul.ps1`, `3-kaydet-hata.ps1`, `4-gec-cevap.ps1`, `5-cift-kayit.ps1`, `6-seed.ps1`, `7-sorgu.ps1`.
-Her script simülatörü o testin ayarlarıyla yeniden başlatır, testin çıktısını ve ardından veritabanı kontrolünü basar,
-bitince simülatörü `appsettings.json` ayarlarına geri döndürür. Script'ler engellenirse önce
-`Set-ExecutionPolicy -Scope Process Bypass`.
-
-| Yardımcı | Kullanım |
-|---|---|
-| `.\manual-tests\db.ps1` | Veritabanını açar (`psql`, çıkmak için `\q`). Tek sorgu: `-Sql "SELECT ..."` |
-| `.\manual-tests\loglar.ps1` | Simülatör loglarını canlı izler; `-Tail 50` son 50 satır |
-
-Diğer yöntemler:
+## Elle deneme
 
 | Yöntem | Kullanım |
 |---|---|
@@ -245,12 +231,4 @@ Her POST seed'li dizideki bir sonraki davranışı alır; aynı istek art arda 2
 
 ```bash
 dotnet test erp-simulator
-```
-```bash
-./scripts/erp-simulator-checklist.sh
-```
-Dağılım ölçümü (1.000.000 istek yaklaşık 32 dk sürer; daha kısa bir kontrol için adet küçültülebilir):
-
-```bash
-./scripts/erp-simulator-distribution.sh 1000000
 ```
