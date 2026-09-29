@@ -61,7 +61,7 @@ POST /api/v1/invoices
 |---|---|
 | Retry-After 5–30 sn arası rastgele | Her 429'da 5–30 arası değer. Başlık iki biçimde gönderilebilir (RFC 9110): saniye `Retry-After: 17` (varsayılan) veya HTTP-date `Retry-After: Tue, 29 Sep 2026 07:00:17 GMT` — `RetryAfterFormat` ayarı ile seçilir. |
 | Çift kayıt engellenmeyecek | Aynı fatura numarası her gelişte yeni ERP referansıyla yeni kayıt açar. |
-| Oranlar ve geç cevap süresi ayar dosyasından | `appsettings.json` → `Simulator:Rates` bölümünde beş oranın hepsi (`Success` dahil) ve `LateResponseDelaySeconds`. Oranlar toplamlarına bölünerek uygulanır; hata oranlarının hepsi 0 ise her istek `Success` olur, kusursuz ERP. |
+| Oranlar ve geç cevap süresi ayar dosyasından | `appsettings.json` → `Simulator:Rates` bölümünde beş oranın hepsi (`Success` dahil) ve `LateResponseDelaySeconds`. Oranlar toplamlarına bölünerek uygulanır; hata oranlarının hepsi 0 ise her istek `Success` olur, kusursuz ERP. Kodda varsayılan değer yoktur: dosyada bir ayar eksikse uygulama açılmaz. |
 | Seed ile tekrarlanabilir seçim | `Simulator:Seed`. Aynı seed + aynı istek sırası = aynı davranış dizisi. |
 | Her istek seçilen davranışla loglanır | `ERP request #12 invoice=INV-2026-0001 behavior=Busy status=429 retryAfter=17s` |
 
@@ -80,6 +80,21 @@ POST /api/v1/invoices
 }
 ```
 
+| Ayar | Açıklama |
+|---|---|
+| `Seed` | Rastgele seçimin başlangıç değeri |
+| `Rates` | Beş davranışın oranı. Gerçek olasılık = oran / oranların toplamı. Varsayılanların toplamı 100 olduğu için doğrudan yüzde olarak okunur. |
+| `LateResponseDelaySeconds` | Geç cevapta bekleme süresi |
+| `RetryAfterMinSeconds` / `RetryAfterMaxSeconds` | Meşgul cevabındaki Retry-After aralığı |
+| `RetryAfterFormat` | `Seconds` (`Retry-After: 17`) veya `HttpDate` (`Retry-After: Tue, 29 Sep 2026 07:00:17 GMT`) |
+
+Bu on değerin hepsi zorunludur, kodda varsayılan karşılıkları yoktur. Biri eksikse uygulama başlamaz ve hangisinin
+eksik olduğunu yazar (ör. `Simulator:Rates:Success is missing from the settings file`). Açılışta etkin ayarlar loglanır:
+
+```
+Simulator settings: seed=42 success=60% busy=15% serverError=10% saveThenError=5% lateResponse=10% (configured total=100) lateDelay=30s ...
+```
+
 Tek seferlik değişiklik ortam değişkeniyle de yapılabilir:
 `Simulator__Rates__Busy=100 docker compose up -d --force-recreate erp-simulator`
 
@@ -87,7 +102,7 @@ Tek seferlik değişiklik ortam değişkeniyle de yapılabilir:
 
 ## Sonuçlar
 
-### Kontrol listesi
+### Kontrol listesi — otomatik (bash)
 
 `./scripts/erp-simulator-checklist.sh` ile docker compose üzerinde uçtan uca çalıştırıldı. Her senaryo simülatörü kendi oranlarıyla yeniden başlatır.
 
@@ -106,6 +121,24 @@ Senaryo 6 davranış dizisi (iki çalıştırmada aynı):
 ```
 Busy Success Success Busy Success Success Success Success Success ServerError Success Success ServerError Success Success Busy Success Success ServerError Success Busy Success Success Busy Success Success Success Busy Success Busy Success Success Success Success Success Success Success ServerError Success Busy LateResponse Success Busy Success Success Success Success Success Success LateResponse
 ```
+
+### Kontrol listesi — elle test (PowerShell)
+
+Aynı yedi madde [`manual-tests/`](manual-tests/README.md) altındaki PowerShell script'leriyle elle de çalıştırıldı.
+Her script önce testin kendi çıktısını (istekler ve cevaplar), ardından **veritabanı kontrolünü** (çalıştırılan SQL,
+gelen tablo, beklenen/gelen karşılaştırması) verir. Sonuç HTTP ve veritabanı kontrolünün ikisini birden kapsar.
+
+| # | Script | HTTP sonucu | Veritabanı kontrolü | Durum |
+|---|---|---|---|---|
+| 1 | `1-hata-yok.ps1` | 202: 100/100 | 100 kayıt, hepsi Success, 100 farklı referans (`ERP-00001813`–`ERP-00001912`) | Geçti |
+| 2 | `2-mesgul.ps1` | 429: 20/20, Retry-After 5–30 sn: 20/20 | 0 kayıt | Geçti |
+| 3 | `3-kaydet-hata.ps1` | 500: 20/20 | 20 kayıt, hepsi SaveThenError (`ERP-00001913`–`ERP-00001932`) | Geçti |
+| 4 | `4-gec-cevap.ps1` | 202: 2/2, 30,21 sn / 30,04 sn | 2 kayıt, LateResponse, kayıt saatleri arası 30 sn | Geçti |
+| 5 | `5-cift-kayit.ps1` | 202, 202 | Aynı numarayla 2 kayıt: `ERP-00001935`, `ERP-00001936` | Geçti |
+| 6 | `6-seed.ps1` | Loglarda A ve B dizisi 50/50 aynı | A ve B'de aynı istek numaraları aynı davranışla kayıtlı (Success 35, LateResponse 2) | Geçti |
+| 7 | `7-sorgu.ps1` | GET: 200 (`ERP-00002011`) / 404 | Veritabanındaki referans GET ile aynı, olmayan fatura için kayıt yok | Geçti |
+
+`2-mesgul.ps1 -HttpDate` ile Retry-After'ın HTTP-date biçimi de denendi; tarihten hesaplanan saniyeler sunucu logundaki değerlerle aynı.
 
 ### Dağılım ve tutarlılık
 
@@ -165,7 +198,7 @@ Aynı seed aynı diziyi, farklı seed farklı diziyi üretiyor.
 
 ### Unit testler
 
-`dotnet test erp-simulator` — 12/12 geçti.
+`dotnet test erp-simulator` — 23/23 geçti.
 
 | Test | Kontrol |
 |---|---|
@@ -177,10 +210,30 @@ Aynı seed aynı diziyi, farklı seed farklı diziyi üretiyor.
 | Retry-After aralığı | En küçük 5, en büyük 30 |
 | Oranlar normalize | Success 30, Busy 10 → Busy %25 |
 | Geçersiz ayar | Negatif oran veya tüm oranlar 0 ise uygulama açılmıyor |
+| Ayar dosyasından okuma | On değerin hepsi ayar dosyasından geliyor |
+| Eksik ayar (10 test) | On anahtardan herhangi biri eksikse uygulama açılmıyor |
 
 ---
 
 ## Elle test
+
+Kontrol listesinin her maddesi için PowerShell script'i (ayrıntılar: [`manual-tests/README.md`](manual-tests/README.md)):
+
+```powershell
+.\manual-tests\1-hata-yok.ps1
+```
+
+Diğerleri: `2-mesgul.ps1`, `3-kaydet-hata.ps1`, `4-gec-cevap.ps1`, `5-cift-kayit.ps1`, `6-seed.ps1`, `7-sorgu.ps1`.
+Her script simülatörü o testin ayarlarıyla yeniden başlatır, testin çıktısını ve ardından veritabanı kontrolünü basar,
+bitince simülatörü `appsettings.json` ayarlarına geri döndürür. Script'ler engellenirse önce
+`Set-ExecutionPolicy -Scope Process Bypass`.
+
+| Yardımcı | Kullanım |
+|---|---|
+| `.\manual-tests\db.ps1` | Veritabanını açar (`psql`, çıkmak için `\q`). Tek sorgu: `-Sql "SELECT ..."` |
+| `.\manual-tests\loglar.ps1` | Simülatör loglarını canlı izler; `-Tail 50` son 50 satır |
+
+Diğer yöntemler:
 
 | Yöntem | Kullanım |
 |---|---|
