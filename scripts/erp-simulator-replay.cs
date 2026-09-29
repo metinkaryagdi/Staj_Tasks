@@ -22,7 +22,10 @@ var selector = new BehaviorSelector(Options.Create(new SimulatorOptions
     Rates = new BehaviorRates
     {
         Success = Rate(2), Busy = Rate(3), ServerError = Rate(4), SaveThenError = Rate(5), LateResponse = Rate(6)
-    }
+    },
+    // Only the draw count matters for the sequence; the range just has to be valid.
+    RetryAfterMinSeconds = 5,
+    RetryAfterMaxSeconds = 30
 }));
 
 var count = int.Parse(args[0], CultureInfo.InvariantCulture);

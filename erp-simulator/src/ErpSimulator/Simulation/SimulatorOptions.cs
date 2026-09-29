@@ -2,12 +2,16 @@ using Microsoft.Extensions.Options;
 
 namespace ErpSimulator.Simulation;
 
+/// <summary>
+/// Bound from the "Simulator" section of appsettings.json. There are no defaults in code:
+/// every value must be present in the settings file, otherwise the app refuses to start.
+/// </summary>
 public sealed class SimulatorOptions
 {
     public const string SectionName = "Simulator";
 
     /// <summary>Seed for the behavior RNG. Same seed + same request order = same behavior sequence.</summary>
-    public int Seed { get; set; } = 42;
+    public int Seed { get; set; }
 
     /// <summary>
     /// Behavior rates in percent. Each behavior's chance is its rate divided by <see cref="BehaviorRates.Total"/>,
@@ -15,23 +19,23 @@ public sealed class SimulatorOptions
     /// </summary>
     public BehaviorRates Rates { get; set; } = new();
 
-    public int LateResponseDelaySeconds { get; set; } = 30;
+    public int LateResponseDelaySeconds { get; set; }
 
-    public int RetryAfterMinSeconds { get; set; } = 5;
+    public int RetryAfterMinSeconds { get; set; }
 
-    public int RetryAfterMaxSeconds { get; set; } = 30;
+    public int RetryAfterMaxSeconds { get; set; }
 
     /// <summary>RFC 9110 allows Retry-After as delay-seconds ("17") or as an HTTP-date.</summary>
-    public RetryAfterFormat RetryAfterFormat { get; set; } = RetryAfterFormat.Seconds;
+    public RetryAfterFormat RetryAfterFormat { get; set; }
 }
 
 public sealed class BehaviorRates
 {
-    public double Success { get; set; } = 60;
-    public double Busy { get; set; } = 15;
-    public double ServerError { get; set; } = 10;
-    public double SaveThenError { get; set; } = 5;
-    public double LateResponse { get; set; } = 10;
+    public double Success { get; set; }
+    public double Busy { get; set; }
+    public double ServerError { get; set; }
+    public double SaveThenError { get; set; }
+    public double LateResponse { get; set; }
 
     public double Total => Success + Busy + ServerError + SaveThenError + LateResponse;
 
@@ -45,12 +49,34 @@ public enum RetryAfterFormat
     HttpDate
 }
 
-public sealed class SimulatorOptionsValidator : IValidateOptions<SimulatorOptions>
+public sealed class SimulatorOptionsValidator(IConfiguration configuration) : IValidateOptions<SimulatorOptions>
 {
+    /// <summary>Keys that must exist under the "Simulator" section of the settings file.</summary>
+    public static readonly string[] RequiredKeys =
+    [
+        "Seed",
+        "Rates:Success",
+        "Rates:Busy",
+        "Rates:ServerError",
+        "Rates:SaveThenError",
+        "Rates:LateResponse",
+        "LateResponseDelaySeconds",
+        "RetryAfterMinSeconds",
+        "RetryAfterMaxSeconds",
+        "RetryAfterFormat"
+    ];
+
     public ValidateOptionsResult Validate(string? name, SimulatorOptions options)
     {
         var errors = new List<string>();
         var rates = options.Rates;
+
+        var section = configuration.GetSection(SimulatorOptions.SectionName);
+        foreach (var key in RequiredKeys)
+        {
+            if (string.IsNullOrWhiteSpace(section[key]))
+                errors.Add($"{SimulatorOptions.SectionName}:{key} is missing from the settings file.");
+        }
 
         foreach (var (rateName, value) in new[]
                  {

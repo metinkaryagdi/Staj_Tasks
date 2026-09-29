@@ -1,12 +1,54 @@
 using ErpSimulator.Simulation;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace ErpSimulator.Tests;
 
 public class BehaviorSelectorTests
 {
+    // Same values as appsettings.json; SimulatorOptions itself has no defaults.
+    private static BehaviorRates DefaultRates() =>
+        new() { Success = 60, Busy = 15, ServerError = 10, SaveThenError = 5, LateResponse = 10 };
+
+    private static SimulatorOptions DefaultOptions(int seed = 42, BehaviorRates? rates = null) => new()
+    {
+        Seed = seed,
+        Rates = rates ?? DefaultRates(),
+        LateResponseDelaySeconds = 30,
+        RetryAfterMinSeconds = 5,
+        RetryAfterMaxSeconds = 30,
+        RetryAfterFormat = RetryAfterFormat.Seconds
+    };
+
     private static BehaviorSelector Create(int seed = 42, BehaviorRates? rates = null) =>
-        new(Options.Create(new SimulatorOptions { Seed = seed, Rates = rates ?? new BehaviorRates() }));
+        new(Options.Create(DefaultOptions(seed, rates)));
+
+    private static IConfiguration SettingsFile(string? withoutKey = null)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["Simulator:Seed"] = "42",
+            ["Simulator:Rates:Success"] = "60",
+            ["Simulator:Rates:Busy"] = "15",
+            ["Simulator:Rates:ServerError"] = "10",
+            ["Simulator:Rates:SaveThenError"] = "5",
+            ["Simulator:Rates:LateResponse"] = "10",
+            ["Simulator:LateResponseDelaySeconds"] = "30",
+            ["Simulator:RetryAfterMinSeconds"] = "5",
+            ["Simulator:RetryAfterMaxSeconds"] = "30",
+            ["Simulator:RetryAfterFormat"] = "Seconds"
+        };
+        if (withoutKey is not null)
+            values.Remove($"Simulator:{withoutKey}");
+        return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+    }
+
+    private static SimulatorOptions Bind(IConfiguration configuration)
+    {
+        var options = new SimulatorOptions();
+        configuration.GetSection(SimulatorOptions.SectionName).Bind(options);
+        return options;
+    }
 
     private static List<Behavior> Draw(BehaviorSelector selector, int count) =>
         Enumerable.Range(0, count).Select(_ => selector.Next().Behavior).ToList();
@@ -26,7 +68,7 @@ public class BehaviorSelectorTests
     [Fact]
     public void All_failure_rates_zero_means_always_success()
     {
-        var selector = Create(rates: new BehaviorRates { Busy = 0, ServerError = 0, SaveThenError = 0, LateResponse = 0 });
+        var selector = Create(rates: new BehaviorRates { Success = 60, Busy = 0, ServerError = 0, SaveThenError = 0, LateResponse = 0 });
         Assert.All(Draw(selector, 1000), b => Assert.Equal(Behavior.Success, b));
     }
 
@@ -84,17 +126,46 @@ public class BehaviorSelectorTests
     [Fact]
     public void Validator_rejects_negative_rate()
     {
-        var options = new SimulatorOptions { Rates = new BehaviorRates { Busy = -1 } };
-        Assert.True(new SimulatorOptionsValidator().Validate(null, options).Failed);
+        var options = DefaultOptions(rates: new BehaviorRates { Success = 60, Busy = -1 });
+        Assert.True(new SimulatorOptionsValidator(SettingsFile()).Validate(null, options).Failed);
     }
 
     [Fact]
     public void Validator_rejects_all_rates_zero()
     {
-        var options = new SimulatorOptions
-        {
-            Rates = new BehaviorRates { Success = 0, Busy = 0, ServerError = 0, SaveThenError = 0, LateResponse = 0 }
-        };
-        Assert.True(new SimulatorOptionsValidator().Validate(null, options).Failed);
+        var options = DefaultOptions(rates: new BehaviorRates());
+        Assert.True(new SimulatorOptionsValidator(SettingsFile()).Validate(null, options).Failed);
+    }
+
+    [Fact]
+    public void Every_value_is_read_from_the_settings_file()
+    {
+        var configuration = SettingsFile();
+        var options = Bind(configuration);
+
+        Assert.True(new SimulatorOptionsValidator(configuration).Validate(null, options).Succeeded);
+        Assert.Equal(42, options.Seed);
+        Assert.Equal(60, options.Rates.Success);
+        Assert.Equal(15, options.Rates.Busy);
+        Assert.Equal(10, options.Rates.ServerError);
+        Assert.Equal(5, options.Rates.SaveThenError);
+        Assert.Equal(10, options.Rates.LateResponse);
+        Assert.Equal(30, options.LateResponseDelaySeconds);
+        Assert.Equal(5, options.RetryAfterMinSeconds);
+        Assert.Equal(30, options.RetryAfterMaxSeconds);
+        Assert.Equal(RetryAfterFormat.Seconds, options.RetryAfterFormat);
+    }
+
+    public static TheoryData<string> RequiredKeys => new(SimulatorOptionsValidator.RequiredKeys);
+
+    [Theory]
+    [MemberData(nameof(RequiredKeys))]
+    public void Missing_setting_is_rejected(string key)
+    {
+        var configuration = SettingsFile(withoutKey: key);
+        var result = new SimulatorOptionsValidator(configuration).Validate(null, Bind(configuration));
+
+        Assert.True(result.Failed);
+        Assert.Contains($"Simulator:{key} is missing", result.FailureMessage);
     }
 }
