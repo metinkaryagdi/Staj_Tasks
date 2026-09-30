@@ -23,7 +23,7 @@ public class BehaviorSelectorTests
     private static BehaviorSelector Create(int seed = 42, BehaviorRates? rates = null) =>
         new(Options.Create(DefaultOptions(seed, rates)));
 
-    private static IConfiguration SettingsFile(string? withoutKey = null)
+    private static IConfiguration SettingsFile(string? withoutKey = null, IDictionary<string, string?>? overrides = null)
     {
         var values = new Dictionary<string, string?>
         {
@@ -40,6 +40,8 @@ public class BehaviorSelectorTests
         };
         if (withoutKey is not null)
             values.Remove($"Simulator:{withoutKey}");
+        foreach (var (key, value) in overrides ?? new Dictionary<string, string?>())
+            values[key] = value;
         return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
     }
 
@@ -68,7 +70,7 @@ public class BehaviorSelectorTests
     [Fact]
     public void All_failure_rates_zero_means_always_success()
     {
-        var selector = Create(rates: new BehaviorRates { Success = 60, Busy = 0, ServerError = 0, SaveThenError = 0, LateResponse = 0 });
+        var selector = Create(rates: new BehaviorRates { Success = 100, Busy = 0, ServerError = 0, SaveThenError = 0, LateResponse = 0 });
         Assert.All(Draw(selector, 1000), b => Assert.Equal(Behavior.Success, b));
     }
 
@@ -114,20 +116,49 @@ public class BehaviorSelectorTests
     }
 
     [Fact]
-    public void Rates_are_normalized_by_their_total()
+    public void Validator_rejects_negative_rate()
     {
-        const int n = 100_000;
-        var selector = Create(rates: new BehaviorRates { Success = 30, Busy = 10, ServerError = 0, SaveThenError = 0, LateResponse = 0 });
-        var busy = Draw(selector, n).Count(b => b == Behavior.Busy) * 100.0 / n;
+        // Total is 100, so only the negative value can make it fail.
+        var options = DefaultOptions(rates: new BehaviorRates { Success = 76, Busy = -1, ServerError = 10, SaveThenError = 5, LateResponse = 10 });
+        var result = new SimulatorOptionsValidator(SettingsFile()).Validate(null, options);
 
-        Assert.InRange(busy, 24, 26);
+        Assert.True(result.Failed);
+        Assert.Contains("Simulator:Rates:Busy must be between 0 and 100", result.FailureMessage);
     }
 
     [Fact]
-    public void Validator_rejects_negative_rate()
+    public void Validator_rejects_busy_100_when_other_rates_are_left_as_is()
     {
-        var options = DefaultOptions(rates: new BehaviorRates { Success = 60, Busy = -1 });
-        Assert.True(new SimulatorOptionsValidator(SettingsFile()).Validate(null, options).Failed);
+        // Busy = 100 on top of the defaults: 60 + 100 + 10 + 5 + 10 = 185, which would silently mean 54% busy.
+        var configuration = SettingsFile(overrides: new Dictionary<string, string?> { ["Simulator:Rates:Busy"] = "100" });
+        var result = new SimulatorOptionsValidator(configuration).Validate(null, Bind(configuration));
+
+        Assert.True(result.Failed);
+        Assert.Contains("Simulator:Rates must add up to exactly 100 (was 185", result.FailureMessage);
+    }
+
+    [Theory]
+    [InlineData(60, 15, 10, 5, 9, "99")]
+    [InlineData(60, 15, 10, 5, 11, "101")]
+    [InlineData(60, 0, 0, 0, 0, "60")]
+    public void Validator_rejects_rates_not_adding_up_to_100(
+        double success, double busy, double serverError, double saveThenError, double lateResponse, string total)
+    {
+        var options = DefaultOptions(rates: new BehaviorRates
+        {
+            Success = success, Busy = busy, ServerError = serverError, SaveThenError = saveThenError, LateResponse = lateResponse
+        });
+        var result = new SimulatorOptionsValidator(SettingsFile()).Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains($"(was {total}:", result.FailureMessage);
+    }
+
+    [Fact]
+    public void Validator_accepts_fractional_rates_adding_up_to_100()
+    {
+        var options = DefaultOptions(rates: new BehaviorRates { Success = 33.3, Busy = 33.3, ServerError = 33.4 });
+        Assert.True(new SimulatorOptionsValidator(SettingsFile()).Validate(null, options).Succeeded);
     }
 
     [Fact]

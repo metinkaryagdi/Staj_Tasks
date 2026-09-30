@@ -25,7 +25,6 @@ public sealed class BehaviorSelector
     private readonly Random _random;
     private readonly SimulatorOptions _options;
     private readonly (Behavior Behavior, double Rate)[] _table;
-    private readonly double _total;
     private long _sequence;
 
     public BehaviorSelector(IOptions<SimulatorOptions> options)
@@ -42,15 +41,14 @@ public sealed class BehaviorSelector
             (Behavior.SaveThenError, rates.SaveThenError),
             (Behavior.LateResponse, rates.LateResponse)
         ];
-        _total = rates.Total;
     }
 
     public BehaviorDecision Next()
     {
         lock (_lock)
         {
-            // Rates are weights: rolling over their total keeps the defaults (total 100) as plain percentages.
-            var roll = _random.NextDouble() * _total;
+            // Rates are validated to add up to 100, so each one is a plain percentage.
+            var roll = _random.NextDouble() * BehaviorRates.RequiredTotal;
             var retryAfter = _random.Next(_options.RetryAfterMinSeconds, _options.RetryAfterMaxSeconds + 1);
             _sequence++;
             return new BehaviorDecision(_sequence, Pick(roll), retryAfter);

@@ -34,7 +34,7 @@ restart_simulator() {
   exit 1
 }
 
-zero_rates=(Simulator__Rates__Busy=0 Simulator__Rates__ServerError=0 Simulator__Rates__SaveThenError=0 Simulator__Rates__LateResponse=0)
+zero_rates=(Simulator__Rates__Success=100 Simulator__Rates__Busy=0 Simulator__Rates__ServerError=0 Simulator__Rates__SaveThenError=0 Simulator__Rates__LateResponse=0)
 
 invoice_json() {
   printf '{"invoiceNumber":"%s","customerCode":"C-001","amount":1250.50,"currency":"TRY","invoiceDate":"2026-09-29"}' "$1"

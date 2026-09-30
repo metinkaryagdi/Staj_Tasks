@@ -98,12 +98,11 @@ static void LogSimulatorSettings(WebApplication app)
 {
     var o = app.Services.GetRequiredService<IOptions<SimulatorOptions>>().Value;
     var r = o.Rates;
-    string Pct(double rate) => Math.Round(r.Effective(rate), 2).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    string Pct(double rate) => rate.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    // Percentages are the effective chances (rate / total); they equal the configured values when the rates sum to 100.
     app.Logger.LogInformation(
         "Simulator settings: seed={Seed} success={Success}% busy={Busy}% serverError={ServerError}% " +
-        "saveThenError={SaveThenError}% lateResponse={LateResponse}% (configured total={Total}) lateDelay={LateDelay}s " +
+        "saveThenError={SaveThenError}% lateResponse={LateResponse}% (total={Total}) lateDelay={LateDelay}s " +
         "retryAfter={RetryMin}-{RetryMax}s format={RetryFormat}",
         o.Seed, Pct(r.Success), Pct(r.Busy), Pct(r.ServerError), Pct(r.SaveThenError), Pct(r.LateResponse), r.Total,
         o.LateResponseDelaySeconds, o.RetryAfterMinSeconds, o.RetryAfterMaxSeconds, o.RetryAfterFormat);

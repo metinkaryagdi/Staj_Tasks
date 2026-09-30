@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Options;
 
 namespace ErpSimulator.Simulation;
@@ -14,8 +15,8 @@ public sealed class SimulatorOptions
     public int Seed { get; set; }
 
     /// <summary>
-    /// Behavior rates in percent. Each behavior's chance is its rate divided by <see cref="BehaviorRates.Total"/>,
-    /// so with every failure rate at 0 the simulator always succeeds regardless of the Success value.
+    /// Behavior rates in percent. They must add up to exactly 100, so each value is the behavior's real chance;
+    /// a perfect ERP is Success = 100 with every failure rate at 0.
     /// </summary>
     public BehaviorRates Rates { get; set; } = new();
 
@@ -37,10 +38,9 @@ public sealed class BehaviorRates
     public double SaveThenError { get; set; }
     public double LateResponse { get; set; }
 
-    public double Total => Success + Busy + ServerError + SaveThenError + LateResponse;
+    public const double RequiredTotal = 100;
 
-    /// <summary>Actual chance of <paramref name="rate"/> in percent after normalizing by <see cref="Total"/>.</summary>
-    public double Effective(double rate) => Total > 0 ? rate * 100 / Total : 0;
+    public double Total => Success + Busy + ServerError + SaveThenError + LateResponse;
 }
 
 public enum RetryAfterFormat
@@ -91,8 +91,12 @@ public sealed class SimulatorOptionsValidator(IConfiguration configuration) : IV
                 errors.Add($"Simulator:Rates:{rateName} must be between 0 and 100 (was {value}).");
         }
 
-        if (rates.Total <= 0)
-            errors.Add("At least one Simulator:Rates value must be greater than 0.");
+        // Small tolerance only for floating point sums such as 33.3 + 33.3 + 33.4.
+        if (Math.Abs(rates.Total - BehaviorRates.RequiredTotal) > 1e-9)
+            errors.Add(
+                $"Simulator:Rates must add up to exactly {BehaviorRates.RequiredTotal} (was {Format(rates.Total)}: " +
+                $"Success={Format(rates.Success)} Busy={Format(rates.Busy)} ServerError={Format(rates.ServerError)} " +
+                $"SaveThenError={Format(rates.SaveThenError)} LateResponse={Format(rates.LateResponse)}).");
 
         if (options.LateResponseDelaySeconds < 0)
             errors.Add("Simulator:LateResponseDelaySeconds must not be negative.");
@@ -102,4 +106,6 @@ public sealed class SimulatorOptionsValidator(IConfiguration configuration) : IV
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }
+
+    private static string Format(double value) => value.ToString(CultureInfo.InvariantCulture);
 }

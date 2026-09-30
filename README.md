@@ -63,7 +63,7 @@ Her POST için aşağıdaki davranışlardan biri seed'li rastgele seçimle seç
 |---|---|---|
 | 1 | Retry-After 5–30 sn arası rastgele; biçimleri araştırılacak | Her 429'da 5–30 arası değer. RFC 9110'a göre iki biçim var: saniye `Retry-After: 17` (varsayılan) veya HTTP-date `Retry-After: Tue, 29 Sep 2026 07:00:17 GMT`. `RetryAfterFormat` ayarı ile seçilir, ikisi de denendi. |
 | 2 | Çift kayıt engellenmeyecek | Aynı fatura numarası her gelişte yeni ERP referansıyla yeni kayıt açar (`invoice_number` unique değil). |
-| 3 | Oranların hepsi ve geç cevap süresi ayar dosyasından; hata oranları 0 ise kusursuz ERP | `appsettings.json` → `Simulator` bölümü: beş oranın hepsi (`Success` dahil) ve `LateResponseDelaySeconds`. Oranlar toplamlarına bölünerek uygulanır; hata oranlarının hepsi 0 ise her istek `Success` olur. Kodda varsayılan değer yoktur: dosyada bir ayar eksikse uygulama açılmaz. |
+| 3 | Oranların hepsi ve geç cevap süresi ayar dosyasından; hata oranları 0 ise kusursuz ERP | `appsettings.json` → `Simulator` bölümü: beş oranın hepsi (`Success` dahil) ve `LateResponseDelaySeconds`. Oranların toplamı tam 100 olmak zorundadır, değilse uygulama açılmaz ve gelen toplamı yazar; `Success` 100, hata oranlarının hepsi 0 ise her istek `Success` olur. Kodda varsayılan değer yoktur: dosyada bir ayar eksikse uygulama açılmaz. |
 | 4 | Ayar dosyasında seed; aynı seed aynı davranış dizisi | `Simulator:Seed`. Aynı seed + aynı istek sırası = aynı davranış dizisi (simülatör yeniden başlayınca dizi baştan başlar). |
 | 5 | Her istek seçilen davranışla loglanır | `ERP request #12 invoice=INV-2026-0001 behavior=Busy status=429 retryAfter=17s` |
 
@@ -83,11 +83,14 @@ Her POST için aşağıdaki davranışlardan biri seed'li rastgele seçimle seç
 ```
 
 Bu on değerin hepsi zorunludur; biri eksikse uygulama başlamaz ve hangisinin eksik olduğunu yazar
-(ör. `Simulator:Rates:Success is missing from the settings file`). Açılışta etkin oranlar loglanır:
-`Simulator settings: seed=42 success=60% busy=15% serverError=10% saveThenError=5% lateResponse=10% (configured total=100) ...`
+(ör. `Simulator:Rates:Success is missing from the settings file`). Oranların toplamı 100 değilse de açılmaz; örneğin
+diğerlerine dokunmadan yalnızca `Busy` 100 yapılırsa:
+`Simulator:Rates must add up to exactly 100 (was 185: Success=60 Busy=100 ServerError=10 SaveThenError=5 LateResponse=10).`
+Açılışta oranlar loglanır:
+`Simulator settings: seed=42 success=60% busy=15% serverError=10% saveThenError=5% lateResponse=10% (total=100) ...`
 
-Tek seferlik değişiklik ortam değişkeniyle de yapılabilir:
-`Simulator__Rates__Busy=100 docker compose up -d --force-recreate erp-simulator`
+Tek seferlik değişiklik ortam değişkeniyle de yapılabilir (toplam yine 100 olmalı):
+`Simulator__Rates__Success=0 Simulator__Rates__Busy=100 Simulator__Rates__ServerError=0 Simulator__Rates__SaveThenError=0 Simulator__Rates__LateResponse=0 docker compose up -d --force-recreate erp-simulator`
 
 ---
 
@@ -202,7 +205,7 @@ Aynı seed aynı diziyi, farklı seed farklı diziyi üretiyor.
 
 ### Unit testler
 
-`dotnet test erp-simulator`: 23/23 geçti (seed, oranlar, Retry-After aralığı, ayar doğrulama).
+`dotnet test erp-simulator`: 27/27 geçti (seed, oranlar, oran toplamı 100, Retry-After aralığı, ayar doğrulama).
 
 ---
 

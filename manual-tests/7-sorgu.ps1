@@ -9,6 +9,7 @@ Write-Title '7) GET: kayıtlı fatura -> 200 + ERP referansı, olmayan fatura ->
 $expectedReference = $null
 if (-not $InvoiceNumber) {
     Restart-Simulator @{
+        Simulator__Rates__Success       = 100
         Simulator__Rates__Busy          = 0
         Simulator__Rates__ServerError   = 0
         Simulator__Rates__SaveThenError = 0

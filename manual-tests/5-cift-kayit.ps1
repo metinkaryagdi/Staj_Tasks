@@ -6,6 +6,7 @@ Write-Title '5) Aynı fatura numarasıyla 2 istek: farklı ERP referanslı 2 kay
 
 # Hata oranları 0: iki isteğin de başarıyla kaydedildiğinden emin olmak için.
 Restart-Simulator @{
+    Simulator__Rates__Success       = 100
     Simulator__Rates__Busy          = 0
     Simulator__Rates__ServerError   = 0
     Simulator__Rates__SaveThenError = 0

@@ -6,6 +6,7 @@ param([int]$Count = 100)
 Write-Title "1) Hata oranları 0 -> $Count fatura: hepsi 202, veritabanında $Count kayıt"
 
 Restart-Simulator @{
+    Simulator__Rates__Success       = 100
     Simulator__Rates__Busy          = 0
     Simulator__Rates__ServerError   = 0
     Simulator__Rates__SaveThenError = 0

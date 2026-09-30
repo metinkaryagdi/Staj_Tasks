@@ -24,7 +24,7 @@ services:
     environment:
       ConnectionStrings__ErpDb: "Host=erp-db;Database=erp_simulator;Username=erp;Password=erp;GSS Encryption Mode=Disable"
       # Optional overrides, passed through from the shell only when set there
-      # (e.g. `Simulator__Rates__Busy=100 docker compose up -d erp-simulator`).
+      # (e.g. `Simulator__Rates__Success=0 Simulator__Rates__Busy=100 ... docker compose up -d erp-simulator`; rates must add up to 100).
       Simulator__Seed:
       Simulator__Rates__Success:
       Simulator__Rates__Busy:
