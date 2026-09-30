@@ -63,15 +63,24 @@ function Send-ServiceResend([string]$InvoiceNumber) {
     ConvertTo-ServiceResult $response $watch
 }
 
+# HttpStatus 0: simülatöre hiç ulaşılamadı (bağlantı hatası, zaman aşımı); Error nedenini yazar.
 function Get-SimulatorInvoice([string]$InvoiceNumber) {
-    $response = $script:Http.GetAsync("$SimulatorUrl/api/v1/invoices/$InvoiceNumber").GetAwaiter().GetResult()
-    $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    try {
+        $response = $script:Http.GetAsync("$SimulatorUrl/api/v1/invoices/$InvoiceNumber").GetAwaiter().GetResult()
+        $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    }
+    catch {
+        $inner = $_.Exception
+        while ($inner.InnerException) { $inner = $inner.InnerException }
+        return [pscustomobject]@{ HttpStatus = 0; RecordCount = 0; References = @(); Body = ''; Error = $inner.Message }
+    }
     $data = if ([int]$response.StatusCode -eq 200) { $body | ConvertFrom-Json } else { $null }
     [pscustomobject]@{
         HttpStatus  = [int]$response.StatusCode
         RecordCount = if ($data) { [int]$data.recordCount } else { 0 }
         References  = if ($data) { @($data.records | ForEach-Object { $_.erpReference }) } else { @() }
         Body        = $body
+        Error       = ''
     }
 }
 
@@ -105,6 +114,8 @@ function Get-SimulatorBehaviors {
 # ---------------------------------------------------------------------------
 # Karşılaştırma: servisteki her fatura simülatörün GET endpoint'iyle sorgulanır.
 # -From / -To verilirse yalnızca o aralıktaki faturalar (fatura numarasına göre, dahil).
+# Simülatörde "var" = 200, "yok" = yalnızca 404. Başka bir cevap (500 vb.) ya da bağlantı hatası faturanın
+# ERP'de olup olmadığını söylemez: o fatura "var"/"yok" sayılmaz, "sorgulanamadı" satırına yazılır.
 # ---------------------------------------------------------------------------
 function Compare-Invoices([string]$From, [string]$To, [switch]$Quiet) {
     $where = @()
@@ -117,26 +128,34 @@ function Compare-Invoices([string]$From, [string]$To, [switch]$Quiet) {
 
     $result = [ordered]@{
         Total = 0; SentFound = 0; SentMissing = 0; FailedMissing = 0; FailedFound = 0
-        MultipleRecords = 0; ReferenceMatches = 0; SimulatorRecords = 0; Details = @()
+        MultipleRecords = 0; ReferenceMatches = 0; SimulatorRecords = 0; Unknown = 0; Details = @()
     }
     foreach ($row in $rows) {
         $number, $status, $reference, $attempts = $row -split '\|'
         $sim = Get-SimulatorInvoice $number
         $found = $sim.HttpStatus -eq 200
+        $missing = $sim.HttpStatus -eq 404
         $result.Total++
-        $result.SimulatorRecords += $sim.RecordCount
-        if ($sim.RecordCount -gt 1) { $result.MultipleRecords++ }
 
-        if ($status -eq 'Gönderildi') {
-            if ($found) { $result.SentFound++ } else { $result.SentMissing++ }
-            if ($found -and $sim.References -contains $reference) { $result.ReferenceMatches++ }
+        if (-not $found -and -not $missing) {
+            $result.Unknown++
         }
-        elseif ($found) { $result.FailedFound++ }
-        else { $result.FailedMissing++ }
+        else {
+            $result.SimulatorRecords += $sim.RecordCount
+            if ($sim.RecordCount -gt 1) { $result.MultipleRecords++ }
+
+            if ($status -eq 'Gönderildi') {
+                if ($found) { $result.SentFound++ } else { $result.SentMissing++ }
+                if ($found -and $sim.References -contains $reference) { $result.ReferenceMatches++ }
+            }
+            elseif ($found) { $result.FailedFound++ }
+            else { $result.FailedMissing++ }
+        }
 
         $result.Details += [pscustomobject]@{
             Invoice = $number; Status = $status; Attempts = [int]$attempts; ServiceReference = $reference
-            SimulatorRecords = $sim.RecordCount; SimulatorReferences = ($sim.References -join ',')
+            SimulatorHttp = $sim.HttpStatus; SimulatorRecords = $sim.RecordCount
+            SimulatorReferences = ($sim.References -join ','); SimulatorError = $sim.Error
         }
     }
 
@@ -153,10 +172,22 @@ function Write-Comparison($c) {
     Write-Host ('  {0,-46} {1,12}' -f 'Serviste Başarısız, simülatörde var', $c.FailedFound)
     Write-Host ('  {0,-46} {1,12}' -f 'Serviste Gönderildi, simülatörde yok', $c.SentMissing)
     Write-Host ('  {0,-46} {1,12}' -f 'Simülatörde birden fazla kaydı olan', $c.MultipleRecords)
+    $unknownColor = if ($c.Unknown -gt 0) { 'Yellow' } else { 'Gray' }
+    Write-Host ('  {0,-46} {1,12}' -f 'Simülatöre sorulamadı (200/404 dışı cevap)', $c.Unknown) -ForegroundColor $unknownColor
     Write-Host ('  ' + ('-' * 60)) -ForegroundColor Cyan
     Write-Host ('  {0,-46} {1,12}' -f 'Toplam fatura (serviste)', $c.Total)
     Write-Host ('  {0,-46} {1,12}' -f 'Toplam kayıt (simülatörde)', $c.SimulatorRecords)
     Write-Host ('  {0,-46} {1,12}' -f 'erp_reference simülatördekiyle aynı', "$($c.ReferenceMatches)/$($c.SentFound + $c.SentMissing)")
+
+    if ($c.Unknown -gt 0) {
+        Write-Host ''
+        Write-Host "  UYARI: $($c.Unknown) fatura simülatöre sorulamadı; bunlar 'var' ya da 'yok' sayılmadı, tablo eksik." -ForegroundColor Yellow
+        $c.Details | Where-Object { $_.SimulatorHttp -notin 200, 404 } | Select-Object -First 5 | ForEach-Object {
+            $why = if ($_.SimulatorHttp -eq 0) { "bağlantı hatası: $($_.SimulatorError)" } else { "HTTP $($_.SimulatorHttp)" }
+            Write-Host "    $($_.Invoice): $why" -ForegroundColor Yellow
+        }
+        if ($c.Unknown -gt 5) { Write-Host "    ... ve $($c.Unknown - 5) fatura daha" -ForegroundColor Yellow }
+    }
 }
 
 # Bir script'in oluşturduğu fatura aralığını sonraki script'e aktarmak için (3 -> 4).
@@ -210,8 +241,9 @@ function Get-DbComparison([string]$From, [string]$To) {
         $erp[$number] = @{ Count = [int]$count; References = @($refs -split ',') }
     }
 
+    # Veritabanında "sorgulanamadı" durumu yoktur; HTTP karşılaştırmasında sorgulanamayan fatura varsa iki sonuç farklı çıkar.
     $c = [ordered]@{ Total = 0; SentFound = 0; SentMissing = 0; FailedMissing = 0; FailedFound = 0
-                     MultipleRecords = 0; ReferenceMatches = 0; SimulatorRecords = 0 }
+                     MultipleRecords = 0; ReferenceMatches = 0; SimulatorRecords = 0; Unknown = 0 }
     foreach ($row in @(Get-ServiceRows "SELECT invoice_number, status, coalesce(erp_reference, '') FROM invoices WHERE $range;")) {
         $number, $status, $reference = $row -split '\|'
         $found = $erp.ContainsKey($number)
@@ -232,7 +264,8 @@ function Get-DbComparison([string]$From, [string]$To) {
 
 function Format-Comparison($c) {
     "Gönderildi+var $($c.SentFound), Başarısız+yok $($c.FailedMissing), Başarısız+var $($c.FailedFound), " +
-    "Gönderildi+yok $($c.SentMissing), birden fazla kayıt $($c.MultipleRecords), simülatörde $($c.SimulatorRecords) kayıt"
+    "Gönderildi+yok $($c.SentMissing), birden fazla kayıt $($c.MultipleRecords), simülatörde $($c.SimulatorRecords) kayıt, " +
+    "sorgulanamadı $($c.Unknown)"
 }
 
 # Madde 2: serviste hepsi Gönderildi, simülatörde her fatura tek kayıt, fatura no -> erp_reference çiftleri birebir aynı.
