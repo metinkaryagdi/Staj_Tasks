@@ -19,8 +19,10 @@ docker compose up -d --build
 | Fatura Servisi | http://localhost:5090 (Swagger: http://localhost:5090/swagger) |
 | Fatura veritabanı | `localhost:5434` — db `invoice_service`, kullanıcı `invoice`, şifre `invoice` |
 
-İki veritabanı ayrı container'larda ve ayrı docker ağlarında: simülatör yalnızca `erp-db`'yi, Fatura Servisi
-yalnızca `invoice-db`'yi görür. İki uygulama birbirine `apps` ağı üzerinden HTTP ile ulaşır.
+İki veritabanı ayrı container'larda, ayrı kullanıcı/şifreyle çalışır. Her uygulamanın yalnızca kendi veritabanının
+bağlantı bilgisi ve şifresi vardır; iki uygulama birbirine yalnızca `apps` ağı üzerinden HTTP ile ulaşır.
+Veritabanları ayrıca ayrı docker ağlarındadır, bu yüzden karşı uygulama veritabanının adını çözemez. Ancak ayrı ağlar
+IP ile erişimi her ortamda engellemez (Docker Desktop'ta engellemiyor); ayrılığı sağlayan, bağlantı bilgileridir.
 
 ---
 
@@ -236,7 +238,7 @@ Tekrar deneme, bekleme, çift gönderim koruması yok; `Retry-After` okunmaz.
 | .NET ile ikinci uygulama | `invoice-service/` — .NET 10, ASP.NET Core Minimal API |
 | Docker compose, tek komut | `invoice-db` + `invoice-service` eklendi; `docker compose up -d --build` hepsini kaldırır |
 | Fatura numarası servis üretir, `FTR-000001` | PostgreSQL sequence `invoice_number_seq` → `FTR-` + 6 hane (999999'dan sonra kısaltılmadan büyür) |
-| Kendi PostgreSQL'i, simülatörden tamamen ayrı | Ayrı container, ayrı docker ağı (bkz. Kurulum) |
+| Kendi PostgreSQL'i, simülatörden tamamen ayrı | Ayrı container ve ayrı kullanıcı/şifre; her uygulama yalnızca kendi veritabanının bağlantı bilgisini bilir (bkz. Kurulum) |
 | Şema EF Core migration ile | `Data/Migrations/InitialCreate`, açılışta otomatik uygulanır |
 | Tek tablo `invoices` | Kolonlar istenen 11 kolon; `invoice_number` primary key. `status` için check constraint: yalnızca `Gönderildi` / `Başarısız` |
 | Simülatöre istek zaman aşımı 10 sn | `appsettings.json` → `Erp:TimeoutSeconds: 10` (typed `HttpClient`, retry handler yok) |

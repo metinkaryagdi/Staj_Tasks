@@ -45,7 +45,8 @@ services:
       erp-db:
         condition: service_healthy
 
-  # Fatura Servisi'nin kendi veritabanı. Ayrı ağda: simülatör buna, Fatura Servisi de erp-db'ye ulaşamaz.
+  # Fatura Servisi'nin kendi veritabanı: ayrı container, ayrı kullanıcı/şifre, ayrı ağ.
+  # Simülatör bu veritabanının bağlantı bilgisini bilmez (Fatura Servisi de erp-db'ninkini).
   invoice-db:
     image: postgres:17-alpine
     environment:
@@ -80,7 +81,10 @@ services:
         condition: service_healthy
 
 networks:
-  # Each database is reachable only from its own application; the two applications talk over "apps".
+  # Each database sits on its own network, so the other application cannot even resolve its name; the two
+  # applications talk over "apps". This does not block traffic by IP on every Docker host (it does not on Docker
+  # Desktop): what keeps the databases apart is that each application only has its own database's connection
+  # string and credentials.
   erp-data:
   invoice-data:
   apps:
