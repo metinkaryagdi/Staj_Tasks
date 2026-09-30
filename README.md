@@ -3,7 +3,7 @@
 | Uygulama | Klasör | Durum |
 |---|---|---|
 | ERP Simülatörü | `erp-simulator/` | Gün 1 tamamlandı |
-| Fatura Servisi | `invoice-service/` | Başlanmadı |
+| Fatura Servisi | `invoice-service/` | Gün 2: ilk (korumasız) sürüm |
 
 ## Kurulum
 
@@ -16,6 +16,11 @@ docker compose up -d --build
 | ERP Simülatörü | http://localhost:5080 |
 | Swagger UI | http://localhost:5080/swagger |
 | ERP veritabanı | `localhost:5433` — db `erp_simulator`, kullanıcı `erp`, şifre `erp` |
+| Fatura Servisi | http://localhost:5090 (Swagger: http://localhost:5090/swagger) |
+| Fatura veritabanı | `localhost:5434` — db `invoice_service`, kullanıcı `invoice`, şifre `invoice` |
+
+İki veritabanı ayrı container'larda ve ayrı docker ağlarında: simülatör yalnızca `erp-db`'yi, Fatura Servisi
+yalnızca `invoice-db`'yi görür. İki uygulama birbirine `apps` ağı üzerinden HTTP ile ulaşır.
 
 ---
 
@@ -218,3 +223,52 @@ Aynı seed aynı diziyi, farklı seed farklı diziyi üretiyor.
 | Loglar | `docker compose logs -f erp-simulator` — her isteğin seçilen davranışı |
 
 Her POST seed'li dizideki bir sonraki davranışı alır; aynı istek art arda 202, 429 veya 500 dönebilir.
+
+---
+
+## Gün 2 — Fatura Servisi (ilk sürüm)
+
+Bilerek korumasız: faturayı kaydeder, ERP Simülatörü'ne **bir kez** gönderir, sonucu olduğu gibi yazar.
+Tekrar deneme, bekleme, çift gönderim koruması yok; `Retry-After` okunmaz.
+
+| İstenen | Karşılığı |
+|---|---|
+| .NET ile ikinci uygulama | `invoice-service/` — .NET 10, ASP.NET Core Minimal API |
+| Docker compose, tek komut | `invoice-db` + `invoice-service` eklendi; `docker compose up -d --build` hepsini kaldırır |
+| Fatura numarası servis üretir, `FTR-000001` | PostgreSQL sequence `invoice_number_seq` → `FTR-` + 6 hane (999999'dan sonra kısaltılmadan büyür) |
+| Kendi PostgreSQL'i, simülatörden tamamen ayrı | Ayrı container, ayrı docker ağı (bkz. Kurulum) |
+| Şema EF Core migration ile | `Data/Migrations/InitialCreate`, açılışta otomatik uygulanır |
+| Tek tablo `invoices` | Kolonlar istenen 11 kolon; `invoice_number` primary key. `status` için check constraint: yalnızca `Gönderildi` / `Başarısız` |
+| Simülatöre istek zaman aşımı 10 sn | `appsettings.json` → `Erp:TimeoutSeconds: 10` (typed `HttpClient`, retry handler yok) |
+
+### Endpoint'ler
+
+| Endpoint | Davranış |
+|---|---|
+| `POST /api/v1/invoices` | Gövde: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura kaydedilir, aynı istekte simülatöre gönderilir. Simülatör `202` → `Gönderildi` + `erp_reference`; başka her sonuç (429, 500, 10 sn zaman aşımı, simülatöre ulaşılamaması) → `Başarısız` + `last_error`. Fatura her durumda oluştuğu için cevap `201`; sonuç gövdedeki `status`'ta. Geçersiz gövde `400`, hiçbir şey kaydedilmez. |
+| `POST /api/v1/invoices/{faturaNumarası}/resend` | Yalnızca `Başarısız` fatura için: simülatöre bir kez daha gönderir, sonucu aynı şekilde yazar, `200`. `Gönderildi` ise `409`, yoksa `404`. |
+| `GET /api/v1/invoices/{faturaNumarası}` | Faturanın servisteki hali (`200`) ya da `404`. |
+
+Gönderim sırası: `send_attempt_count` artırılır ve kayıt **ERP çağrısından önce** yazılır (`status` = `Başarısız`,
+`last_error` = "Gönderim sürüyor"), sonra ERP cevabı yazılır. Böylece cevabı hiç gelmeyen bir gönderim de sayılmış olur.
+
+### Zaman aşımı: neden 10 sn?
+
+`HttpClient.Timeout` varsayılanı **100 saniyedir**. Bizim için uygun değil çünkü:
+
+- `POST /api/v1/invoices` ERP cevabını aynı istekte bekliyor; simülatör geç cevapta 30 sn bekletiyor, takılan bir
+  ERP'de ise çağıran taraf 100 sn bekler. Çoğu istemci, proxy ve gateway bundan önce vazgeçer: servis sonucu yazar
+  ama çağıran hiç görmez.
+- Beklenen her istek bir bağlantı, bir istek ve bir DB context'i açık tutar; ERP yavaşladığında bunlar birikir.
+- 100 sn, "ERP yavaş" ile "ERP cevap vermiyor" arasında ayrım yapmaz; normal bir ERP cevabı milisaniyeler sürüyor.
+
+Zaman aşımı "ERP kaydetmedi" demek değildir: simülatör geç cevapta faturayı **önce kaydedip sonra bekler**, bu yüzden
+servis `Başarısız` yazarken fatura ERP'de kayıtlı olabilir (kontrol listesi madde 6).
+
+### Kontrol listesi
+
+PowerShell script'leri: [`manual-tests/gun2/`](manual-tests/gun2/README.md). İki tarafı karşılaştıran script:
+`.\manual-tests\gun2\karsilastir.ps1` (servisteki her faturayı simülatörün GET endpoint'iyle sorgular).
+
+`dotnet test invoice-service`: 23/23 (ERP cevap eşlemesi, zaman aşımı, ulaşılamayan ERP, fatura numarası biçimi,
+doğrulama, ayarlar).

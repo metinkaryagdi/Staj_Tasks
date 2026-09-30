@@ -16,6 +16,8 @@ services:
       interval: 2s
       timeout: 3s
       retries: 20
+    networks:
+      - erp-data
 
   erp-simulator:
     build: ./erp-simulator
@@ -36,9 +38,53 @@ services:
     volumes:
       # Settings file is mounted so rates can be changed without rebuilding; restart the container to apply.
       - ./erp-simulator/src/ErpSimulator/appsettings.json:/app/appsettings.json:ro
+    networks:
+      - erp-data
+      - apps
     depends_on:
       erp-db:
         condition: service_healthy
 
+  # Fatura Servisi'nin kendi veritabanı. Ayrı ağda: simülatör buna, Fatura Servisi de erp-db'ye ulaşamaz.
+  invoice-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: invoice_service
+      POSTGRES_USER: invoice
+      POSTGRES_PASSWORD: invoice
+    ports:
+      - "5434:5432"
+    volumes:
+      - invoice-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoice -d invoice_service"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks:
+      - invoice-data
+
+  invoice-service:
+    build: ./invoice-service
+    ports:
+      - "5090:8080"
+    environment:
+      ConnectionStrings__InvoiceDb: "Host=invoice-db;Database=invoice_service;Username=invoice;Password=invoice;GSS Encryption Mode=Disable"
+      Erp__BaseUrl: "http://erp-simulator:8080"
+    networks:
+      - invoice-data
+      - apps
+    # No depends_on erp-simulator on purpose: the service must start (and record failures) even when the ERP is down.
+    depends_on:
+      invoice-db:
+        condition: service_healthy
+
+networks:
+  # Each database is reachable only from its own application; the two applications talk over "apps".
+  erp-data:
+  invoice-data:
+  apps:
+
 volumes:
   erp-db-data:
+  invoice-db-data:
