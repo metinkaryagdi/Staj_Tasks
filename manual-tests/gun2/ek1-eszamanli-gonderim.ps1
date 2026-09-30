@@ -54,13 +54,16 @@ Show-ErpQuery "SELECT id, invoice_number, erp_reference, behavior, received_at F
 
 $row = @(Get-ServiceRows "SELECT status, coalesce(erp_reference, ''), coalesce(last_error, ''), send_attempt_count FROM invoices WHERE invoice_number = '$a';")[0] -split '\|'
 $erpRefs = @(Get-ErpRows "SELECT erp_reference FROM invoices WHERE invoice_number = '$a' ORDER BY id;")
-$consistent = ($row[0] -eq 'Gönderildi' -and $row[1] -and -not $row[2]) -or ($row[0] -eq 'Başarısız' -and -not $row[1] -and $row[2])
+# Seed 42 + %50/%50 ile sonuç kesin: 1. gönderim (POST) LateResponse, 2. gönderim (resend) Success.
+# Satır son gönderimin (deneme 2) başarılı sonucunu taşımalı: referans ERP'deki 2. kayıt, hata boş.
+$successRef = @(Get-ErpRows "SELECT erp_reference FROM invoices WHERE invoice_number = '$a' AND behavior = 'Success';")
 Write-Host ''
-$dbA = Write-DbVerdict ('Gönderildi ise erp_reference dolu ve last_error boş (Başarısız ise tersi); deneme 2; ' +
-        'ERP''de 2 kayıt (çift gönderim engellenmiyor); servisteki referans ERP kayıtlarından biri') `
-    ("$($row[0]), erp_reference=$(if ($row[1]) { $row[1] } else { 'boş' }), last_error=$(if ($row[2]) { 'dolu' } else { 'boş' }), " +
-     "deneme $($row[3]); ERP'de $($erpRefs.Count) kayıt ($($erpRefs -join ', '))") `
-    ($consistent -and [int]$row[3] -eq 2 -and $erpRefs.Count -eq 2 -and (-not $row[1] -or $erpRefs -contains $row[1]))
+$dbA = Write-DbVerdict ('Gönderildi; erp_reference = ERP''deki Success kaydı; last_error boş; deneme 2; ' +
+        'ERP''de 2 kayıt (çift gönderim engellenmiyor); resend 200, ilk POST 201') `
+    ("$($row[0]); erp_reference=$(if ($row[1]) { $row[1] } else { 'boş' }); last_error=$(if ($row[2]) { 'dolu' } else { 'boş' }); " +
+     "deneme $($row[3]); ERP'de $($erpRefs.Count) kayıt ($($erpRefs -join ', ')); resend $($resend.HttpStatus), ilk POST $($post.HttpStatus)") `
+    ($row[0] -eq 'Gönderildi' -and $successRef.Count -eq 1 -and $row[1] -eq $successRef[0] -and -not $row[2] -and
+     [int]$row[3] -eq 2 -and $erpRefs.Count -eq 2 -and $resend.HttpStatus -eq 200 -and $post.HttpStatus -eq 201)
 
 Write-Result $dbA "resend: $($resend.HttpStatus) $($resend.Status); ilk POST: $($post.HttpStatus) ($($post.Seconds) sn); satır: $($row[0])"
 
@@ -97,9 +100,10 @@ Write-Host '  (Busy kayıt açmadığı için simülatör veritabanında 0 kayı
 Write-Host "  Simülatör logundaki POST sayısı (invoice=$b): $posts" -ForegroundColor DarkGray
 
 $count = [int]@(Get-ServiceRows "SELECT send_attempt_count FROM invoices WHERE invoice_number = '$b';")[0]
+$all200 = @($tasks | Where-Object { [int]$_.Result.StatusCode -ne 200 }).Count -eq 0
 Write-Host ''
-$dbB = Write-DbVerdict "send_attempt_count = simülatörün gördüğü POST sayısı = $expected (1 + $Parallel)" `
-    "send_attempt_count = $count, simülatörün gördüğü POST = $posts" ($count -eq $expected -and $posts -eq $expected)
+$dbB = Write-DbVerdict "$Parallel resend'in hepsi 200; send_attempt_count = simülatörün gördüğü POST sayısı = $expected (1 + $Parallel)" `
+    "cevaplar: $codes; send_attempt_count = $count, simülatörün gördüğü POST = $posts" ($all200 -and $count -eq $expected -and $posts -eq $expected)
 
 Write-Result $dbB "cevaplar: $codes; sayaç $count / gerçek gönderim $posts"
 
