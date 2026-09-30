@@ -29,7 +29,8 @@ public sealed partial record CreateInvoiceRequest(
         return errors;
     }
 
-    [GeneratedRegex("^[A-Z]{3}$")]
+    // \z, not $: in .NET $ also matches before a trailing newline, which let "TRY\n" through.
+    [GeneratedRegex(@"^[A-Z]{3}\z")]
     private static partial Regex CurrencyPattern();
 }
 

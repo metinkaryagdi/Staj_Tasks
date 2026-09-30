@@ -24,6 +24,7 @@ QA denetiminde bulunan hataların düzeltmeleri için ek testler (kontrol listes
 | Ek 1 | Aynı faturanın gönderimleri üst üste binince satır tek bir gönderimin tutarlı sonucunu taşıyor, `send_attempt_count` eksik saymıyor (çift gönderim engellenmiyor) | `.\manual-tests\gun2\ek1-eszamanli-gonderim.ps1` | ~30 sn |
 | Ek 2 | `NaN` / `Infinity` gibi sayı olmayan oranlarla da simülatör açılmıyor, mesajda gelen toplam yazıyor; toplamı 100 olan ondalıklı oranlarla açılıyor | `.\manual-tests\gun2\ek2-sayi-olmayan-oran.ps1` | ~1 dk |
 | Ek 3 | Karşılaştırma script'i yalnızca 404'ü "simülatörde yok" sayıyor; 500 ya da bağlantı hatasında fatura "sorgulanamadı" satırına düşüyor (500 dönen sahte ERP ve durdurulmuş simülatörle) | `.\manual-tests\gun2\ek3-karsilastirma-hata.ps1` | ~30 sn |
+| Ek 4 | Para birimi tam olarak 3 büyük harf: `"TRY\n"`, `" TRY"`, `"try"`, `"TRYY"` gibi değerler 400 alıyor, kayıt/numara/ERP isteği oluşmuyor; `TRY` kabul ediliyor | `.\manual-tests\gun2\ek4-para-birimi.ps1` | ~10 sn |
 
 3 ve 4 sırayla çalıştırılmalı: 3 fatura aralığını `manual-tests\output\gun2-3.json`'a yazar, 4 aynı aralığı kullanır
 ve simülatörü yeniden başlatmaz (seed 42 dizisi kaldığı yerden devam eder). 3 simülatörü yeniden oluşturduğu için

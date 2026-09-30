@@ -33,6 +33,20 @@ public class InvoiceRulesTests
             errors.Keys.Order().ToArray());
     }
 
+    [Theory]
+    [InlineData("TRY\n")]   // .NET's $ also matches before a final newline
+    [InlineData("TRY\r\n")]
+    [InlineData(" TRY")]
+    [InlineData("TRY ")]
+    [InlineData("try")]
+    [InlineData("TR")]
+    [InlineData("TRYY")]
+    public void Currency_must_be_exactly_three_capital_letters(string currency)
+    {
+        var errors = new CreateInvoiceRequest("C-001", 10m, currency, new DateOnly(2026, 9, 30)).Validate();
+        Assert.Contains("Currency", errors.Keys);
+    }
+
     [Fact]
     public void Amount_with_more_than_two_decimals_is_rejected()
     {
