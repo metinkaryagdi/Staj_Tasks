@@ -17,6 +17,12 @@ Script'ler engellenirse: `Set-ExecutionPolicy -Scope Process Bypass`.
 | 5 | Simülatör durdurulmuşken fatura oluştur | `.\manual-tests\gun2\5-simulator-kapali.ps1` | ~15 sn |
 | 6 | Geç cevap %100 → servis 10 sn'de Başarısız, fatura simülatörde kayıtlı | `.\manual-tests\gun2\6-gec-cevap.ps1` | ~45 sn |
 
+QA denetiminde bulunan hataların düzeltmeleri için ek testler (kontrol listesinin parçası değil):
+
+| # | Ne kontrol ediliyor | Komut | Süre |
+|---|---|---|---|
+| Ek 1 | Aynı faturanın gönderimleri üst üste binince satır tek bir gönderimin tutarlı sonucunu taşıyor, `send_attempt_count` eksik saymıyor (çift gönderim engellenmiyor) | `.\manual-tests\gun2\ek1-eszamanli-gonderim.ps1` | ~30 sn |
+
 3 ve 4 sırayla çalıştırılmalı: 3 fatura aralığını `manual-tests\output\gun2-3.json`'a yazar, 4 aynı aralığı kullanır
 ve simülatörü yeniden başlatmaz (seed 42 dizisi kaldığı yerden devam eder). 3 simülatörü yeniden oluşturduğu için
 dizi her çalıştırmada baştan başlar; sonuçlar her seferinde aynı çıkar.

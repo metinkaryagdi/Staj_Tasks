@@ -82,6 +82,14 @@ function Write-ServiceResult($r) {
         $r.InvoiceNumber, $r.HttpStatus, $r.Status, $r.Attempts, $r.Seconds, $detail) -ForegroundColor $color
 }
 
+function Get-ServiceLog {
+    Push-Location $RepoRoot
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & docker compose logs invoice-service --no-log-prefix 2>$null }
+    finally { $ErrorActionPreference = $previous; Pop-Location }
+}
+
 # Simülatör loglarından "invoice=FTR-... behavior=X" satırlarını okur: her fatura için seçilen davranışlar (sırayla).
 function Get-SimulatorBehaviors {
     $map = @{}
