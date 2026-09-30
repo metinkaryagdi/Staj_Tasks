@@ -19,17 +19,15 @@ $results = foreach ($i in 1..$Count) { $r = New-ServiceInvoice; Write-ServiceRes
 $from = $results[0].InvoiceNumber
 $to = $results[-1].InvoiceNumber
 
-Write-Step "Servis veritabanı ($from .. $to)"
-Invoke-ServiceSql ("SELECT status, count(*) AS kayit, count(DISTINCT erp_reference) AS farkli_referans, " +
-    "min(invoice_number) AS ilk, max(invoice_number) AS son FROM invoices " +
-    "WHERE invoice_number BETWEEN '$from' AND '$to' GROUP BY status;") | Out-Host
-
-Write-Step 'Karşılaştırma script''i'
+Write-Step 'Karşılaştırma script''i (simülatörün GET endpoint''i ile)'
 $c = Compare-Invoices -From $from -To $to
 
-$passed = $c.Total -eq $Count -and $c.SentFound -eq $Count -and $c.SimulatorRecords -eq $Count -and
+$dbOk = Test-DbAllSent -Title 'Madde 2: iki tarafta aynı faturalar, aynı referanslar' -From $from -To $to -Count $Count
+
+$httpOk = $c.Total -eq $Count -and $c.SentFound -eq $Count -and $c.SimulatorRecords -eq $Count -and
     $c.ReferenceMatches -eq $Count
-Write-Result $passed ("serviste $($c.Total) kayıt, $($c.SentFound + $c.SentMissing) Gönderildi; simülatörde " +
-    "$($c.SimulatorRecords) kayıt; erp_reference aynı: $($c.ReferenceMatches)/$Count")
+Write-Result ($httpOk -and $dbOk) ("serviste $($c.Total) kayıt, $($c.SentFound + $c.SentMissing) Gönderildi; simülatörde " +
+    "$($c.SimulatorRecords) kayıt; erp_reference aynı: $($c.ReferenceMatches)/$Count; " +
+    "veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'KALDI' })")
 
 Restart-Simulator

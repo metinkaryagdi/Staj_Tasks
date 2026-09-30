@@ -18,11 +18,6 @@ Write-Step "POST $ServiceUrl/api/v1/invoices  (başlangıç $($start.ToString('H
 $r = New-ServiceInvoice
 Write-ServiceResult $r
 
-Write-Step 'Servis veritabanı'
-Invoke-ServiceSql ("SELECT invoice_number, status, erp_reference, last_error, send_attempt_count, " +
-    "round(extract(epoch FROM updated_at - created_at)::numeric, 2) AS saniye FROM invoices " +
-    "WHERE invoice_number = '$($r.InvoiceNumber)';") | Out-Host
-
 $early = Get-SimulatorInvoice $r.InvoiceNumber
 Write-Step "Simülatör GET, başlangıçtan $([math]::Round(((Get-Date) - $start).TotalSeconds))s sonra"
 Write-Host "  $($early.HttpStatus) $($early.Body)"
@@ -39,9 +34,11 @@ Write-Host "  $($late.HttpStatus) $($late.Body)"
 Write-Step 'Simülatör logu (bu fatura)'
 Get-SimulatorLog | Where-Object { $_ -match [regex]::Escape($r.InvoiceNumber) } | ForEach-Object { Write-Host "  $_" }
 
+$dbOk = Test-DbLateResponse -Title 'Madde 6: serviste Başarısız, simülatörde kayıtlı' -InvoiceNumber $r.InvoiceNumber
+
 $passed = $r.Status -eq 'Başarısız' -and $r.Seconds -ge 9.5 -and $r.Seconds -lt 12 -and $r.LastError -match 'zaman aşımı' -and
-    $late.HttpStatus -eq 200 -and $late.RecordCount -eq 1
+    $late.HttpStatus -eq 200 -and $late.RecordCount -eq 1 -and $dbOk
 Write-Result $passed ("servis $($r.Seconds) sn'de $($r.Status) yazdı; 30 sn sonra simülatörde $($late.RecordCount) kayıt " +
-    "($($late.References -join ','))")
+    "($($late.References -join ',')); veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'KALDI' })")
 
 Restart-Simulator

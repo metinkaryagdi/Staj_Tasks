@@ -23,9 +23,12 @@ $behaviors = Get-SimulatorBehaviors
 $results | Group-Object { ($behaviors[$_.InvoiceNumber] -join ' -> ') + ' => ' + $_.Status } |
     Sort-Object Count -Descending | ForEach-Object { Write-Host ('  {0,-52} {1,4}' -f $_.Name, $_.Count) }
 
-Write-Step "Karşılaştırma ($From .. $To)"
+Write-Step "Karşılaştırma script'i ($From .. $To, simülatörün GET endpoint'i ile)"
 $c = Compare-Invoices -From $From -To $To
 
+$dbOk = Test-DbResend -Title 'Madde 4: deneme sayıları ve simülatörde birden fazla kaydı olan faturalar' -From $From -To $To -HttpComparison $c
+
 $allResent = $results.Count -eq $failed.Count -and @($results | Where-Object HttpStatus -ne 200).Count -eq 0
-Write-Result $allResent ("$($failed.Count) fatura yeniden gönderildi; Gönderildi+var: $($c.SentFound), " +
-    "Başarısız+yok: $($c.FailedMissing), Başarısız+var: $($c.FailedFound), birden fazla kayıt: $($c.MultipleRecords)")
+Write-Result ($allResent -and $dbOk) ("$($failed.Count) fatura yeniden gönderildi; Gönderildi+var: $($c.SentFound), " +
+    "Başarısız+yok: $($c.FailedMissing), Başarısız+var: $($c.FailedFound), birden fazla kayıt: $($c.MultipleRecords); " +
+    "veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'KALDI' })")

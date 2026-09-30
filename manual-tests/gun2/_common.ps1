@@ -162,3 +162,157 @@ function Read-Range([string]$Name) {
     if (-not (Test-Path $path)) { return $null }
     Get-Content $path -Raw | ConvertFrom-Json
 }
+
+# ---------------------------------------------------------------------------
+# Veritabanı kontrolleri (Gün 1'deki gibi): çalıştırılan SQL, gelen tablo, beklenen/gelen.
+# İki veritabanı ayrı olduğu için tek sorguda birleştirilemez: her kontrol önce servisin (invoice-db),
+# sonra simülatörün (erp-db) tablosunu gösterir, karşılaştırmayı PowerShell tarafında yapar.
+# Script'ler veritabanlarına docker üzerinden bağlanır; uygulamalar birbirinin veritabanını yine görmez.
+# ---------------------------------------------------------------------------
+
+function Show-ServiceQuery([string]$Sql) {
+    Write-Host ''
+    Write-Host "Fatura Servisi (invoice-db) SQL: $Sql" -ForegroundColor DarkGray
+    Invoke-ServiceSql $Sql | Out-Host
+}
+
+function Show-ErpQuery([string]$Sql) {
+    Write-Host ''
+    Write-Host "ERP Simülatörü (erp-db) SQL: $Sql" -ForegroundColor DarkGray
+    Invoke-Sql $Sql | Out-Host
+}
+
+function Get-ErpRows([string]$Sql) {
+    Push-Location $RepoRoot
+    try { @(& docker compose exec -T erp-db psql -U erp -d erp_simulator -tA -F '|' -c $Sql | Where-Object { $_ }) }
+    finally { Pop-Location }
+}
+
+function Write-ServiceManualQuery([string]$Sql) {
+    Write-Host "  Kayıtları tek tek görmek için: .\manual-tests\gun2\db.ps1 -Sql `"$Sql`"" -ForegroundColor DarkGray
+}
+
+# Karşılaştırma tablosunu HTTP yerine doğrudan iki veritabanından hesaplar.
+# Karşılaştırma script'inin (simülatörün GET endpoint'i) sonucuyla aynı çıkmalı.
+function Get-DbComparison([string]$From, [string]$To) {
+    $range = "invoice_number BETWEEN '$From' AND '$To'"
+    $erp = @{}
+    foreach ($row in @(Get-ErpRows "SELECT invoice_number, count(*), string_agg(erp_reference, ',' ORDER BY id) FROM invoices WHERE $range GROUP BY 1;")) {
+        $number, $count, $refs = $row -split '\|'
+        $erp[$number] = @{ Count = [int]$count; References = @($refs -split ',') }
+    }
+
+    $c = [ordered]@{ Total = 0; SentFound = 0; SentMissing = 0; FailedMissing = 0; FailedFound = 0
+                     MultipleRecords = 0; ReferenceMatches = 0; SimulatorRecords = 0 }
+    foreach ($row in @(Get-ServiceRows "SELECT invoice_number, status, coalesce(erp_reference, '') FROM invoices WHERE $range;")) {
+        $number, $status, $reference = $row -split '\|'
+        $found = $erp.ContainsKey($number)
+        $c.Total++
+        if ($found) {
+            $c.SimulatorRecords += $erp[$number].Count
+            if ($erp[$number].Count -gt 1) { $c.MultipleRecords++ }
+        }
+        if ($status -eq 'Gönderildi') {
+            if ($found) { $c.SentFound++ } else { $c.SentMissing++ }
+            if ($found -and $erp[$number].References -contains $reference) { $c.ReferenceMatches++ }
+        }
+        elseif ($found) { $c.FailedFound++ }
+        else { $c.FailedMissing++ }
+    }
+    [pscustomobject]$c
+}
+
+function Format-Comparison($c) {
+    "Gönderildi+var $($c.SentFound), Başarısız+yok $($c.FailedMissing), Başarısız+var $($c.FailedFound), " +
+    "Gönderildi+yok $($c.SentMissing), birden fazla kayıt $($c.MultipleRecords), simülatörde $($c.SimulatorRecords) kayıt"
+}
+
+# Madde 2: serviste hepsi Gönderildi, simülatörde her fatura tek kayıt, fatura no -> erp_reference çiftleri birebir aynı.
+function Test-DbAllSent([string]$Title, [string]$From, [string]$To, [int]$Count) {
+    Write-DbHeader $Title "Fatura aralığı: $From .. $To"
+    $range = "invoice_number BETWEEN '$From' AND '$To'"
+
+    Show-ServiceQuery ("SELECT status, count(*) AS kayit, count(DISTINCT erp_reference) AS farkli_referans, " +
+        "min(erp_reference) AS ilk_referans, max(erp_reference) AS son_referans FROM invoices WHERE $range GROUP BY status;")
+    Show-ErpQuery ("SELECT behavior, count(*) AS kayit, count(DISTINCT invoice_number) AS farkli_fatura, " +
+        "min(erp_reference) AS ilk_referans, max(erp_reference) AS son_referans FROM invoices WHERE $range GROUP BY behavior;")
+    Write-ServiceManualQuery "SELECT invoice_number, status, erp_reference FROM invoices WHERE $range ORDER BY 1;"
+
+    $servicePairs = @(Get-ServiceRows "SELECT invoice_number || '=' || coalesce(erp_reference, '-') FROM invoices WHERE $range AND status = 'Gönderildi' ORDER BY 1;")
+    $erpPairs = @(Get-ErpRows "SELECT invoice_number || '=' || erp_reference FROM invoices WHERE $range ORDER BY 1;")
+    $same = @($servicePairs | Where-Object { $erpPairs -contains $_ }).Count
+
+    Write-Host ''
+    Write-DbVerdict "serviste $Count Gönderildi, simülatörde $Count kayıt, $Count fatura no = erp_reference çifti iki tarafta aynı" `
+        "serviste $($servicePairs.Count) Gönderildi, simülatörde $($erpPairs.Count) kayıt, $same çift aynı" `
+        ($servicePairs.Count -eq $Count -and $erpPairs.Count -eq $Count -and $same -eq $Count)
+}
+
+# Madde 3: servisteki durum/hata dağılımı ile simülatörün kaydettiği davranışlar; tablo veritabanından yeniden hesaplanır.
+function Test-DbDefaultRun([string]$Title, [string]$From, [string]$To, $HttpComparison) {
+    Write-DbHeader $Title "Fatura aralığı: $From .. $To"
+    $range = "invoice_number BETWEEN '$From' AND '$To'"
+
+    Show-ServiceQuery ("SELECT status, CASE WHEN last_error IS NULL THEN '-' WHEN last_error LIKE '%zaman aşımı%' THEN 'zaman aşımı' " +
+        "ELSE substring(last_error FROM '^ERP ([0-9]{3})') END AS hata, count(*) AS fatura FROM invoices WHERE $range GROUP BY 1, 2 ORDER BY 1, 2;")
+    Show-ErpQuery ("SELECT behavior, count(*) AS kayit FROM invoices WHERE $range GROUP BY behavior ORDER BY behavior;")
+    Write-Host '  (Busy ve ServerError simülatörde kayıt açmaz; SaveThenError ve LateResponse açar ama servise başarı dönmez.)' -ForegroundColor DarkGray
+
+    $db = Get-DbComparison $From $To
+    Write-Host ''
+    Write-DbVerdict "veritabanlarından hesaplanan tablo, karşılaştırma script'iyle (HTTP) aynı: $(Format-Comparison $HttpComparison)" `
+        (Format-Comparison $db) ((Format-Comparison $db) -eq (Format-Comparison $HttpComparison))
+}
+
+# Madde 4: resend sonrası deneme sayıları ve simülatörde birden fazla kaydı olan faturalar.
+function Test-DbResend([string]$Title, [string]$From, [string]$To, $HttpComparison) {
+    Write-DbHeader $Title "Fatura aralığı: $From .. $To"
+    $range = "invoice_number BETWEEN '$From' AND '$To'"
+
+    Show-ServiceQuery ("SELECT status, send_attempt_count AS deneme, count(*) AS fatura FROM invoices " +
+        "WHERE $range GROUP BY 1, 2 ORDER BY 1, 2;")
+    Show-ErpQuery ("SELECT invoice_number, count(*) AS kayit, string_agg(erp_reference || ' ' || behavior, ', ' ORDER BY id) AS kayitlar " +
+        "FROM invoices WHERE $range GROUP BY invoice_number HAVING count(*) > 1 ORDER BY invoice_number;")
+
+    $db = Get-DbComparison $From $To
+    Write-Host ''
+    Write-DbVerdict "veritabanlarından hesaplanan tablo, karşılaştırma script'iyle (HTTP) aynı: $(Format-Comparison $HttpComparison)" `
+        (Format-Comparison $db) ((Format-Comparison $db) -eq (Format-Comparison $HttpComparison))
+}
+
+# Madde 5: fatura serviste Başarısız olarak var, simülatöre hiç ulaşmadığı için erp-db'de yok.
+function Test-DbErpDown([string]$Title, [string]$InvoiceNumber) {
+    Write-DbHeader $Title "Fatura numarası: $InvoiceNumber"
+    Show-ServiceQuery ("SELECT invoice_number, status, erp_reference, last_error, send_attempt_count, created_at, updated_at " +
+        "FROM invoices WHERE invoice_number = '$InvoiceNumber';")
+    Show-ErpQuery "SELECT count(*) AS kayit FROM invoices WHERE invoice_number = '$InvoiceNumber';"
+
+    $status = @(Get-ServiceRows "SELECT status FROM invoices WHERE invoice_number = '$InvoiceNumber';")
+    $erpCount = [int](@(Get-ErpRows "SELECT count(*) FROM invoices WHERE invoice_number = '$InvoiceNumber';")[0])
+
+    Write-Host ''
+    Write-DbVerdict 'serviste 1 kayıt (Başarısız), simülatörde 0 kayıt' `
+        "serviste $($status.Count) kayıt ($(if ($status) { $status[0] } else { '-' })), simülatörde $erpCount kayıt" `
+        ($status.Count -eq 1 -and $status[0] -eq 'Başarısız' -and $erpCount -eq 0)
+}
+
+# Madde 6: serviste 10 sn sonra Başarısız; simülatörde isteğin geldiği anda LateResponse olarak kayıtlı.
+function Test-DbLateResponse([string]$Title, [string]$InvoiceNumber) {
+    Write-DbHeader $Title "Fatura numarası: $InvoiceNumber"
+    Show-ServiceQuery ("SELECT invoice_number, status, erp_reference, last_error, created_at, updated_at, " +
+        "round(extract(epoch FROM updated_at - created_at)::numeric, 2) AS saniye FROM invoices WHERE invoice_number = '$InvoiceNumber';")
+    Show-ErpQuery "SELECT id, invoice_number, erp_reference, behavior, received_at FROM invoices WHERE invoice_number = '$InvoiceNumber' ORDER BY id;"
+
+    $service = @(Get-ServiceRows ("SELECT status, round(extract(epoch FROM updated_at - created_at)::numeric, 2), " +
+        "extract(epoch FROM created_at) FROM invoices WHERE invoice_number = '$InvoiceNumber';"))
+    $erp = @(Get-ErpRows "SELECT behavior, extract(epoch FROM received_at) FROM invoices WHERE invoice_number = '$InvoiceNumber';")
+    $status, $seconds, $createdEpoch = if ($service) { $service[0] -split '\|' } else { '', '0', '0' }
+    $behavior, $receivedEpoch = if ($erp) { $erp[0] -split '\|' } else { '', '0' }
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $gap = [math]::Round([double]::Parse($receivedEpoch, $inv) - [double]::Parse($createdEpoch, $inv), 2)
+
+    Write-Host ''
+    Write-DbVerdict 'serviste ~10 sn sonra Başarısız; simülatörde 1 LateResponse kaydı, servis faturayı oluşturduktan hemen sonra yazılmış' `
+        "serviste $status ($seconds sn); simülatörde $($erp.Count) kayıt ($behavior), servis kaydından $gap sn sonra" `
+        ($status -eq 'Başarısız' -and [double]::Parse($seconds, $inv) -ge 9.5 -and $erp.Count -eq 1 -and $behavior -eq 'LateResponse' -and [math]::Abs($gap) -lt 2)
+}

@@ -23,6 +23,12 @@ dizi her çalıştırmada baştan başlar; sonuçlar her seferinde aynı çıkar
 
 Her script simülatörü gerekirse kendi ayarlarıyla yeniden başlatır ve sonunda `appsettings.json` ayarlarına döndürür.
 
+2-6. maddeler Gün 1'deki gibi bir **VERİTABANI KONTROLÜ** bölümüyle biter: önce Fatura Servisi'nin (`invoice-db`), sonra
+simülatörün (`erp-db`) tablosu gösterilir; çalıştırılan SQL, gelen tablo ve beklenen/gelen karşılaştırması yazılır.
+İki veritabanı ayrı olduğu için tek sorguda birleştirilemez; karşılaştırma script tarafında yapılır. 3 ve 4'te karşılaştırma
+tablosu bir kez de doğrudan iki veritabanından hesaplanır ve simülatörün GET endpoint'iyle bulunan sonuçla aynı olmalıdır.
+`SONUÇ` satırı HTTP sonucuyla veritabanı sonucunu birleştirir.
+
 ## Karşılaştırma script'i
 
 ```powershell
@@ -50,7 +56,9 @@ Fatura listesini ve durumlarını servisin veritabanından (`invoice-db`) okur, 
 | Kullanıcı / şifre | `invoice` / `invoice` | `erp` / `erp` |
 
 ```powershell
-docker compose exec invoice-db psql -U invoice -d invoice_service
+.\manual-tests\gun2\db.ps1                                              # Fatura Servisi, etkileşimli psql (\q ile çıkılır)
+.\manual-tests\gun2\db.ps1 -Sql "SELECT status, count(*) FROM invoices GROUP BY status;"
+.\manual-tests\gun1\db.ps1                                              # ERP Simülatörü
 ```
 
 ## Loglar

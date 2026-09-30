@@ -20,9 +20,12 @@ $behaviors = Get-SimulatorBehaviors
 $results | Group-Object { ($behaviors[$_.InvoiceNumber] -join ',') + ' -> ' + $_.Status } |
     Sort-Object Count -Descending | ForEach-Object { Write-Host ('  {0,-40} {1,4}' -f $_.Name, $_.Count) }
 
-Write-Step "Karşılaştırma ($from .. $to)"
+Write-Step "Karşılaştırma script'i ($from .. $to, simülatörün GET endpoint'i ile)"
 $c = Compare-Invoices -From $from -To $to
 
-Write-Result ($c.Total -eq $Count -and $c.SentMissing -eq 0) `
-    "Gönderildi+var: $($c.SentFound), Başarısız+yok: $($c.FailedMissing), Başarısız+var: $($c.FailedFound)"
+$dbOk = Test-DbDefaultRun -Title 'Madde 3: servis durumu ve simülatör kayıtları' -From $from -To $to -HttpComparison $c
+
+Write-Result ($c.Total -eq $Count -and $c.SentMissing -eq 0 -and $dbOk) `
+    ("Gönderildi+var: $($c.SentFound), Başarısız+yok: $($c.FailedMissing), Başarısız+var: $($c.FailedFound); " +
+     "veritabanı kontrolü: $(if ($dbOk) { 'geçti' } else { 'KALDI' })")
 Write-Host "  Aralık kaydedildi: $from .. $to  (sonraki adım: .\manual-tests\gun2\4-yeniden-gonder.ps1)" -ForegroundColor DarkGray
