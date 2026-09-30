@@ -1,6 +1,6 @@
 ﻿# Simülatörün veritabanını (PostgreSQL) açar.
-#   .\manual-tests\db.ps1                 -> etkileşimli psql oturumu açar (çıkmak için \q)
-#   .\manual-tests\db.ps1 -Sql "SELECT ..." -> tek bir sorgu çalıştırıp çıkar
+#   .\manual-tests\gun1\db.ps1                 -> etkileşimli psql oturumu açar (çıkmak için \q)
+#   .\manual-tests\gun1\db.ps1 -Sql "SELECT ..." -> tek bir sorgu çalıştırıp çıkar
 param([string]$Sql)
 . "$PSScriptRoot\_common.ps1"
 

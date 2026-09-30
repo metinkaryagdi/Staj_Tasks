@@ -1,9 +1,9 @@
-﻿# manual-tests içindeki bütün script'lerin kullandığı ortak yardımcılar.
+﻿# manual-tests içindeki (gun1 ve gun2) bütün script'lerin kullandığı ortak yardımcılar.
 # Doğrudan çalıştırılmaz; diğer script'ler bunu ". $PSScriptRoot\_common.ps1" ile yükler.
 
-$RepoRoot = Split-Path $PSScriptRoot -Parent
+$RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $BaseUrl  = 'http://localhost:5080'
-$OutputDir = Join-Path $PSScriptRoot 'output'
+$OutputDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'output'
 
 Add-Type -AssemblyName System.Net.Http
 $script:Http = New-Object System.Net.Http.HttpClient
@@ -186,7 +186,7 @@ function Write-DbVerdict([string]$Expected, [string]$Actual, [bool]$Passed) {
 }
 
 function Write-ManualQuery([string]$Sql) {
-    Write-Host "  Kayıtları tek tek görmek için: .\manual-tests\db.ps1 -Sql `"$Sql`"" -ForegroundColor DarkGray
+    Write-Host "  Kayıtları tek tek görmek için: .\manual-tests\gun1\db.ps1 -Sql `"$Sql`"" -ForegroundColor DarkGray
 }
 
 # Test 1, 3, 4: öneki taşıyan $Count kaydın hepsi veritabanında, hepsi $Behavior ve hepsinin referansı farklı olmalı.

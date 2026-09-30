@@ -104,7 +104,7 @@ Tek seferlik değişiklik ortam değişkeniyle de yapılabilir (toplam yine 100 
 Yedi madde iki yoldan çalıştırıldı ve ikisinde de geçti:
 
 - **Otomatik:** `./scripts/erp-simulator-checklist.sh` (bash, docker compose üzerinde uçtan uca)
-- **Elle:** [`manual-tests/`](manual-tests/README.md) altındaki PowerShell script'leri. Her script önce testin kendi çıktısını, ardından **veritabanı kontrolünü** (SQL, gelen tablo, beklenen/gelen) verir.
+- **Elle:** [`manual-tests/gun1/`](manual-tests/gun1/README.md) altındaki PowerShell script'leri. Her script önce testin kendi çıktısını, ardından **veritabanı kontrolünü** (SQL, gelen tablo, beklenen/gelen) verir.
 
 Her senaryo simülatörü kendi oranlarıyla yeniden başlatır. Tablodaki değerler elle test çalıştırmasından.
 
@@ -127,16 +127,16 @@ Busy Success Success Busy Success Success Success Success Success ServerError Su
 ### Nasıl çalıştırılır
 
 ```powershell
-.\manual-tests\1-hata-yok.ps1
+.\manual-tests\gun1\1-hata-yok.ps1
 ```
 
 Diğerleri: `2-mesgul.ps1`, `3-kaydet-hata.ps1`, `4-gec-cevap.ps1`, `5-cift-kayit.ps1`, `6-seed.ps1`, `7-sorgu.ps1`.
-Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`. Parametreler ve ayrıntılar: [`manual-tests/README.md`](manual-tests/README.md).
+Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`. Parametreler ve ayrıntılar: [`manual-tests/gun1/README.md`](manual-tests/gun1/README.md).
 
 | Yardımcı | Kullanım |
 |---|---|
-| `.\manual-tests\db.ps1` | Veritabanını açar (`psql`, çıkmak için `\q`). Tek sorgu: `-Sql "SELECT ..."` |
-| `.\manual-tests\loglar.ps1` | Simülatör loglarını canlı izler; `-Tail 50` son 50 satır |
+| `.\manual-tests\gun1\db.ps1` | Veritabanını açar (`psql`, çıkmak için `\q`). Tek sorgu: `-Sql "SELECT ..."` |
+| `.\manual-tests\gun1\loglar.ps1` | Simülatör loglarını canlı izler; `-Tail 50` son 50 satır |
 
 ```bash
 ./scripts/erp-simulator-checklist.sh

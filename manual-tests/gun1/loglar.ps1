@@ -1,6 +1,6 @@
 ﻿# Simülatörün loglarını gösterir. Her POST için seçilen davranış burada görünür.
-#   .\manual-tests\loglar.ps1           -> canlı takip (durdurmak için Ctrl+C)
-#   .\manual-tests\loglar.ps1 -Tail 50  -> son 50 satırı gösterip çıkar
+#   .\manual-tests\gun1\loglar.ps1           -> canlı takip (durdurmak için Ctrl+C)
+#   .\manual-tests\gun1\loglar.ps1 -Tail 50  -> son 50 satırı gösterip çıkar
 param([int]$Tail = 0)
 . "$PSScriptRoot\_common.ps1"
 

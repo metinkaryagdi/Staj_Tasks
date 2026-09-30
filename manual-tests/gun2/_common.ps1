@@ -1,6 +1,6 @@
-﻿# Gün 2 (Fatura Servisi) script'lerinin ortak yardımcıları. Gün 1'in _common.ps1'ini de yükler
+﻿# Gün 2 (Fatura Servisi) script'lerinin ortak yardımcıları. Gün 1'in gun1\_common.ps1'ini de yükler
 # (Restart-Simulator, Write-Title, Invoke-Compose ...). Doğrudan çalıştırılmaz.
-. "$PSScriptRoot\..\_common.ps1"
+. "$PSScriptRoot\..\gun1\_common.ps1"
 
 $ServiceUrl = 'http://localhost:5090'
 $SimulatorUrl = $BaseUrl
