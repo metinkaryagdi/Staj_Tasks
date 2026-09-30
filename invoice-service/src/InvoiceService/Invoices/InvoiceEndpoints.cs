@@ -68,9 +68,9 @@ public static class InvoiceEndpoints
         db.Invoices.Add(invoice);
 
         // The first save inside SendAsync inserts the row before the ERP is called.
-        await sender.SendAsync(invoice);
+        var stored = await sender.SendAsync(invoice);
 
-        return Results.Created($"/api/v1/invoices/{Uri.EscapeDataString(invoice.InvoiceNumber)}", InvoiceResponse.From(invoice));
+        return Results.Created($"/api/v1/invoices/{Uri.EscapeDataString(stored.InvoiceNumber)}", InvoiceResponse.From(stored));
     }
 
     private static async Task<IResult> ResendInvoice(string invoiceNumber, InvoiceDbContext db, InvoiceSender sender)
@@ -87,8 +87,7 @@ public static class InvoiceEndpoints
                 detail: $"Invoice '{invoiceNumber}' has status {invoice.Status}; only {InvoiceStatus.Failed} invoices can be resent.");
         }
 
-        await sender.SendAsync(invoice);
-        return Results.Ok(InvoiceResponse.From(invoice));
+        return Results.Ok(InvoiceResponse.From(await sender.SendAsync(invoice)));
     }
 
     private static async Task<IResult> GetInvoice(string invoiceNumber, InvoiceDbContext db, CancellationToken ct)
