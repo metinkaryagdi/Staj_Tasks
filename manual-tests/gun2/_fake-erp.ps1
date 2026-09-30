@@ -2,17 +2,18 @@
 # Karşılaştırma script'inin simülatörden 200/404 dışında bir cevap aldığında ne yaptığını sınamak için kullanılır;
 # uygulamalara ve docker ortamına dokunmaz. Doğrudan çalıştırılmaz: . "$PSScriptRoot\_fake-erp.ps1"
 #   $fake = Start-FakeErp -StatusCode 500   ->  $fake.Url  (ör. http://127.0.0.1:53124)
+#   $fake = Start-FakeErp -StatusCode 200 -Body '{'   ->  okunamayan (bozuk JSON) 200 cevabı
 #   Stop-FakeErp $fake
 
-function Start-FakeErp([int]$StatusCode = 500) {
+function Start-FakeErp([int]$StatusCode = 500, [string]$Body) {
+    if (-not $Body) { $Body = '{"title":"Sahte ERP: kontrollü hata","status":' + $StatusCode + '}' }
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     $listener.Start()
     $port = $listener.LocalEndpoint.Port
 
     $runspace = [powershell]::Create()
     [void]$runspace.AddScript({
-        param($listener, $code)
-        $body = '{"title":"Sahte ERP: kontrollü hata","status":' + $code + '}'
+        param($listener, $code, $body)
         while ($true) {
             try { $client = $listener.AcceptTcpClient() } catch { break }
             try {
@@ -29,7 +30,7 @@ function Start-FakeErp([int]$StatusCode = 500) {
             catch { }
             finally { $client.Close() }
         }
-    }).AddArgument($listener).AddArgument($StatusCode)
+    }).AddArgument($listener).AddArgument($StatusCode).AddArgument($Body)
     $handle = $runspace.BeginInvoke()
 
     [pscustomobject]@{ Url = "http://127.0.0.1:$port"; Listener = $listener; Runspace = $runspace; Handle = $handle }

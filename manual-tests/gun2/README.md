@@ -23,7 +23,7 @@ QA denetiminde bulunan hataların düzeltmeleri için ek testler (kontrol listes
 |---|---|---|---|
 | Ek 1 | Aynı faturanın gönderimleri üst üste binince satır tek bir gönderimin tutarlı sonucunu taşıyor, `send_attempt_count` eksik saymıyor (çift gönderim engellenmiyor) | `.\manual-tests\gun2\ek1-eszamanli-gonderim.ps1` | ~30 sn |
 | Ek 2 | `NaN` / `Infinity` gibi sayı olmayan oranlarla da simülatör açılmıyor, mesajda gelen toplam yazıyor; toplamı 100 olan ondalıklı oranlarla açılıyor | `.\manual-tests\gun2\ek2-sayi-olmayan-oran.ps1` | ~1 dk |
-| Ek 3 | Karşılaştırma script'i yalnızca 404'ü "simülatörde yok" sayıyor; 500 ya da bağlantı hatasında fatura "sorgulanamadı" satırına düşüyor (500 dönen sahte ERP ve durdurulmuş simülatörle) | `.\manual-tests\gun2\ek3-karsilastirma-hata.ps1` | ~30 sn |
+| Ek 3 | Karşılaştırma script'i yalnızca 404'ü "simülatörde yok", yalnızca okunabilen 200'ü "var" sayıyor; 500, bozuk JSON'lu 200 ya da bağlantı hatasında fatura "sorgulanamadı" satırına düşüyor (sahte ERP ve durdurulmuş simülatörle); geçersiz `-From`/`-To` reddediliyor | `.\manual-tests\gun2\ek3-karsilastirma-hata.ps1` | ~30 sn |
 | Ek 4 | Para birimi tam olarak 3 büyük harf: `"TRY\n"`, `" TRY"`, `"try"`, `"TRYY"` gibi değerler 400 alıyor, kayıt/numara/ERP isteği oluşmuyor; `TRY` kabul ediliyor | `.\manual-tests\gun2\ek4-para-birimi.ps1` | ~10 sn |
 
 3 ve 4 sırayla çalıştırılmalı: 3 fatura aralığını `manual-tests\output\gun2-3.json`'a yazar, 4 aynı aralığı kullanır
@@ -53,7 +53,7 @@ Fatura listesini ve durumlarını servisin veritabanından (`invoice-db`) okur, 
 - Serviste Başarısız, simülatörde yok
 - Serviste Başarısız, simülatörde var
 - Serviste Gönderildi, simülatörde yok (olmaması gerekir)
-- Simülatöre sorulamadı: GET 200 ("var") ya da 404 ("yok") dışında bir cevap verdi veya simülatöre ulaşılamadı.
+- Simülatöre sorulamadı: GET, gövdesi okunabilen bir 200 ("var") ya da 404 ("yok") dışında bir cevap verdi veya simülatöre ulaşılamadı.
   Bu faturalar "var"/"yok" sayılmaz; 0 değilse tablo eksiktir ve script uyarı basar.
 - Simülatörde birden fazla kaydı olan
 - Serviste Gönderildi olanların `erp_reference` değeri simülatördeki kayıtlardan biriyle aynı mı

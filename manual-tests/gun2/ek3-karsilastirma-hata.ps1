@@ -7,6 +7,8 @@
 #   A) Gerçek simülatör             -> sorgulanamadı 0; sonuç iki veritabanından hesaplananla aynı
 #   B) Her GET'e 500 dönen sahte ERP -> hepsi sorgulanamadı, hiçbiri "yok" değil
 #   C) Simülatör durdurulmuş          -> hepsi sorgulanamadı (bağlantı hatası), hiçbiri "yok" değil
+#   D) 200 dönen ama gövdesi bozuk JSON olan sahte ERP -> hepsi sorgulanamadı, hiçbiri "var" değil (QA-2 N5)
+#   E) Geçersiz -From parametresi     -> karşılaştırma yapılmaz, hata verilir (QA-2 N3)
 # Uygulamalara dokunulmaz; B'de yalnızca script'in simülatör adresi geçici olarak sahte ERP'ye yönlendirilir.
 param([int]$Count = 6)
 . "$PSScriptRoot\_common.ps1"
@@ -53,6 +55,30 @@ finally {
 Write-Host ''
 $okB = Test-NothingMissing $b 'B'
 
+# ---------------------------------------------------------------- D
+Write-Step 'D) Sahte ERP 200 dönüyor ama gövde bozuk JSON ("{")'
+$fake = Start-FakeErp -StatusCode 200 -Body '{'
+try {
+    $SimulatorUrl = $fake.Url
+    Write-Host "  Script'in simülatör adresi geçici olarak: $SimulatorUrl"
+    $d = Compare-Invoices -From $from -To $to
+}
+finally {
+    Stop-FakeErp $fake
+    $SimulatorUrl = $realUrl
+}
+Write-Host ''
+$okD = Test-NothingMissing $d 'D'
+
+# ---------------------------------------------------------------- E
+Write-Step 'E) Geçersiz aralık parametresi: -From "FTR-000000''" (tırnak işareti SQL''i bozar)'
+$eError = ''
+try { Compare-Invoices -From "FTR-000000'" -To $to -Quiet | Out-Null }
+catch { $eError = $_.Exception.Message }
+Write-Host "  Hata: $(if ($eError) { $eError } else { 'YOK (script devam etti)' })"
+$okE = Write-DbVerdict 'karşılaştırma yapılmaz, geçersiz fatura numarası hatası verilir (sıfırlarla dolu tablo basılmaz)' `
+    $(if ($eError) { "hata: $eError" } else { 'hata yok' }) ($eError -match 'Geçersiz fatura numarası')
+
 # ---------------------------------------------------------------- C
 Write-Step 'C) Simülatör durdurulmuşken karşılaştırma'
 try {
@@ -78,5 +104,7 @@ $erpInvoices = [int]@(Get-ErpRows "SELECT count(DISTINCT invoice_number) FROM in
 $okDb = Write-DbVerdict "A'nın 'var' sayısı = veritabanında ERP kaydı olan fatura sayısı" `
     "A'da 'var' $($a.SentFound + $a.FailedFound), veritabanında $erpInvoices" ($a.SentFound + $a.FailedFound -eq $erpInvoices)
 
-Write-Result ($okA -and $okB -and $okC -and $okDb) ("A: sorgulanamadı $($a.Unknown); B (500): sorgulanamadı $($b.Unknown), yok $($b.SentMissing + $b.FailedMissing); " +
-    "C (kapalı): sorgulanamadı $($c.Unknown), yok $($c.SentMissing + $c.FailedMissing); veritabanı kontrolü: $(if ($okDb) { 'geçti' } else { 'KALDI' })")
+Write-Result ($okA -and $okB -and $okC -and $okD -and $okE -and $okDb) ("A: sorgulanamadı $($a.Unknown); B (500): sorgulanamadı $($b.Unknown), yok $($b.SentMissing + $b.FailedMissing); " +
+    "C (kapalı): sorgulanamadı $($c.Unknown), yok $($c.SentMissing + $c.FailedMissing); " +
+    "D (bozuk 200): sorgulanamadı $($d.Unknown), var $($d.SentFound + $d.FailedFound); E (geçersiz aralık): $(if ($okE) { 'reddedildi' } else { 'REDDEDİLMEDİ' }); " +
+    "veritabanı kontrolü: $(if ($okDb) { 'geçti' } else { 'KALDI' })")

@@ -15,9 +15,14 @@ function Invoke-ServiceSql([string]$Sql) {
 }
 
 # Satır başına bir kayıt, kolonlar '|' ile ayrılmış (başlık yok).
+# Sorgu hata verirse durur: "okunamadı" sessizce "hiç satır yok" gibi görünmesin.
 function Get-ServiceRows([string]$Sql) {
     Push-Location $RepoRoot
-    try { @(& docker compose exec -T invoice-db psql -U invoice -d invoice_service -tA -F '|' -c $Sql | Where-Object { $_ }) }
+    try {
+        $rows = @(& docker compose exec -T invoice-db psql -U invoice -d invoice_service -v ON_ERROR_STOP=1 -tA -F '|' -c $Sql | Where-Object { $_ })
+        if ($LASTEXITCODE -ne 0) { throw "Fatura Servisi veritabanı sorgusu başarısız oldu (psql çıkış kodu $LASTEXITCODE): $Sql" }
+        $rows
+    }
     finally { Pop-Location }
 }
 
@@ -74,13 +79,20 @@ function Get-SimulatorInvoice([string]$InvoiceNumber) {
         while ($inner.InnerException) { $inner = $inner.InnerException }
         return [pscustomobject]@{ HttpStatus = 0; RecordCount = 0; References = @(); Body = ''; Error = $inner.Message }
     }
-    $data = if ([int]$response.StatusCode -eq 200) { $body | ConvertFrom-Json } else { $null }
+    # 200 ama gövde okunamıyorsa (bozuk JSON, recordCount yok) kaydın varlığı bilinemez: Error doldurulur,
+    # Compare-Invoices bu faturayı "var" saymaz, "sorgulanamadı"ya yazar.
+    $data = $null
+    $error200 = ''
+    if ([int]$response.StatusCode -eq 200) {
+        try { $data = $body | ConvertFrom-Json -ErrorAction Stop } catch { }
+        if (-not $data -or $null -eq $data.recordCount) { $data = $null; $error200 = 'cevap gövdesi okunamadı' }
+    }
     [pscustomobject]@{
         HttpStatus  = [int]$response.StatusCode
         RecordCount = if ($data) { [int]$data.recordCount } else { 0 }
         References  = if ($data) { @($data.records | ForEach-Object { $_.erpReference }) } else { @() }
         Body        = $body
-        Error       = ''
+        Error       = $error200
     }
 }
 
@@ -114,11 +126,15 @@ function Get-SimulatorBehaviors {
 # ---------------------------------------------------------------------------
 # Karşılaştırma: servisteki her fatura simülatörün GET endpoint'iyle sorgulanır.
 # -From / -To verilirse yalnızca o aralıktaki faturalar (fatura numarasına göre, dahil).
-# Simülatörde "var" = 200, "yok" = yalnızca 404. Başka bir cevap (500 vb.) ya da bağlantı hatası faturanın
-# ERP'de olup olmadığını söylemez: o fatura "var"/"yok" sayılmaz, "sorgulanamadı" satırına yazılır.
+# Simülatörde "var" = gövdesi okunabilen 200, "yok" = yalnızca 404. Başka bir cevap (500 vb.), okunamayan 200 ya da
+# bağlantı hatası faturanın ERP'de olup olmadığını söylemez: o fatura "var"/"yok" sayılmaz, "sorgulanamadı" satırına yazılır.
+# -From / -To yalnızca FTR-000001 biçiminde kabul edilir; veritabanı sorgusu hata verirse script durur.
 # ---------------------------------------------------------------------------
 function Compare-Invoices([string]$From, [string]$To, [switch]$Quiet) {
     $where = @()
+    foreach ($bound in @($From, $To) | Where-Object { $_ }) {
+        if ($bound -notmatch '^FTR-\d{6,}$') { throw "Geçersiz fatura numarası: '$bound' (beklenen biçim: FTR-000001)" }
+    }
     if ($From) { $where += "invoice_number >= '$From'" }
     if ($To)   { $where += "invoice_number <= '$To'" }
     $whereSql = if ($where) { 'WHERE ' + ($where -join ' AND ') } else { '' }
@@ -133,7 +149,7 @@ function Compare-Invoices([string]$From, [string]$To, [switch]$Quiet) {
     foreach ($row in $rows) {
         $number, $status, $reference, $attempts = $row -split '\|'
         $sim = Get-SimulatorInvoice $number
-        $found = $sim.HttpStatus -eq 200
+        $found = $sim.HttpStatus -eq 200 -and -not $sim.Error
         $missing = $sim.HttpStatus -eq 404
         $result.Total++
 
@@ -173,7 +189,7 @@ function Write-Comparison($c) {
     Write-Host ('  {0,-46} {1,12}' -f 'Serviste Gönderildi, simülatörde yok', $c.SentMissing)
     Write-Host ('  {0,-46} {1,12}' -f 'Simülatörde birden fazla kaydı olan', $c.MultipleRecords)
     $unknownColor = if ($c.Unknown -gt 0) { 'Yellow' } else { 'Gray' }
-    Write-Host ('  {0,-46} {1,12}' -f 'Simülatöre sorulamadı (200/404 dışı cevap)', $c.Unknown) -ForegroundColor $unknownColor
+    Write-Host ('  {0,-46} {1,12}' -f 'Simülatöre sorulamadı (geçerli cevap yok)', $c.Unknown) -ForegroundColor $unknownColor
     Write-Host ('  ' + ('-' * 60)) -ForegroundColor Cyan
     Write-Host ('  {0,-46} {1,12}' -f 'Toplam fatura (serviste)', $c.Total)
     Write-Host ('  {0,-46} {1,12}' -f 'Toplam kayıt (simülatörde)', $c.SimulatorRecords)
@@ -182,8 +198,10 @@ function Write-Comparison($c) {
     if ($c.Unknown -gt 0) {
         Write-Host ''
         Write-Host "  UYARI: $($c.Unknown) fatura simülatöre sorulamadı; bunlar 'var' ya da 'yok' sayılmadı, tablo eksik." -ForegroundColor Yellow
-        $c.Details | Where-Object { $_.SimulatorHttp -notin 200, 404 } | Select-Object -First 5 | ForEach-Object {
-            $why = if ($_.SimulatorHttp -eq 0) { "bağlantı hatası: $($_.SimulatorError)" } else { "HTTP $($_.SimulatorHttp)" }
+        $c.Details | Where-Object { $_.SimulatorHttp -notin 200, 404 -or $_.SimulatorError } | Select-Object -First 5 | ForEach-Object {
+            $why = if ($_.SimulatorHttp -eq 0) { "bağlantı hatası: $($_.SimulatorError)" }
+                   elseif ($_.SimulatorError) { "HTTP $($_.SimulatorHttp), $($_.SimulatorError)" }
+                   else { "HTTP $($_.SimulatorHttp)" }
             Write-Host "    $($_.Invoice): $why" -ForegroundColor Yellow
         }
         if ($c.Unknown -gt 5) { Write-Host "    ... ve $($c.Unknown - 5) fatura daha" -ForegroundColor Yellow }
@@ -223,7 +241,11 @@ function Show-ErpQuery([string]$Sql) {
 
 function Get-ErpRows([string]$Sql) {
     Push-Location $RepoRoot
-    try { @(& docker compose exec -T erp-db psql -U erp -d erp_simulator -tA -F '|' -c $Sql | Where-Object { $_ }) }
+    try {
+        $rows = @(& docker compose exec -T erp-db psql -U erp -d erp_simulator -v ON_ERROR_STOP=1 -tA -F '|' -c $Sql | Where-Object { $_ })
+        if ($LASTEXITCODE -ne 0) { throw "Simülatör veritabanı sorgusu başarısız oldu (psql çıkış kodu $LASTEXITCODE): $Sql" }
+        $rows
+    }
     finally { Pop-Location }
 }
 
