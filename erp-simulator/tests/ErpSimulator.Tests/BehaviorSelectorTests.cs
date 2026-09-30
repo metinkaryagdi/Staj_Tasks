@@ -123,7 +123,7 @@ public class BehaviorSelectorTests
         var result = new SimulatorOptionsValidator(SettingsFile()).Validate(null, options);
 
         Assert.True(result.Failed);
-        Assert.Contains("Simulator:Rates:Busy must be between 0 and 100", result.FailureMessage);
+        Assert.Contains("Simulator:Rates:Busy must be a number between 0 and 100 (was -1)", result.FailureMessage);
     }
 
     [Fact]
@@ -152,6 +152,21 @@ public class BehaviorSelectorTests
 
         Assert.True(result.Failed);
         Assert.Contains($"(was {total}:", result.FailureMessage);
+    }
+
+    [Theory]
+    [InlineData("NaN", "(was NaN:")]
+    [InlineData("Infinity", "(was Infinity:")]
+    [InlineData("-Infinity", "(was -Infinity:")]
+    public void Validator_rejects_rates_that_are_not_numbers(string success, string total)
+    {
+        // double.Parse accepts these strings, and every comparison with NaN is false, so they need an explicit check.
+        var configuration = SettingsFile(overrides: new Dictionary<string, string?> { ["Simulator:Rates:Success"] = success });
+        var result = new SimulatorOptionsValidator(configuration).Validate(null, Bind(configuration));
+
+        Assert.True(result.Failed);
+        Assert.Contains("Simulator:Rates:Success must be a number between 0 and 100", result.FailureMessage);
+        Assert.Contains($"Simulator:Rates must add up to exactly 100 {total}", result.FailureMessage);
     }
 
     [Fact]

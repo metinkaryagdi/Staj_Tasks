@@ -87,12 +87,13 @@ public sealed class SimulatorOptionsValidator(IConfiguration configuration) : IV
                      (nameof(rates.LateResponse), rates.LateResponse)
                  })
         {
-            if (value is < 0 or > 100)
-                errors.Add($"Simulator:Rates:{rateName} must be between 0 and 100 (was {value}).");
+            // "NaN" and "Infinity" bind as doubles, and every comparison with NaN is false, so check for a real number first.
+            if (!double.IsFinite(value) || value is < 0 or > 100)
+                errors.Add($"Simulator:Rates:{rateName} must be a number between 0 and 100 (was {Format(value)}).");
         }
 
         // Small tolerance only for floating point sums such as 33.3 + 33.3 + 33.4.
-        if (Math.Abs(rates.Total - BehaviorRates.RequiredTotal) > 1e-9)
+        if (!double.IsFinite(rates.Total) || Math.Abs(rates.Total - BehaviorRates.RequiredTotal) > 1e-9)
             errors.Add(
                 $"Simulator:Rates must add up to exactly {BehaviorRates.RequiredTotal} (was {Format(rates.Total)}: " +
                 $"Success={Format(rates.Success)} Busy={Format(rates.Busy)} ServerError={Format(rates.ServerError)} " +
