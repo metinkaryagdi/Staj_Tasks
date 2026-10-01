@@ -45,3 +45,11 @@ Hepsini sırayla çalıştırıp sonunda özet tablosu veren script (~11 dk; ç�
 | 4 | Tekrar deneme: 429'dan sonra tam Retry-After kadar bekleniyor (saniye ve tarih biçimi); 500'de 2/4/8/16/32/59 sn + 0–1 sn jitter, hiçbiri 60'ı geçmiyor; 10. deneme de başarısızsa fatura ve outbox Başarısız (~8 dk) | `.\manual-tests\gun3\adim4-tekrar-deneme.ps1` |
 | 5 | Çift kayıt koruması: daha önce gönderilmeye çalışılmış fatura için POST'tan önce simülatöre GET ile soruluyor. SaveThenError ve LateResponse'ta 2. denemede `found`, POST yok; simülatör kapalıyken `unknown`, POST yok; açılınca `notFound` → POST. Varsayılan oranlarla 100 fatura: çift kayıt 0, kayıp 0 (~4 dk) | `.\manual-tests\gun3\adim5-cift-kayit.ps1` |
 | 6 | `GET /api/v1/invoices?status=…` veritabanıyla aynı sayıları dönüyor, geçersiz durum 400; resend: olmayan 404, Başarısız olmayan 409; resend simülatöre gitmiyor, kuyruğa alıyor (202): simülatörde kayıtlıysa `found` (POST yok), değilse `notFound` → POST; outbox kaydı olmayan Gün 2 faturası da kuyruğa alınıyor; aynı anda iki resend → 202 + 409 (~1 dk) | `.\manual-tests\gun3\adim6-endpointler.ps1` |
+
+## Ek testler (QA bulgularının düzeltmeleri)
+
+Kontrol listesinin parçası değil; bağımsız QA denetiminde bulunan hataların düzeltmelerini gösterir. Düzeltmeden önce KALDI, sonra GEÇTİ.
+
+| # | Ne kontrol ediliyor | Komut |
+|---|---|---|
+| Ek 1 | Son deneme: 10. deneme simülatöre kaydedilip hata dönerse fatura Başarısız değil, simülatördeki referansla Gönderildi oluyor (F3); servis 10. denemede öldürülürse 11. deneme yapılmıyor, yalnızca simülatöre soruluyor (F2) (~11 dk) | `.\manual-tests\gun3\ek1-son-deneme.ps1` |

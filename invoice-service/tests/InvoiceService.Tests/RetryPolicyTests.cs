@@ -112,6 +112,19 @@ public class RetryPolicyTests
     }
 
     [Fact]
+    public void Only_used_up_attempts_ask_the_erp_before_giving_up()
+    {
+        // The ERP may have saved the invoice on the last attempt (500 after saving, late answer): ask before failing.
+        Assert.True(RetryPolicy.Decide(Result(500), attempt: 10, Now, 0.5).AttemptsUsedUp);
+        Assert.True(RetryPolicy.Decide(Result(null), attempt: 10, Now, 0.5).AttemptsUsedUp);
+        // The ERP rejected the invoice itself: nothing was saved, nothing to ask.
+        Assert.False(RetryPolicy.Decide(Result(422), attempt: 10, Now, 0.5).AttemptsUsedUp);
+        Assert.False(RetryPolicy.Decide(Result(422), attempt: 1, Now, 0.5).AttemptsUsedUp);
+        // Still attempts left.
+        Assert.False(RetryPolicy.Decide(Result(500), attempt: 9, Now, 0.5).AttemptsUsedUp);
+    }
+
+    [Fact]
     public void The_10th_attempt_can_still_succeed()
     {
         Assert.Equal(SendOutcome.Sent, RetryPolicy.Decide(Result(202, accepted: true), attempt: 10, Now, 0.5).Outcome);

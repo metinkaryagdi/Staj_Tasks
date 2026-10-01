@@ -16,7 +16,11 @@ public enum SendOutcome
 }
 
 /// <param name="Reason">Why this delay, for the log (e.g. "Retry-After 17", "backoff 2^3=8s + jitter").</param>
-public sealed record RetryDecision(SendOutcome Outcome, TimeSpan Delay, string Reason);
+/// <param name="AttemptsUsedUp">
+/// Failed only because the last allowed attempt failed (not because the ERP rejected the invoice). The ERP may still have
+/// saved the invoice on that attempt, so the caller asks it once more before giving up.
+/// </param>
+public sealed record RetryDecision(SendOutcome Outcome, TimeSpan Delay, string Reason, bool AttemptsUsedUp = false);
 
 /// <summary>
 /// What to do after one ERP attempt. Pure (time and randomness come in as arguments), so every rule is unit tested.
@@ -50,7 +54,7 @@ public static class RetryPolicy
             return new RetryDecision(SendOutcome.Failed, TimeSpan.Zero, $"ERP rejected the invoice with {result.HttpStatus}, not retried");
 
         if (attempt >= MaxAttempts)
-            return new RetryDecision(SendOutcome.Failed, TimeSpan.Zero, $"all {MaxAttempts} attempts used");
+            return new RetryDecision(SendOutcome.Failed, TimeSpan.Zero, $"all {MaxAttempts} attempts used", AttemptsUsedUp: true);
 
         if (result.HttpStatus == 429 && RetryAfterDelay(result.RetryAfter, now) is { } wait)
             return new RetryDecision(SendOutcome.Retry, wait, $"Retry-After {result.RetryAfter}");

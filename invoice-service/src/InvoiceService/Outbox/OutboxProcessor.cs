@@ -5,8 +5,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InvoiceService.Outbox;
 
-/// <summary>A queued send the worker has taken: <see cref="Attempt"/> is this attempt's number (already counted).</summary>
-public sealed record ClaimedEntry(long Id, string InvoiceNumber, int Attempt);
+/// <summary>
+/// A queued send the worker has taken: <see cref="Attempt"/> is this attempt's number (already counted).
+/// <see cref="AttemptsUsedUp"/>: the entry had already used all its attempts when it was taken, i.e. the last attempt was
+/// cut off (the service stopped before writing its outcome). Such an entry is not sent again; the ERP is only asked.
+/// </summary>
+public sealed record ClaimedEntry(long Id, string InvoiceNumber, int Attempt, bool AttemptsUsedUp);
 
 /// <summary>
 /// Takes due entries from erp_outbox and sends them. Scoped: one instance (and one DbContext) per claim or per send.
@@ -23,7 +27,10 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
     /// Takes up to <paramref name="limit"/> pending entries whose time has come and that nobody holds. In one statement:
     /// FOR UPDATE SKIP LOCKED lets two instances run this at the same time without taking the same row (each skips the
     /// rows the other is taking), locked_until/locked_by mark the row as taken after the statement ends, and the attempt
-    /// is counted before the send, so a send cut off by a crash is still counted.
+    /// is counted before the send, so a send cut off by a crash is still counted. The count never goes past
+    /// <see cref="RetryPolicy.MaxAttempts"/>: an entry whose last attempt was cut off is taken again with the same number
+    /// and only checked with the ERP (see <see cref="ClaimedEntry.AttemptsUsedUp"/>); the invoice's own count is not
+    /// raised for it, since nothing is sent.
     /// </summary>
     public async Task<IReadOnlyList<ClaimedEntry>> ClaimAsync(int limit, string workerId, CancellationToken ct)
     {
@@ -31,27 +38,29 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
         var lockedUntil = now + LockDuration;
 
         return await db.Database.SqlQuery<ClaimedEntry>($"""
-            WITH claimed AS (
-                UPDATE erp_outbox
-                SET attempt_count = attempt_count + 1,
+            WITH due AS (
+                SELECT id, attempt_count FROM erp_outbox
+                WHERE status = {OutboxStatus.Pending}
+                  AND next_attempt_at <= {now}
+                  AND (locked_until IS NULL OR locked_until < {now})
+                ORDER BY next_attempt_at, id
+                LIMIT {limit}
+                FOR UPDATE SKIP LOCKED
+            ), claimed AS (
+                UPDATE erp_outbox o
+                SET attempt_count = LEAST(o.attempt_count + 1, {RetryPolicy.MaxAttempts}),
                     locked_until = {lockedUntil},
                     locked_by = {workerId}
-                WHERE id IN (
-                    SELECT id FROM erp_outbox
-                    WHERE status = {OutboxStatus.Pending}
-                      AND next_attempt_at <= {now}
-                      AND (locked_until IS NULL OR locked_until < {now})
-                    ORDER BY next_attempt_at, id
-                    LIMIT {limit}
-                    FOR UPDATE SKIP LOCKED)
-                RETURNING id, invoice_number, attempt_count
+                FROM due d
+                WHERE o.id = d.id
+                RETURNING o.id, o.invoice_number, o.attempt_count, d.attempt_count >= {RetryPolicy.MaxAttempts} AS used_up
             ), counted AS (
                 UPDATE invoices i
                 SET send_attempt_count = i.send_attempt_count + 1, updated_at = {now}
                 FROM claimed c
-                WHERE i.invoice_number = c.invoice_number
+                WHERE i.invoice_number = c.invoice_number AND NOT c.used_up
             )
-            SELECT id AS "Id", invoice_number AS "InvoiceNumber", attempt_count AS "Attempt" FROM claimed
+            SELECT id AS "Id", invoice_number AS "InvoiceNumber", attempt_count AS "Attempt", used_up AS "AttemptsUsedUp" FROM claimed
             """).ToListAsync(ct);
     }
 
@@ -65,18 +74,44 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
     /// and the invoice is POSTed again only if the ERP clearly does not have it (404). If it has it, its reference is
     /// taken as the result. If it cannot be asked, nothing is sent: the attempt fails and is retried later.
     /// </para>
+    /// <para>
+    /// Before giving up (all attempts used, or the last one cut off), the ERP is asked once more and nothing is sent:
+    /// the last attempt may have been saved by the ERP without telling us (500 after saving, a late answer). If the ERP
+    /// has the invoice it is Gönderildi with the ERP's reference; otherwise, or if the ERP cannot be asked, Başarısız.
+    /// A later resend asks the ERP first as well, so it cannot create a second record either.
+    /// </para>
     /// </summary>
     public async Task SendAsync(ClaimedEntry entry, string workerId)
     {
         // CancellationToken.None: once the ERP is called, the outcome must be recorded even while the service stops.
         var invoice = await db.Invoices.AsNoTracking().SingleAsync(i => i.InvoiceNumber == entry.InvoiceNumber, CancellationToken.None);
 
-        logger.LogInformation("ERP send start invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker}",
-            entry.InvoiceNumber, entry.Attempt, RetryPolicy.MaxAttempts, workerId);
-        var (result, check) = await SendOnceAsync(invoice);
+        logger.LogInformation("ERP send start invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker}{OnlyCheck}",
+            entry.InvoiceNumber, entry.Attempt, RetryPolicy.MaxAttempts, workerId,
+            entry.AttemptsUsedUp ? " (last attempt was cut off: only asking the ERP)" : "");
+
+        ErpSendResult result;
+        string check;
+        RetryDecision decision;
+        if (entry.AttemptsUsedUp)
+        {
+            (result, check) = await ConfirmAsync(invoice, "Son deneme yarıda kaldı (servis durdu).");
+            check = $"final:{check}";
+            decision = FinalDecision(result, "last attempt was cut off; ERP asked, not sent again");
+        }
+        else
+        {
+            (result, check) = await SendOnceAsync(invoice);
+            decision = RetryPolicy.Decide(result, entry.Attempt, time.GetUtcNow(), Random.Shared.NextDouble());
+            if (decision.AttemptsUsedUp)
+            {
+                (result, var finalCheck) = await ConfirmAsync(invoice, result.Error);
+                check = $"{check},final:{finalCheck}";
+                decision = FinalDecision(result, $"all {RetryPolicy.MaxAttempts} attempts used; ERP asked before giving up");
+            }
+        }
 
         var now = time.GetUtcNow();
-        var decision = RetryPolicy.Decide(result, entry.Attempt, now, Random.Shared.NextDouble());
         var (invoiceStatus, outboxStatus) = decision.Outcome switch
         {
             SendOutcome.Sent => (InvoiceStatus.Sent, OutboxStatus.Completed),
@@ -120,6 +155,24 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
             result.RetryAfter?.ToString() ?? "-", decision.Delay.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture),
             decision.Reason, result.ErpReference ?? "-", (long)result.Elapsed.TotalMilliseconds, result.Error ?? "-",
             owned == 1 ? "" : " (not written: the entry is no longer held by this worker)");
+    }
+
+    private static RetryDecision FinalDecision(ErpSendResult result, string reason) =>
+        new(result.Accepted ? SendOutcome.Sent : SendOutcome.Failed, TimeSpan.Zero, reason);
+
+    /// <summary>
+    /// Asks the ERP whether it has the invoice, without sending it. Found -> accepted with the ERP's reference;
+    /// not found -> failed with <paramref name="lastError"/>; ERP cannot be asked -> failed, the error says so.
+    /// </summary>
+    private async Task<(ErpSendResult Result, string Check)> ConfirmAsync(Invoice invoice, string? lastError)
+    {
+        var lookup = await erp.FindAsync(invoice.InvoiceNumber, CancellationToken.None);
+        return lookup.Lookup switch
+        {
+            ErpLookup.Found => (new ErpSendResult(true, lookup.ErpReference, lookup.HttpStatus, null, lookup.Elapsed), "found"),
+            ErpLookup.NotFound => (new ErpSendResult(false, null, lookup.HttpStatus, lastError, lookup.Elapsed), "notFound"),
+            _ => (new ErpSendResult(false, null, null, $"{lastError} Son durum ERP'ye sorulamadı: {lookup.Error}", lookup.Elapsed), "unknown")
+        };
     }
 
     /// <summary>
