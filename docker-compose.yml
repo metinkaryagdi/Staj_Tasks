@@ -80,6 +80,24 @@ services:
       invoice-db:
         condition: service_healthy
 
+  # A second copy of the invoice service on the same database, only for the two-copies test
+  # (manual-tests/gun3/7-iki-kopya.ps1). It is in a profile, so a plain `docker compose up` does not start it:
+  #   docker compose --profile iki-kopya up -d invoice-service-2
+  invoice-service-2:
+    build: ./invoice-service
+    profiles: ["iki-kopya"]
+    ports:
+      - "5091:8080"
+    environment:
+      ConnectionStrings__InvoiceDb: "Host=invoice-db;Database=invoice_service;Username=invoice;Password=invoice;GSS Encryption Mode=Disable"
+      Erp__BaseUrl: "http://erp-simulator:8080"
+    networks:
+      - invoice-data
+      - apps
+    depends_on:
+      invoice-db:
+        condition: service_healthy
+
 networks:
   # Each database sits on its own network, so the other application cannot even resolve its name; the two
   # applications talk over "apps". This does not block traffic by IP on every Docker host (it does not on Docker

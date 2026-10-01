@@ -16,7 +16,7 @@ Script'ler engellenirse: `Set-ExecutionPolicy -Scope Process Bypass`.
 | 4 | ServerError %100 → 1 fatura: bekleme katlanarak artıyor, 60 sn'yi geçmiyor, 10. denemede Başarısız; sonra Success %100 + resend → Gönderildi (~6 dk) | `.\manual-tests\gun3\4-sunucu-hatasi.ps1` |
 | 5 | Simülatör durdurulmuş → 50 fatura (hepsi 202), 2 dk sonra simülatörü başlat → 50'si Gönderildi, çift kayıt yok (~4 dk) | `.\manual-tests\gun3\5-simulator-kapali.ps1` |
 | 6 | Varsayılan oranlar, 200 fatura gönderilirken servisi 3 kez `docker kill` + yeniden başlat → kayıp ve çift kayıt 0 (~4 dk) | `.\manual-tests\gun3\6-servis-kill.ps1` |
-| 7 | Servisin iki kopyası aynı veritabanında, varsayılan oranlar, 500 fatura → çift kayıt 0 | _yazılacak_ |
+| 7 | Servisin iki kopyası aynı veritabanında, varsayılan oranlar, 500 fatura → çift kayıt 0 (~4 dk; ikinci kopya `docker-compose.yml`'deki `invoice-service-2`, profil `iki-kopya`, script başlatıp durdurur) | `.\manual-tests\gun3\7-iki-kopya.ps1` |
 
 ## Adım testleri
 
