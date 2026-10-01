@@ -67,6 +67,7 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.Property(e => e.ProcessedAt).HasColumnName("processed_at");
             entity.Property(e => e.LockedUntil).HasColumnName("locked_until");
             entity.Property(e => e.LockedBy).HasColumnName("locked_by").HasMaxLength(64);
+            entity.Property(e => e.ClaimToken).HasColumnName("claim_token");
 
             // The worker's query: pending entries whose time has come, oldest first.
             entity.HasIndex(e => new { e.Status, e.NextAttemptAt });

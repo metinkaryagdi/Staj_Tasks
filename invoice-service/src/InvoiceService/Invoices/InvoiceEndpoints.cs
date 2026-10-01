@@ -25,7 +25,7 @@ public static class InvoiceEndpoints
             .WithDescription(
                 "Only for invoices with status Başarısız. Does not call the ERP: resets the invoice's erp_outbox entry " +
                 "(Bekliyor, 0 attempts, due now) and sets the invoice to Bekliyor, then returns 202. The worker sends it " +
-                "again by the usual rules, asking the ERP first so an invoice the ERP already has is not posted twice. " +
+                "again by the usual rules, asking the ERP first so an invoice the ERP already shows is not posted again. " +
                 "409 if the invoice is not Başarısız, 404 if it does not exist.")
             .Produces<InvoiceResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -132,7 +132,8 @@ public static class InvoiceEndpoints
                 last_error = NULL,
                 processed_at = NULL,
                 locked_until = NULL,
-                locked_by = NULL
+                locked_by = NULL,
+                claim_token = NULL
             """);
 
         await transaction.CommitAsync();

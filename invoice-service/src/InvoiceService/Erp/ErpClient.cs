@@ -31,7 +31,7 @@ public enum ErpLookup
 public sealed record ErpLookupResult(ErpLookup Lookup, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed);
 
 /// <summary>
-/// Sends one invoice to the ERP simulator exactly once and reports what happened. Deciding whether and when to try
+/// Sends one invoice to the ERP simulator with a single HTTP request and reports what happened. Deciding whether and when to try
 /// again is not done here but by the outbox (RetryPolicy); the Retry-After header is passed on for that.
 /// Only a 202 with an ERP reference counts as accepted; every other outcome is returned as a failure.
 /// </summary>

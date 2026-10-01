@@ -25,7 +25,8 @@ builder.Services.AddOptions<OutboxOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<OutboxOptions>, OutboxOptionsValidator>();
 
-// Plain typed client on purpose: no resilience/retry handler is added, so every send hits the ERP exactly once.
+// Plain typed client on purpose: no resilience/retry handler, so each call makes exactly one HTTP request.
+// Retrying is decided by the outbox (RetryPolicy), not by the HTTP client.
 builder.Services.AddHttpClient<ErpClient>((sp, http) =>
 {
     var erp = sp.GetRequiredService<IOptions<ErpOptions>>().Value;

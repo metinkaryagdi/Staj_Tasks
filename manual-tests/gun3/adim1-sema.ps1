@@ -25,10 +25,10 @@ $ok = Write-DbVerdict 'InitialCreate ve AddErpOutbox uygulanmış' ($migrations 
     (@($migrations | Where-Object { $_ -match '_InitialCreate$|_AddErpOutbox$' }).Count -eq 2)
 $allPassed = $allPassed -and $ok
 
-Write-DbHeader 'erp_outbox kolonları' 'İlk 8 kolon görevde istenenler; locked_until ve locked_by eklenenler'
+Write-DbHeader 'erp_outbox kolonları' 'İlk 8 kolon görevde istenenler; locked_until, locked_by ve claim_token eklenenler'
 Show-ServiceQuery ("SELECT column_name, data_type, is_nullable FROM information_schema.columns " +
     "WHERE table_name = 'erp_outbox' ORDER BY ordinal_position;")
-$expectedColumns = 'id,invoice_number,status,attempt_count,next_attempt_at,last_error,created_at,processed_at,locked_until,locked_by'
+$expectedColumns = 'id,invoice_number,status,attempt_count,next_attempt_at,last_error,created_at,processed_at,locked_until,locked_by,claim_token'
 $columns = (@(Get-ServiceRows "SELECT column_name FROM information_schema.columns WHERE table_name = 'erp_outbox' ORDER BY ordinal_position;") -join ',')
 $ok = Write-DbVerdict $expectedColumns $columns ($columns -eq $expectedColumns)
 $allPassed = $allPassed -and $ok
@@ -64,4 +64,4 @@ Write-Host ''
 $ok = Write-DbVerdict 'denemelerden geriye kayıt kalmadı' "$leftover kayıt" ($leftover -eq 0)
 $allPassed = $allPassed -and $ok
 
-Write-Result $allPassed 'şema hazır: invoices.status üç değer, erp_outbox 10 kolon ve kısıtlarıyla'
+Write-Result $allPassed 'şema hazır: invoices.status üç değer, erp_outbox 11 kolon ve kısıtlarıyla'
