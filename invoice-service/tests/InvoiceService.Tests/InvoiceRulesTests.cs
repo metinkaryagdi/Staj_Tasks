@@ -149,6 +149,7 @@ public class InvoiceRulesTests
     [InlineData("Outbox:IdleDelayMilliseconds", "0", "Outbox:IdleDelayMilliseconds must be greater than 0")]
     [InlineData("Outbox:BackoffMarginMilliseconds", "-1", "Outbox:BackoffMarginMilliseconds must be at least 0")]
     [InlineData("Outbox:BackoffMarginMilliseconds", "59000", "Outbox:BackoffMarginMilliseconds must be at least 0")]
+    [InlineData("Outbox:BackoffMarginMilliseconds", "2147483647", "Outbox:BackoffMarginMilliseconds must be at least 0")]
     [InlineData("Outbox:LockSeconds", "30", "Outbox:LockSeconds must be longer than 3 x Erp:TimeoutSeconds")]
     public void Invalid_outbox_settings_are_rejected(string key, string? value, string message)
     {
@@ -171,5 +172,13 @@ public class InvoiceRulesTests
         Assert.Equal(10, options.MaxAttempts);
         Assert.Equal(60, options.MaxBackoffSeconds);
         Assert.Equal(0, options.BackoffMarginMilliseconds);
+    }
+
+    [Fact]
+    public void A_very_large_backoff_cap_does_not_overflow_into_a_rejection()
+    {
+        // 3 000 000 s * 1000 does not fit in an int; it must not wrap around to a negative limit.
+        var configuration = OutboxSettings(("Outbox:MaxBackoffSeconds", "3000000"));
+        Assert.True(new OutboxOptionsValidator(configuration).Validate(null, BindOutbox(configuration)).Succeeded);
     }
 }

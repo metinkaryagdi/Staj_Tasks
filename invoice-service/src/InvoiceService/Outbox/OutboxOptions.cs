@@ -76,18 +76,20 @@ public sealed class OutboxOptionsValidator(IConfiguration configuration) : IVali
             errors.Add($"Outbox:MaxAttempts must be greater than 0 (was {options.MaxAttempts}).");
         if (options.MaxBackoffSeconds <= 0)
             errors.Add($"Outbox:MaxBackoffSeconds must be greater than 0 (was {options.MaxBackoffSeconds}).");
-        if (options.MaxJitterMilliseconds < 0 || options.MaxJitterMilliseconds >= options.MaxBackoffSeconds * 1000)
+        // long: seconds * 1000 and jitter + margin must not overflow int into a negative number for very large values.
+        var maxBackoffMs = (long)options.MaxBackoffSeconds * 1000;
+        if (options.MaxJitterMilliseconds < 0 || options.MaxJitterMilliseconds >= maxBackoffMs)
             errors.Add($"Outbox:MaxJitterMilliseconds must be at least 0 and less than Outbox:MaxBackoffSeconds " +
                        $"(was {options.MaxJitterMilliseconds} ms, max backoff {options.MaxBackoffSeconds} s).");
         if (options.BackoffMarginMilliseconds < 0
-            || options.MaxJitterMilliseconds + options.BackoffMarginMilliseconds >= options.MaxBackoffSeconds * 1000)
+            || (long)options.MaxJitterMilliseconds + options.BackoffMarginMilliseconds >= maxBackoffMs)
             errors.Add($"Outbox:BackoffMarginMilliseconds must be at least 0, and with the jitter less than Outbox:MaxBackoffSeconds " +
                        $"(was {options.BackoffMarginMilliseconds} ms, jitter {options.MaxJitterMilliseconds} ms, max backoff {options.MaxBackoffSeconds} s).");
         if (options.IdleDelayMilliseconds <= 0)
             errors.Add($"Outbox:IdleDelayMilliseconds must be greater than 0 (was {options.IdleDelayMilliseconds}).");
 
         if (int.TryParse(configuration["Erp:TimeoutSeconds"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var timeout)
-            && options.LockSeconds <= RequestsPerAttempt * timeout)
+            && options.LockSeconds <= (long)RequestsPerAttempt * timeout)
         {
             errors.Add($"Outbox:LockSeconds must be longer than {RequestsPerAttempt} x Erp:TimeoutSeconds " +
                        $"(was {options.LockSeconds} s, timeout {timeout} s): an attempt can take that long.");
