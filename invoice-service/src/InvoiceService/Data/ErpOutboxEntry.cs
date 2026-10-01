@@ -14,7 +14,10 @@ public sealed class ErpOutboxEntry
     /// <summary>One of <see cref="OutboxStatus"/>, enforced by a check constraint.</summary>
     public required string Status { get; set; }
 
-    /// <summary>How many times the invoice was sent to the ERP from this entry.</summary>
+    /// <summary>
+    /// How many attempts this entry has used, at most RetryPolicy.MaxAttempts (10); a resend sets it back to 0.
+    /// Counted when the attempt starts, so an attempt cut off by a crash is counted too.
+    /// </summary>
     public int AttemptCount { get; set; }
 
     /// <summary>The earliest time of the next attempt (Retry-After or backoff); the worker skips the entry until then.</summary>

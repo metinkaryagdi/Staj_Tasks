@@ -22,7 +22,11 @@ public sealed class Invoice
     /// <summary>Description of the error from the last send; null after a successful send.</summary>
     public string? LastError { get; set; }
 
-    /// <summary>How many times the invoice was sent to the ERP (the first send included).</summary>
+    /// <summary>
+    /// How many attempts were made to get the invoice to the ERP over its whole life, resends included (never reset).
+    /// An attempt POSTs the invoice, or, when the ERP may already have it, first asks the ERP and POSTs only if it does
+    /// not; so this can be higher than the number of POSTs the ERP received.
+    /// </summary>
     public int SendAttemptCount { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
