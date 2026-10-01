@@ -8,6 +8,14 @@ docker compose up -d --build
 
 Script'ler engellenirse: `Set-ExecutionPolicy -Scope Process Bypass`.
 
+Kontrol listesinin 7 maddesini sırayla çalıştırıp sonunda özet tablosu veren script (~26 dk; çıktı
+`manual-tests\output\gun3-kontrol-listesi-*.log`'a da yazılır):
+
+```powershell
+.\manual-tests\gun3\kontrol-listesi.ps1          # 1'den 7'ye
+.\manual-tests\gun3\kontrol-listesi.ps1 -From 4  # 4'ten başlayarak
+```
+
 | # | Madde | Komut |
 |---|---|---|
 | 1 | Hata oranları 0 → 100 fatura: hepsi Gönderildi, simülatörde her faturadan tam bir kayıt, `erp_reference` iki tarafta aynı | `.\manual-tests\gun3\1-hata-yok.ps1` |

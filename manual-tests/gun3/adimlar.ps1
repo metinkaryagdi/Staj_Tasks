@@ -1,5 +1,5 @@
 ﻿# Gün 3 - adım testlerinin hepsini sırayla çalıştırır (adim1 ... adim6), sonunda her birinin sonucunu tablo halinde yazar.
-# Toplam ~16 dk. Script'ler simülatörü ve Fatura Servisi'ni yeniden başlatır: bu sırada başka bir test çalıştırmayın.
+# Toplam ~11 dk. Script'ler simülatörü ve Fatura Servisi'ni yeniden başlatır: bu sırada başka bir test çalıştırmayın.
 # Ekrandaki bütün çıktı ayrıca manual-tests\output\gun3-adimlar-<zaman>.log dosyasına yazılır.
 #   .\manual-tests\gun3\adimlar.ps1            -> hepsi
 #   .\manual-tests\gun3\adimlar.ps1 -From 4    -> 4'ten başlayarak
