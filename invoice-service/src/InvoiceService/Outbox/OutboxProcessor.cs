@@ -109,11 +109,15 @@ public sealed class OutboxProcessor(
         ErpSendResult result;
         string check;
         RetryDecision decision;
+        // HTTP status shown in the log: the attempt's own request, not the final "ask before giving up" lookup
+        // (its outcome is already in check=final:...).
+        int? httpStatus;
         if (entry.AttemptsUsedUp)
         {
             (result, check) = await ConfirmAsync(invoice, "Son deneme yarıda kaldı (servis durdu).");
             check = $"final:{check}";
             decision = FinalDecision(result, "last attempt was cut off; ERP asked, not sent again");
+            httpStatus = result.HttpStatus;
         }
         else
         {
@@ -127,6 +131,7 @@ public sealed class OutboxProcessor(
                 return;
             }
             decision = policy.Decide(result, entry.Attempt, time.GetUtcNow(), Random.Shared.NextDouble());
+            httpStatus = result.HttpStatus;
             if (decision.AttemptsUsedUp)
             {
                 (result, var finalCheck) = await ConfirmAsync(invoice, result.Error);
@@ -176,7 +181,7 @@ public sealed class OutboxProcessor(
         logger.LogInformation(
             "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim} check={Check} outcome={Outcome} http={HttpStatus} " +
             "retryAfter={RetryAfter} wait={WaitSeconds}s reason={Reason} erpReference={ErpReference} elapsed={ElapsedMs}ms error={Error}{NotWritten}",
-            entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim, check, decision.Outcome, result.HttpStatus?.ToString() ?? "-",
+            entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim, check, decision.Outcome, httpStatus?.ToString() ?? "-",
             result.RetryAfter?.ToString() ?? "-", decision.Delay.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture),
             decision.Reason, result.ErpReference ?? "-", (long)result.Elapsed.TotalMilliseconds, result.Error ?? "-",
             owned == 1 ? "" : " (not written: the entry is no longer held by this worker)");
