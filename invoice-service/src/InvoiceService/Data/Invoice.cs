@@ -13,7 +13,7 @@ public sealed class Invoice
 
     public DateOnly InvoiceDate { get; set; }
 
-    /// <summary>One of <see cref="InvoiceStatus.Sent"/> or <see cref="InvoiceStatus.Failed"/>, enforced by a check constraint.</summary>
+    /// <summary>One of <see cref="InvoiceStatus"/>, enforced by a check constraint.</summary>
     public required string Status { get; set; }
 
     /// <summary>Reference returned by the ERP on 202; null while the invoice is not sent.</summary>
@@ -32,7 +32,11 @@ public sealed class Invoice
 
 public static class InvoiceStatus
 {
+    /// <summary>Queued in erp_outbox, not sent to the ERP yet.</summary>
+    public const string Pending = "Bekliyor";
     public const string Sent = "Gönderildi";
+
+    /// <summary>Permanent: every attempt is used up (or the ERP rejected it); only a resend queues it again.</summary>
     public const string Failed = "Başarısız";
 }
 
