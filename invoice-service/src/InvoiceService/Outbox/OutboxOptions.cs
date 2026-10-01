@@ -25,6 +25,14 @@ public sealed class OutboxOptions
     public int MaxJitterMilliseconds { get; set; }
 
     /// <summary>
+    /// Room left below <see cref="MaxBackoffSeconds"/>: the longest planned wait is MaxBackoffSeconds minus this. 0 means
+    /// a planned wait can reach MaxBackoffSeconds (jitter included). The real gap between two attempts is a little longer
+    /// than planned (the worker looks for due entries every IdleDelayMilliseconds and taking the entry takes a moment),
+    /// so if the measured gap must also stay under MaxBackoffSeconds, set this to about 1000.
+    /// </summary>
+    public int BackoffMarginMilliseconds { get; set; }
+
+    /// <summary>
     /// How long a taken entry belongs to the worker that took it. If the service is killed mid-send, another worker
     /// takes the entry once this has passed. Must be longer than the longest attempt (see the validator).
     /// </summary>
@@ -39,7 +47,8 @@ public sealed class OutboxOptionsValidator(IConfiguration configuration) : IVali
     public static readonly string[] RequiredKeys =
     [
         nameof(OutboxOptions.MaxConcurrentSends), nameof(OutboxOptions.MaxAttempts), nameof(OutboxOptions.MaxBackoffSeconds),
-        nameof(OutboxOptions.MaxJitterMilliseconds), nameof(OutboxOptions.LockSeconds), nameof(OutboxOptions.IdleDelayMilliseconds)
+        nameof(OutboxOptions.MaxJitterMilliseconds), nameof(OutboxOptions.BackoffMarginMilliseconds),
+        nameof(OutboxOptions.LockSeconds), nameof(OutboxOptions.IdleDelayMilliseconds)
     ];
 
     /// <summary>
@@ -70,6 +79,10 @@ public sealed class OutboxOptionsValidator(IConfiguration configuration) : IVali
         if (options.MaxJitterMilliseconds < 0 || options.MaxJitterMilliseconds >= options.MaxBackoffSeconds * 1000)
             errors.Add($"Outbox:MaxJitterMilliseconds must be at least 0 and less than Outbox:MaxBackoffSeconds " +
                        $"(was {options.MaxJitterMilliseconds} ms, max backoff {options.MaxBackoffSeconds} s).");
+        if (options.BackoffMarginMilliseconds < 0
+            || options.MaxJitterMilliseconds + options.BackoffMarginMilliseconds >= options.MaxBackoffSeconds * 1000)
+            errors.Add($"Outbox:BackoffMarginMilliseconds must be at least 0, and with the jitter less than Outbox:MaxBackoffSeconds " +
+                       $"(was {options.BackoffMarginMilliseconds} ms, jitter {options.MaxJitterMilliseconds} ms, max backoff {options.MaxBackoffSeconds} s).");
         if (options.IdleDelayMilliseconds <= 0)
             errors.Add($"Outbox:IdleDelayMilliseconds must be greater than 0 (was {options.IdleDelayMilliseconds}).");
 

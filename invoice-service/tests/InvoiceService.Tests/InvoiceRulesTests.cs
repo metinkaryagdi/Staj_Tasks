@@ -117,6 +117,7 @@ public class InvoiceRulesTests
             ["Outbox:MaxAttempts"] = "10",
             ["Outbox:MaxBackoffSeconds"] = "60",
             ["Outbox:MaxJitterMilliseconds"] = "1000",
+            ["Outbox:BackoffMarginMilliseconds"] = "0",
             ["Outbox:LockSeconds"] = "60",
             ["Outbox:IdleDelayMilliseconds"] = "250"
         };
@@ -137,6 +138,7 @@ public class InvoiceRulesTests
     [InlineData("Outbox:MaxAttempts", null, "Outbox:MaxAttempts is missing")]
     [InlineData("Outbox:MaxBackoffSeconds", null, "Outbox:MaxBackoffSeconds is missing")]
     [InlineData("Outbox:MaxJitterMilliseconds", null, "Outbox:MaxJitterMilliseconds is missing")]
+    [InlineData("Outbox:BackoffMarginMilliseconds", null, "Outbox:BackoffMarginMilliseconds is missing")]
     [InlineData("Outbox:LockSeconds", null, "Outbox:LockSeconds is missing")]
     [InlineData("Outbox:IdleDelayMilliseconds", null, "Outbox:IdleDelayMilliseconds is missing")]
     [InlineData("Outbox:MaxConcurrentSends", "0", "Outbox:MaxConcurrentSends must be greater than 0")]
@@ -145,6 +147,8 @@ public class InvoiceRulesTests
     [InlineData("Outbox:MaxJitterMilliseconds", "60000", "Outbox:MaxJitterMilliseconds must be at least 0 and less than")]
     [InlineData("Outbox:MaxJitterMilliseconds", "-1", "Outbox:MaxJitterMilliseconds must be at least 0 and less than")]
     [InlineData("Outbox:IdleDelayMilliseconds", "0", "Outbox:IdleDelayMilliseconds must be greater than 0")]
+    [InlineData("Outbox:BackoffMarginMilliseconds", "-1", "Outbox:BackoffMarginMilliseconds must be at least 0")]
+    [InlineData("Outbox:BackoffMarginMilliseconds", "59000", "Outbox:BackoffMarginMilliseconds must be at least 0")]
     [InlineData("Outbox:LockSeconds", "30", "Outbox:LockSeconds must be longer than 3 x Erp:TimeoutSeconds")]
     public void Invalid_outbox_settings_are_rejected(string key, string? value, string message)
     {
@@ -166,5 +170,6 @@ public class InvoiceRulesTests
         Assert.Equal(10, options.MaxConcurrentSends);
         Assert.Equal(10, options.MaxAttempts);
         Assert.Equal(60, options.MaxBackoffSeconds);
+        Assert.Equal(0, options.BackoffMarginMilliseconds);
     }
 }

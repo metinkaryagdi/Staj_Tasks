@@ -44,6 +44,9 @@ public sealed class RetryPolicy(OutboxOptions options)
     /// <summary>The jitter is a random value in [0, this).</summary>
     public TimeSpan MaxJitter { get; } = TimeSpan.FromMilliseconds(options.MaxJitterMilliseconds);
 
+    /// <summary>Room left below <see cref="MaxBackoff"/> (Outbox:BackoffMarginMilliseconds; 0 with the shipped settings).</summary>
+    public TimeSpan BackoffMargin { get; } = TimeSpan.FromMilliseconds(options.BackoffMarginMilliseconds);
+
     /// <param name="attempt">Number of the attempt that just finished (1 = first).</param>
     /// <param name="random">A random number in [0, 1) for the jitter.</param>
     public RetryDecision Decide(ErpSendResult result, int attempt, DateTimeOffset now, double random)
@@ -80,15 +83,15 @@ public sealed class RetryPolicy(OutboxOptions options)
 
     /// <summary>
     /// 2^attempt seconds (2, 4, 8, 16, 32, ...) plus jitter in [0, MaxJitter). The base is capped at
-    /// MaxBackoff - MaxJitter (59 s with the shipped settings), so with the jitter the wait is never more than MaxBackoff
-    /// and the capped waits are still spread out.
+    /// MaxBackoff - MaxJitter - BackoffMargin (59 s with the shipped settings), so with the jitter the wait is never more
+    /// than MaxBackoff - BackoffMargin and the capped waits are still spread out.
     /// Why jitter: invoices that failed together (e.g. while the ERP was down) would otherwise all retry at exactly
     /// the same moment, again and again, and hit the recovering ERP as one burst.
     /// </summary>
     public (TimeSpan Delay, string Reason) Backoff(int attempt, double random)
     {
         var exponential = TimeSpan.FromSeconds(Math.Pow(2, Math.Min(attempt, 30)));
-        var cap = MaxBackoff - MaxJitter;
+        var cap = MaxBackoff - MaxJitter - BackoffMargin;
         var baseDelay = exponential < cap ? exponential : cap;
         var jitter = MaxJitter * Math.Clamp(random, 0, 0.999);
         return (baseDelay + jitter, $"backoff {baseDelay.TotalSeconds:0}s + jitter {jitter.TotalMilliseconds:0}ms");
