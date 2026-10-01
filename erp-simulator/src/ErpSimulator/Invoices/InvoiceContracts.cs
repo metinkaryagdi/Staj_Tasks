@@ -19,8 +19,10 @@ public sealed partial record CreateInvoiceRequest(
         if (string.IsNullOrWhiteSpace(CustomerCode) || CustomerCode.Length > 64)
             errors[nameof(CustomerCode)] = ["Required, max 64 characters."];
 
-        if (Amount is null or <= 0)
-            errors[nameof(Amount)] = ["Required, must be greater than 0."];
+        // Same rule as the invoice service. amount is numeric(18,2): a third decimal would be rounded away silently.
+        // Trailing zeros are not extra decimals: 1.230 is the same value as 1.23 and is accepted.
+        if (Amount is null or <= 0 || decimal.Round(Amount.Value, 2) != Amount.Value)
+            errors[nameof(Amount)] = ["Required, must be greater than 0 with at most 2 decimals."];
 
         if (Currency is null || !CurrencyPattern().IsMatch(Currency))
             errors[nameof(Currency)] = ["Required, 3-letter ISO 4217 code (e.g. TRY, EUR)."];
