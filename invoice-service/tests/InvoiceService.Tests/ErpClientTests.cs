@@ -260,4 +260,30 @@ public class ErpClientTests
 
         Assert.Equal(ErpLookup.Unknown, result.Lookup);
     }
+
+    [Theory]
+    [InlineData("""{"title":42,"detail":"x"}""")]
+    [InlineData("""{"title":{},"detail":"x"}""")]
+    [InlineData("""{"title":["a"]}""")]
+    public async Task Error_body_with_a_title_that_is_not_a_string_is_failed_not_thrown(string body)
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.InternalServerError, body));
+
+        var result = await client.SendAsync(SampleInvoice(), CancellationToken.None);
+
+        Assert.False(result.Accepted);
+        Assert.Contains(body, result.Error);
+    }
+
+    [Theory]
+    [InlineData("""{"title":42}""")]
+    [InlineData("""{"title":{}}""")]
+    public async Task Lookup_error_with_a_title_that_is_not_a_string_is_unknown_not_thrown(string body)
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.InternalServerError, body));
+
+        var result = await client.FindAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(ErpLookup.Unknown, result.Lookup);
+    }
 }

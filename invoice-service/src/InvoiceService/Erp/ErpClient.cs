@@ -151,7 +151,8 @@ public sealed class ErpClient(HttpClient http)
         {
             using var json = JsonDocument.Parse(body);
             var root = json.RootElement;
-            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("title", out var title))
+            // Only a string title is used: GetString throws on a number or an object, which would leave the entry locked.
+            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String)
             {
                 return root.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String
                     ? $"{title.GetString()} - {detail.GetString()}"
