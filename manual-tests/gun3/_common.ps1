@@ -76,11 +76,11 @@ function Get-SendAttempts([string[]]$Invoices) {
         if ($line -match '^(\S+ \S+) info: .*ERP send start invoice=(\S+) attempt=(\d+)/') {
             if ($Invoices -contains $Matches[2]) { $starts["$($Matches[2])#$($Matches[3])"] = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv) }
         }
-        elseif ($line -match '^(\S+ \S+) info: .*ERP send invoice=(\S+) attempt=(\d+)/\d+ worker=(\S+) outcome=(\w+) http=(\S+) retryAfter=(.*?) wait=([\d.]+)s reason=') {
+        elseif ($line -match '^(\S+ \S+) info: .*ERP send invoice=(\S+) attempt=(\d+)/\d+ worker=(\S+) check=(\S+) outcome=(\w+) http=(\S+) retryAfter=(.*?) wait=([\d.]+)s reason=') {
             if ($Invoices -notcontains $Matches[2]) { continue }
             $rows += [pscustomobject]@{
-                Invoice = $Matches[2]; Attempt = [int]$Matches[3]; Worker = $Matches[4]; Outcome = $Matches[5]; Http = $Matches[6]
-                RetryAfter = $Matches[7]; Wait = [double]::Parse($Matches[8], $inv)
+                Invoice = $Matches[2]; Attempt = [int]$Matches[3]; Worker = $Matches[4]; Check = $Matches[5]; Outcome = $Matches[6]
+                Http = $Matches[7]; RetryAfter = $Matches[8]; Wait = [double]::Parse($Matches[9], $inv)
                 End = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv); Start = $null; WaitedBefore = $null
             }
         }
@@ -98,11 +98,12 @@ function Get-SendAttempts([string[]]$Invoices) {
 
 function Show-SendAttempts($Attempts) {
     Write-Host ''
-    Write-Host ('  {0,-12} {1,7} {2,-10} {3,-5} {4,-31} {5,10} {6,16}' -f 'Fatura', 'Deneme', 'Sonuç', 'HTTP', 'Retry-After', 'Plan (sn)', 'Önce bekl. (sn)') -ForegroundColor Cyan
-    Write-Host ('  ' + ('-' * 98)) -ForegroundColor Cyan
+    Write-Host ('  {0,-12} {1,7} {2,-9} {3,-10} {4,-5} {5,-31} {6,10} {7,16}' -f 'Fatura', 'Deneme', 'Kontrol', 'Sonuç', 'HTTP', 'Retry-After', 'Plan (sn)', 'Önce bekl. (sn)') -ForegroundColor Cyan
+    Write-Host ('  ' + ('-' * 108)) -ForegroundColor Cyan
     foreach ($a in $Attempts) {
         $waited = if ($null -ne $a.WaitedBefore) { '{0:N3}' -f $a.WaitedBefore } else { '-' }
-        Write-Host ('  {0,-12} {1,7} {2,-10} {3,-5} {4,-31} {5,10:N3} {6,16}' -f $a.Invoice, "$($a.Attempt)/10", $a.Outcome, $a.Http, $a.RetryAfter, $a.Wait, $waited)
+        Write-Host ('  {0,-12} {1,7} {2,-9} {3,-10} {4,-5} {5,-31} {6,10:N3} {7,16}' -f $a.Invoice, "$($a.Attempt)/10", $a.Check, $a.Outcome, $a.Http, $a.RetryAfter, $a.Wait, $waited)
     }
+    Write-Host '  Kontrol: first = ilk gönderim (doğrudan POST); found = simülatörde zaten var, POST yapılmadı; notFound = yok, POST yapıldı; unknown = sorulamadı, POST yapılmadı.' -ForegroundColor DarkGray
     Write-Host '  Plan: bu denemeden sonra beklenecek süre. Önce bekl.: önceki denemenin bitişinden bu denemenin başlangıcına geçen süre.' -ForegroundColor DarkGray
 }

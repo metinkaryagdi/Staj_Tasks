@@ -59,6 +59,12 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
     /// Sends one taken entry and writes the outcome to erp_outbox and invoices in one transaction, following
     /// <see cref="RetryPolicy"/>: sent -> Gönderildi / Tamamlandı; retry -> both stay Bekliyor with next_attempt_at
     /// moved to now + wait; failed -> Başarısız on both.
+    /// <para>
+    /// Duplicate protection: the ERP can save an invoice and still not tell us (500 after saving, an answer later
+    /// than our timeout, the service killed mid-send). So if the invoice was ever sent before, the ERP is asked first
+    /// and the invoice is POSTed again only if the ERP clearly does not have it (404). If it has it, its reference is
+    /// taken as the result. If it cannot be asked, nothing is sent: the attempt fails and is retried later.
+    /// </para>
     /// </summary>
     public async Task SendAsync(ClaimedEntry entry, string workerId)
     {
@@ -67,7 +73,7 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
 
         logger.LogInformation("ERP send start invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker}",
             entry.InvoiceNumber, entry.Attempt, RetryPolicy.MaxAttempts, workerId);
-        var result = await erp.SendAsync(invoice, CancellationToken.None);
+        var (result, check) = await SendOnceAsync(invoice);
 
         var now = time.GetUtcNow();
         var decision = RetryPolicy.Decide(result, entry.Attempt, now, Random.Shared.NextDouble());
@@ -108,11 +114,32 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
         }
 
         logger.LogInformation(
-            "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} outcome={Outcome} http={HttpStatus} " +
+            "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} check={Check} outcome={Outcome} http={HttpStatus} " +
             "retryAfter={RetryAfter} wait={WaitSeconds}s reason={Reason} erpReference={ErpReference} elapsed={ElapsedMs}ms error={Error}{NotWritten}",
-            entry.InvoiceNumber, entry.Attempt, RetryPolicy.MaxAttempts, workerId, decision.Outcome, result.HttpStatus?.ToString() ?? "-",
+            entry.InvoiceNumber, entry.Attempt, RetryPolicy.MaxAttempts, workerId, check, decision.Outcome, result.HttpStatus?.ToString() ?? "-",
             result.RetryAfter?.ToString() ?? "-", decision.Delay.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture),
             decision.Reason, result.ErpReference ?? "-", (long)result.Elapsed.TotalMilliseconds, result.Error ?? "-",
             owned == 1 ? "" : " (not written: the entry is no longer held by this worker)");
+    }
+
+    /// <summary>
+    /// One attempt: POST directly the first time; otherwise ask the ERP first (see <see cref="SendAsync"/>).
+    /// <c>Check</c> says which path was taken, for the log: first, found, notFound or unknown.
+    /// </summary>
+    private async Task<(ErpSendResult Result, string Check)> SendOnceAsync(Invoice invoice)
+    {
+        // send_attempt_count is counted per invoice for its whole life (a resend does not reset it) and already
+        // includes this attempt, so 1 means nothing was ever sent before and the ERP cannot have the invoice.
+        if (invoice.SendAttemptCount <= 1)
+            return (await erp.SendAsync(invoice, CancellationToken.None), "first");
+
+        var lookup = await erp.FindAsync(invoice.InvoiceNumber, CancellationToken.None);
+        return lookup.Lookup switch
+        {
+            ErpLookup.Found => (new ErpSendResult(true, lookup.ErpReference, lookup.HttpStatus, null, lookup.Elapsed), "found"),
+            ErpLookup.NotFound => (await erp.SendAsync(invoice, CancellationToken.None), "notFound"),
+            // No answer the ERP's state can be read from: treated like a timeout (backoff), never as "not there".
+            _ => (new ErpSendResult(false, null, null, lookup.Error, lookup.Elapsed), "unknown")
+        };
     }
 }

@@ -173,4 +173,62 @@ public class ErpClientTests
         Assert.False(result.Accepted);
         Assert.True(result.Error!.Length < 700);
     }
+
+    [Fact]
+    public async Task Lookup_200_with_reference_is_found()
+    {
+        var (client, handler) = Create((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Equal("/api/v1/invoices/FTR-000001", request.RequestUri!.AbsolutePath);
+            return Reply(HttpStatusCode.OK,
+                """{"invoiceNumber":"FTR-000001","registered":true,"erpReference":"ERP-00000007","recordCount":1,"records":[]}""");
+        });
+
+        var result = await client.FindAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(ErpLookup.Found, result.Lookup);
+        Assert.Equal("ERP-00000007", result.ErpReference);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task Lookup_404_is_not_found()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.NotFound, """{"title":"Invoice not found"}"""));
+
+        var result = await client.FindAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(ErpLookup.NotFound, result.Lookup);
+        Assert.Null(result.Error);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError, """{"title":"boom"}""")]
+    [InlineData(HttpStatusCode.OK, "not json")]
+    [InlineData(HttpStatusCode.OK, """{"registered":true}""")]
+    [InlineData(HttpStatusCode.BadRequest, """{"title":"bad"}""")]
+    public async Task Lookup_without_a_clear_answer_is_unknown(HttpStatusCode status, string body)
+    {
+        var (client, _) = Create((_, _) => Reply(status, body));
+
+        var result = await client.FindAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(ErpLookup.Unknown, result.Lookup);
+        Assert.Contains("sorulamadı", result.Error);
+    }
+
+    [Fact]
+    public async Task Lookup_timeout_and_unreachable_are_unknown()
+    {
+        var (slow, _) = Create(async (_, ct) =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }, TimeSpan.FromMilliseconds(100));
+        var (down, _) = Create((_, _) => throw new HttpRequestException("Connection refused"));
+
+        Assert.Equal(ErpLookup.Unknown, (await slow.FindAsync("FTR-000001", CancellationToken.None)).Lookup);
+        Assert.Equal(ErpLookup.Unknown, (await down.FindAsync("FTR-000001", CancellationToken.None)).Lookup);
+    }
 }
