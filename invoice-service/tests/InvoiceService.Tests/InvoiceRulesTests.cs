@@ -108,29 +108,63 @@ public class InvoiceRulesTests
         return options;
     }
 
-    [Theory]
-    [InlineData("10", null)]
-    [InlineData(null, "Outbox:MaxConcurrentSends is missing")]
-    [InlineData("0", "Outbox:MaxConcurrentSends must be greater than 0")]
-    public void Outbox_settings_are_validated(string? maxConcurrentSends, string? message)
+    private static IConfiguration OutboxSettings(params (string Key, string? Value)[] overrides)
     {
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        var values = new Dictionary<string, string?>
         {
-            ["Outbox:MaxConcurrentSends"] = maxConcurrentSends
-        }).Build();
-        var result = new OutboxOptionsValidator(configuration).Validate(null, BindOutbox(configuration));
-
-        if (message is null)
-            Assert.True(result.Succeeded);
-        else
-            Assert.Contains(message, result.FailureMessage);
+            ["Erp:TimeoutSeconds"] = "10",
+            ["Outbox:MaxConcurrentSends"] = "10",
+            ["Outbox:MaxAttempts"] = "10",
+            ["Outbox:MaxBackoffSeconds"] = "60",
+            ["Outbox:MaxJitterMilliseconds"] = "1000",
+            ["Outbox:LockSeconds"] = "60",
+            ["Outbox:IdleDelayMilliseconds"] = "250"
+        };
+        foreach (var (key, value) in overrides)
+            values[key] = value;
+        return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
     }
 
     [Fact]
-    public void Shipped_settings_send_at_most_10_at_a_time()
+    public void Valid_outbox_settings_are_accepted()
+    {
+        var configuration = OutboxSettings();
+        Assert.True(new OutboxOptionsValidator(configuration).Validate(null, BindOutbox(configuration)).Succeeded);
+    }
+
+    [Theory]
+    [InlineData("Outbox:MaxConcurrentSends", null, "Outbox:MaxConcurrentSends is missing")]
+    [InlineData("Outbox:MaxAttempts", null, "Outbox:MaxAttempts is missing")]
+    [InlineData("Outbox:MaxBackoffSeconds", null, "Outbox:MaxBackoffSeconds is missing")]
+    [InlineData("Outbox:MaxJitterMilliseconds", null, "Outbox:MaxJitterMilliseconds is missing")]
+    [InlineData("Outbox:LockSeconds", null, "Outbox:LockSeconds is missing")]
+    [InlineData("Outbox:IdleDelayMilliseconds", null, "Outbox:IdleDelayMilliseconds is missing")]
+    [InlineData("Outbox:MaxConcurrentSends", "0", "Outbox:MaxConcurrentSends must be greater than 0")]
+    [InlineData("Outbox:MaxAttempts", "0", "Outbox:MaxAttempts must be greater than 0")]
+    [InlineData("Outbox:MaxBackoffSeconds", "0", "Outbox:MaxBackoffSeconds must be greater than 0")]
+    [InlineData("Outbox:MaxJitterMilliseconds", "60000", "Outbox:MaxJitterMilliseconds must be at least 0 and less than")]
+    [InlineData("Outbox:MaxJitterMilliseconds", "-1", "Outbox:MaxJitterMilliseconds must be at least 0 and less than")]
+    [InlineData("Outbox:IdleDelayMilliseconds", "0", "Outbox:IdleDelayMilliseconds must be greater than 0")]
+    [InlineData("Outbox:LockSeconds", "30", "Outbox:LockSeconds must be longer than 3 x Erp:TimeoutSeconds")]
+    public void Invalid_outbox_settings_are_rejected(string key, string? value, string message)
+    {
+        var configuration = OutboxSettings((key, value));
+        var result = new OutboxOptionsValidator(configuration).Validate(null, BindOutbox(configuration));
+
+        Assert.True(result.Failed);
+        Assert.Contains(message, result.FailureMessage);
+    }
+
+    [Fact]
+    public void Shipped_settings_follow_the_task_rules()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
         var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
-        Assert.Equal(10, BindOutbox(configuration).MaxConcurrentSends);
+        var options = BindOutbox(configuration);
+
+        Assert.True(new OutboxOptionsValidator(configuration).Validate(null, options).Succeeded);
+        Assert.Equal(10, options.MaxConcurrentSends);
+        Assert.Equal(10, options.MaxAttempts);
+        Assert.Equal(60, options.MaxBackoffSeconds);
     }
 }

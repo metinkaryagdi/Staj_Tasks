@@ -15,7 +15,7 @@ public sealed class ErpOutboxEntry
     public required string Status { get; set; }
 
     /// <summary>
-    /// How many attempts this entry has used, at most RetryPolicy.MaxAttempts (10); a resend sets it back to 0.
+    /// How many attempts this entry has used, at most Outbox:MaxAttempts (10 in appsettings.json); a resend sets it back to 0.
     /// Counted when the attempt starts, so an attempt cut off by a crash is counted too.
     /// </summary>
     public int AttemptCount { get; set; }

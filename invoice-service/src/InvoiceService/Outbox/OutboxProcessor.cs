@@ -2,6 +2,7 @@ using System.Globalization;
 using InvoiceService.Data;
 using InvoiceService.Erp;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace InvoiceService.Outbox;
 
@@ -15,20 +16,22 @@ public sealed record ClaimedEntry(long Id, string InvoiceNumber, int Attempt, bo
 /// <summary>
 /// Takes due entries from erp_outbox and sends them. Scoped: one instance (and one DbContext) per claim or per send.
 /// </summary>
-public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProvider time, ILogger<OutboxProcessor> logger)
+public sealed class OutboxProcessor(
+    InvoiceDbContext db, ErpClient erp, RetryPolicy policy, IOptions<OutboxOptions> options, TimeProvider time,
+    ILogger<OutboxProcessor> logger)
 {
     /// <summary>
-    /// How long a taken entry belongs to the worker that took it. Much longer than one send (10 s timeout), so it never
-    /// runs out during a normal send; if the service is killed mid-send, another worker takes the entry after this time.
+    /// How long a taken entry belongs to the worker that took it (Outbox:LockSeconds). Longer than the longest attempt,
+    /// so it never runs out during a send; if the service is killed mid-send, another worker takes the entry after this time.
     /// </summary>
-    public static readonly TimeSpan LockDuration = TimeSpan.FromSeconds(60);
+    private TimeSpan LockDuration => TimeSpan.FromSeconds(options.Value.LockSeconds);
 
     /// <summary>
     /// Takes up to <paramref name="limit"/> pending entries whose time has come and that nobody holds. In one statement:
     /// FOR UPDATE SKIP LOCKED lets two instances run this at the same time without taking the same row (each skips the
     /// rows the other is taking), locked_until/locked_by mark the row as taken after the statement ends, and the attempt
     /// is counted before the send, so a send cut off by a crash is still counted. The count never goes past
-    /// <see cref="RetryPolicy.MaxAttempts"/>: an entry whose last attempt was cut off is taken again with the same number
+    /// Outbox:MaxAttempts: an entry whose last attempt was cut off is taken again with the same number
     /// and only checked with the ERP (see <see cref="ClaimedEntry.AttemptsUsedUp"/>); the invoice's own count is not
     /// raised for it, since nothing is sent.
     /// </summary>
@@ -48,12 +51,12 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
                 FOR UPDATE SKIP LOCKED
             ), claimed AS (
                 UPDATE erp_outbox o
-                SET attempt_count = LEAST(o.attempt_count + 1, {RetryPolicy.MaxAttempts}),
+                SET attempt_count = LEAST(o.attempt_count + 1, {policy.MaxAttempts}),
                     locked_until = {lockedUntil},
                     locked_by = {workerId}
                 FROM due d
                 WHERE o.id = d.id
-                RETURNING o.id, o.invoice_number, o.attempt_count, d.attempt_count >= {RetryPolicy.MaxAttempts} AS used_up
+                RETURNING o.id, o.invoice_number, o.attempt_count, d.attempt_count >= {policy.MaxAttempts} AS used_up
             ), counted AS (
                 UPDATE invoices i
                 SET send_attempt_count = i.send_attempt_count + 1, updated_at = {now}
@@ -87,7 +90,7 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
         var invoice = await db.Invoices.AsNoTracking().SingleAsync(i => i.InvoiceNumber == entry.InvoiceNumber, CancellationToken.None);
 
         logger.LogInformation("ERP send start invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker}{OnlyCheck}",
-            entry.InvoiceNumber, entry.Attempt, RetryPolicy.MaxAttempts, workerId,
+            entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId,
             entry.AttemptsUsedUp ? " (last attempt was cut off: only asking the ERP)" : "");
 
         ErpSendResult result;
@@ -102,12 +105,12 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
         else
         {
             (result, check) = await SendOnceAsync(invoice);
-            decision = RetryPolicy.Decide(result, entry.Attempt, time.GetUtcNow(), Random.Shared.NextDouble());
+            decision = policy.Decide(result, entry.Attempt, time.GetUtcNow(), Random.Shared.NextDouble());
             if (decision.AttemptsUsedUp)
             {
                 (result, var finalCheck) = await ConfirmAsync(invoice, result.Error);
                 check = $"{check},final:{finalCheck}";
-                decision = FinalDecision(result, $"all {RetryPolicy.MaxAttempts} attempts used; ERP asked before giving up");
+                decision = FinalDecision(result, $"all {policy.MaxAttempts} attempts used; ERP asked before giving up");
             }
         }
 
@@ -151,7 +154,7 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
         logger.LogInformation(
             "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} check={Check} outcome={Outcome} http={HttpStatus} " +
             "retryAfter={RetryAfter} wait={WaitSeconds}s reason={Reason} erpReference={ErpReference} elapsed={ElapsedMs}ms error={Error}{NotWritten}",
-            entry.InvoiceNumber, entry.Attempt, RetryPolicy.MaxAttempts, workerId, check, decision.Outcome, result.HttpStatus?.ToString() ?? "-",
+            entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, check, decision.Outcome, result.HttpStatus?.ToString() ?? "-",
             result.RetryAfter?.ToString() ?? "-", decision.Delay.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture),
             decision.Reason, result.ErpReference ?? "-", (long)result.Elapsed.TotalMilliseconds, result.Error ?? "-",
             owned == 1 ? "" : " (not written: the entry is no longer held by this worker)");

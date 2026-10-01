@@ -12,18 +12,15 @@ public sealed class OutboxWorker(
     IOptions<OutboxOptions> options,
     ILogger<OutboxWorker> logger) : BackgroundService
 {
-    /// <summary>
-    /// How long to wait before looking again when nothing is due. Short, so a retry starts close to its next_attempt_at
-    /// (a Retry-After of 17 s is waited 17 s, not up to 18 s); the query is cheap thanks to the (status, next_attempt_at) index.
-    /// </summary>
-    private static readonly TimeSpan IdleDelay = TimeSpan.FromMilliseconds(250);
-
     /// <summary>Written to erp_outbox.locked_by: the container's host name, so two running copies can be told apart.</summary>
     public static readonly string WorkerId = Environment.MachineName;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var max = options.Value.MaxConcurrentSends;
+        // How long to wait before looking again when nothing is due (Outbox:IdleDelayMilliseconds). Short, so a retry starts
+        // close to its next_attempt_at; the query is cheap thanks to the (status, next_attempt_at) index.
+        var idleDelay = TimeSpan.FromMilliseconds(options.Value.IdleDelayMilliseconds);
         using var slots = new SemaphoreSlim(max, max);
         var running = new HashSet<Task>();
         logger.LogInformation("Outbox worker started worker={Worker} maxConcurrentSends={Max}", WorkerId, max);
@@ -51,7 +48,7 @@ public sealed class OutboxWorker(
                 if (claimed.Count == 0)
                 {
                     slots.Release();
-                    await Task.Delay(IdleDelay, stoppingToken);
+                    await Task.Delay(idleDelay, stoppingToken);
                     continue;
                 }
 
@@ -92,7 +89,7 @@ public sealed class OutboxWorker(
         }
         catch (Exception ex)
         {
-            // The entry keeps its lock; after OutboxProcessor.LockDuration another worker takes it again.
+            // The entry keeps its lock; after Outbox:LockSeconds another worker takes it again.
             logger.LogError("Outbox send failed invoice={InvoiceNumber} attempt={Attempt}: {Message}",
                 entry.InvoiceNumber, entry.Attempt, ex.Message);
         }

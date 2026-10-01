@@ -34,6 +34,7 @@ builder.Services.AddHttpClient<ErpClient>((sp, http) =>
 });
 
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(sp => new RetryPolicy(sp.GetRequiredService<IOptions<OutboxOptions>>().Value));
 builder.Services.AddScoped<OutboxProcessor>();
 builder.Services.AddHostedService<OutboxWorker>();
 
@@ -41,13 +42,14 @@ builder.Services.AddDbContext<InvoiceDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("InvoiceDb")));
 
 builder.Services.AddProblemDetails();
-builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
+builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, context, _) =>
 {
+    var outbox = context.ApplicationServices.GetRequiredService<IOptions<OutboxOptions>>().Value;
     doc.Info.Title = "Invoice Service";
     doc.Info.Description =
         "Saves the invoice as Bekliyor and queues it in erp_outbox in the same transaction (202); " +
         "a background worker sends it to the ERP simulator, retrying 429 after Retry-After and 500/timeout/unreachable " +
-        "with exponential backoff (max 60s, with jitter), at most 10 attempts.";
+        $"with exponential backoff (max {outbox.MaxBackoffSeconds}s, with jitter), at most {outbox.MaxAttempts} attempts.";
     return Task.CompletedTask;
 }).AddSchemaTransformer((schema, context, _) =>
 {
@@ -115,8 +117,9 @@ static void LogErpSettings(WebApplication app)
     var outbox = app.Services.GetRequiredService<IOptions<OutboxOptions>>().Value;
     app.Logger.LogInformation(
         "ERP settings: baseUrl={BaseUrl} timeout={Timeout}s maxConcurrentSends={Max} maxAttempts={MaxAttempts} " +
-        "backoff=2^n s (max {MaxBackoff}s with jitter) 429=Retry-After",
-        erp.BaseUrl, erp.TimeoutSeconds, outbox.MaxConcurrentSends, RetryPolicy.MaxAttempts, RetryPolicy.MaxBackoff.TotalSeconds);
+        "backoff=2^n s (max {MaxBackoff}s with jitter up to {MaxJitter}ms) 429=Retry-After lock={Lock}s idleDelay={Idle}ms",
+        erp.BaseUrl, erp.TimeoutSeconds, outbox.MaxConcurrentSends, outbox.MaxAttempts, outbox.MaxBackoffSeconds,
+        outbox.MaxJitterMilliseconds, outbox.LockSeconds, outbox.IdleDelayMilliseconds);
 }
 
 public partial class Program;

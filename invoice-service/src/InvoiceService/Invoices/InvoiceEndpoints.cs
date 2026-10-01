@@ -120,7 +120,7 @@ public static class InvoiceEndpoints
                 detail: $"Invoice '{invoiceNumber}' has status {current.Status}; only {InvoiceStatus.Failed} invoices can be resent.");
         }
 
-        // Reset the entry so the worker treats it like a new one: 10 attempts again, due now. Insert if missing:
+        // Reset the entry so the worker treats it like a new one: all attempts (Outbox:MaxAttempts) again, due now. Insert if missing:
         // invoices that failed before the outbox existed (Gün 2) have no entry.
         await db.Database.ExecuteSqlAsync($"""
             INSERT INTO erp_outbox (invoice_number, status, attempt_count, next_attempt_at, created_at)
