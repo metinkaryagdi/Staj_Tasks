@@ -128,7 +128,9 @@ public sealed class ErpClient(HttpClient http)
         try
         {
             using var json = JsonDocument.Parse(body);
-            return json.RootElement.TryGetProperty("erpReference", out var value) && value.ValueKind == JsonValueKind.String
+            // TryGetProperty throws on anything but an object ([], null, 42, "x"); such a body has no reference.
+            return json.RootElement.ValueKind == JsonValueKind.Object
+                   && json.RootElement.TryGetProperty("erpReference", out var value) && value.ValueKind == JsonValueKind.String
                    && !string.IsNullOrWhiteSpace(value.GetString())
                 ? value.GetString()
                 : null;

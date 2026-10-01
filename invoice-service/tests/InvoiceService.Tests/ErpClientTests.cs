@@ -231,4 +231,33 @@ public class ErpClientTests
         Assert.Equal(ErpLookup.Unknown, (await slow.FindAsync("FTR-000001", CancellationToken.None)).Lookup);
         Assert.Equal(ErpLookup.Unknown, (await down.FindAsync("FTR-000001", CancellationToken.None)).Lookup);
     }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("null")]
+    [InlineData("42")]
+    [InlineData("\"ERP-00000001\"")]
+    public async Task Accepted_with_a_body_that_is_not_an_object_is_failed_not_thrown(string body)
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.Accepted, body));
+
+        var result = await client.SendAsync(SampleInvoice(), CancellationToken.None);
+
+        Assert.False(result.Accepted);
+        Assert.Contains("erpReference yok", result.Error);
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("null")]
+    [InlineData("42")]
+    [InlineData("\"ERP-00000001\"")]
+    public async Task Lookup_200_with_a_body_that_is_not_an_object_is_unknown_not_thrown(string body)
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.OK, body));
+
+        var result = await client.FindAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(ErpLookup.Unknown, result.Lookup);
+    }
 }
