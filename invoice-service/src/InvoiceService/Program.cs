@@ -3,6 +3,7 @@ using InvoiceService.Data;
 using InvoiceService.Erp;
 using InvoiceService.Invoices;
 using InvoiceService.Outbox;
+using InvoiceService.Webhooks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -24,6 +25,10 @@ builder.Services.AddOptions<OutboxOptions>()
     .Bind(builder.Configuration.GetSection(OutboxOptions.SectionName))
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<OutboxOptions>, OutboxOptionsValidator>();
+builder.Services.AddOptions<WebhookOptions>()
+    .Bind(builder.Configuration.GetSection(WebhookOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<WebhookOptions>, WebhookOptionsValidator>();
 
 // Plain typed client on purpose: no resilience/retry handler, so each call makes exactly one HTTP request.
 // Retrying is decided by the outbox (RetryPolicy), not by the HTTP client.
@@ -89,6 +94,7 @@ app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
 app.MapInvoiceEndpoints();
+app.MapWebhookEndpoints();
 
 app.Run();
 
@@ -121,6 +127,11 @@ static void LogErpSettings(WebApplication app)
         "backoff=2^n s (max {MaxBackoff}s with jitter up to {MaxJitter}ms, margin {Margin}ms) 429=Retry-After lock={Lock}s idleDelay={Idle}ms",
         erp.BaseUrl, erp.TimeoutSeconds, outbox.MaxConcurrentSends, outbox.MaxAttempts, outbox.MaxBackoffSeconds,
         outbox.MaxJitterMilliseconds, outbox.BackoffMarginMilliseconds, outbox.LockSeconds, outbox.IdleDelayMilliseconds);
+
+    // The secret itself is never logged.
+    var webhooks = app.Services.GetRequiredService<IOptions<WebhookOptions>>().Value;
+    app.Logger.LogInformation("ERP webhook settings: tolerance={Tolerance}s maxBody={MaxBody} bytes",
+        webhooks.ToleranceSeconds, webhooks.MaxBodyBytes);
 }
 
 public partial class Program;
