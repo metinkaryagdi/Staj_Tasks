@@ -12,7 +12,7 @@ Script'ler engellenirse: `Set-ExecutionPolicy -Scope Process Bypass`.
 |---|---|---|
 | 1 | Hata oranları 0 → 100 fatura: hepsi Gönderildi, simülatörde her faturadan tam bir kayıt, `erp_reference` iki tarafta aynı | `.\manual-tests\gun3\1-hata-yok.ps1` |
 | 2 | Varsayılan oranlar → 1000 fatura, kuyruk boşalana kadar bekle → sonuç tablosu, boşalma süresi, fatura başına ortalama deneme (~3 dk) | `.\manual-tests\gun3\2-varsayilan-1000.ps1` |
-| 3 | Busy %100 → 5 fatura, 1 dk sonra Success %100: her denemeden önce beklenen süre = Retry-After (saniye ve tarih biçimi) | _yazılacak_ |
+| 3 | Busy %100 → 5 fatura, 1 dk sonra Success %100: her denemeden önce beklenen süre = Retry-After (saniye ve tarih biçimi) (~4 dk) | `.\manual-tests\gun3\3-mesgul-retry-after.ps1` |
 | 4 | ServerError %100 → 1 fatura: bekleme katlanarak artıyor, 60 sn'yi geçmiyor, 10. denemede Başarısız; sonra Success %100 + resend → Gönderildi | _yazılacak_ |
 | 5 | Simülatör durdurulmuş → 50 fatura (hepsi 202), 2 dk sonra simülatörü başlat → 50'si Gönderildi, çift kayıt yok | _yazılacak_ |
 | 6 | Varsayılan oranlar, 200 fatura gönderilirken servisi 3 kez `docker kill` + yeniden başlat → kayıp ve çift kayıt 0 | _yazılacak_ |
