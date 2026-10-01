@@ -34,7 +34,6 @@ builder.Services.AddHttpClient<ErpClient>((sp, http) =>
 });
 
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddScoped<InvoiceSender>();
 builder.Services.AddScoped<OutboxProcessor>();
 builder.Services.AddHostedService<OutboxWorker>();
 

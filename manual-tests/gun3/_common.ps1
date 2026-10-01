@@ -36,14 +36,23 @@ function Test-ServiceSql([string]$Sql) {
     }
 }
 
+# Servisin GET /api/v1/invoices?status=... endpoint'i: o durumdaki faturaların numaraları.
+function Get-ServiceInvoiceNumbers([string]$Status) {
+    $url = "$ServiceUrl/api/v1/invoices?status=$([Uri]::EscapeDataString($Status))"
+    $response = $script:Http.GetAsync($url).GetAwaiter().GetResult()
+    $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    if (-not $response.IsSuccessStatusCode) { throw "GET $url -> $([int]$response.StatusCode): $body" }
+    @(($body | ConvertFrom-Json) | ForEach-Object { $_.invoiceNumber })
+}
+
 # Aralıktaki faturaların hepsi Bekliyor'dan çıkana kadar (gönderildi ya da başarısız) bekler; geçen saniyeyi döner.
-# Süre dolarsa durur: kuyruğun boşalmaması bir hatadır, sessizce geçilmez.
+# Servisin GET /api/v1/invoices?status=Bekliyor endpoint'ini kullanır. Süre dolarsa durur: kuyruğun boşalmaması
+# bir hatadır, sessizce geçilmez.
 function Wait-QueueDrained([string]$From, [string]$To, [int]$TimeoutSeconds = 300) {
     $watch = [Diagnostics.Stopwatch]::StartNew()
-    $range = "invoice_number BETWEEN '$From' AND '$To'"
     $last = -1
     while ($true) {
-        $pending = [int]@(Get-ServiceRows "SELECT count(*) FROM invoices WHERE $range AND status = 'Bekliyor';")[0]
+        $pending = @(Get-ServiceInvoiceNumbers 'Bekliyor' | Where-Object { $_ -ge $From -and $_ -le $To }).Count
         if ($pending -eq 0) { return [math]::Round($watch.Elapsed.TotalSeconds, 1) }
         if ($pending -ne $last) { Write-Host ('  {0,5:N0} sn: {1} fatura Bekliyor' -f $watch.Elapsed.TotalSeconds, $pending) -ForegroundColor DarkGray }
         $last = $pending

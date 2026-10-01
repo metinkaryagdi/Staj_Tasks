@@ -21,13 +21,24 @@ public static class InvoiceEndpoints
 
         group.MapPost("/{invoiceNumber}/resend", ResendInvoice)
             .WithName("ResendInvoice")
-            .WithSummary("Send a failed invoice to the ERP once more")
+            .WithSummary("Queue a failed invoice again")
             .WithDescription(
-                "Only for invoices with status Başarısız. Sends once and writes the outcome the same way as create. " +
-                "No duplicate protection: if the ERP had already saved the invoice, it gets a second record there.")
-            .Produces<InvoiceResponse>()
+                "Only for invoices with status Başarısız. Does not call the ERP: resets the invoice's erp_outbox entry " +
+                "(Bekliyor, 0 attempts, due now) and sets the invoice to Bekliyor, then returns 202. The worker sends it " +
+                "again by the usual rules, asking the ERP first so an invoice the ERP already has is not posted twice. " +
+                "409 if the invoice is not Başarısız, 404 if it does not exist.")
+            .Produces<InvoiceResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapGet("/", ListInvoices)
+            .WithName("ListInvoices")
+            .WithSummary("Invoices, optionally filtered by status")
+            .WithDescription(
+                "status=Bekliyor, Gönderildi or Başarısız; without it every invoice is listed. Ordered by invoice number. " +
+                "Used by the tests to wait until the queue is empty (no Bekliyor left).")
+            .Produces<InvoiceResponse[]>()
+            .ProducesValidationProblem();
 
         group.MapGet("/{invoiceNumber}", GetInvoice)
             .WithName("GetInvoice")
@@ -82,21 +93,72 @@ public static class InvoiceEndpoints
         return Results.Accepted($"/api/v1/invoices/{Uri.EscapeDataString(invoice.InvoiceNumber)}", InvoiceResponse.From(invoice));
     }
 
-    private static async Task<IResult> ResendInvoice(string invoiceNumber, InvoiceDbContext db, InvoiceSender sender)
+    private static async Task<IResult> ResendInvoice(
+        string invoiceNumber, InvoiceDbContext db, TimeProvider time, ILoggerFactory loggerFactory)
     {
-        var invoice = await db.Invoices.SingleOrDefaultAsync(i => i.InvoiceNumber == invoiceNumber);
-        if (invoice is null)
-            return NotFound(invoiceNumber);
+        var now = time.GetUtcNow();
+        await using var transaction = await db.Database.BeginTransactionAsync();
 
-        if (invoice.Status != InvoiceStatus.Failed)
+        // Conditional: only a Başarısız invoice moves to Bekliyor. Two resends at the same time cannot both queue it;
+        // the second finds it Bekliyor and gets 409.
+        var queued = await db.Invoices
+            .Where(i => i.InvoiceNumber == invoiceNumber && i.Status == InvoiceStatus.Failed)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(i => i.Status, InvoiceStatus.Pending)
+                .SetProperty(i => i.LastError, (string?)null)
+                .SetProperty(i => i.UpdatedAt, now));
+
+        if (queued == 0)
         {
+            var current = await db.Invoices.AsNoTracking().SingleOrDefaultAsync(i => i.InvoiceNumber == invoiceNumber);
+            if (current is null)
+                return NotFound(invoiceNumber);
+
             return Results.Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "Invoice is not failed",
-                detail: $"Invoice '{invoiceNumber}' has status {invoice.Status}; only {InvoiceStatus.Failed} invoices can be resent.");
+                detail: $"Invoice '{invoiceNumber}' has status {current.Status}; only {InvoiceStatus.Failed} invoices can be resent.");
         }
 
-        return Results.Ok(InvoiceResponse.From(await sender.SendAsync(invoice)));
+        // Reset the entry so the worker treats it like a new one: 10 attempts again, due now. Insert if missing:
+        // invoices that failed before the outbox existed (Gün 2) have no entry.
+        await db.Database.ExecuteSqlAsync($"""
+            INSERT INTO erp_outbox (invoice_number, status, attempt_count, next_attempt_at, created_at)
+            VALUES ({invoiceNumber}, {OutboxStatus.Pending}, 0, {now}, {now})
+            ON CONFLICT (invoice_number) DO UPDATE
+            SET status = EXCLUDED.status,
+                attempt_count = 0,
+                next_attempt_at = EXCLUDED.next_attempt_at,
+                last_error = NULL,
+                processed_at = NULL,
+                locked_until = NULL,
+                locked_by = NULL
+            """);
+
+        await transaction.CommitAsync();
+        loggerFactory.CreateLogger("InvoiceService.Invoices").LogInformation("Invoice queued again invoice={InvoiceNumber}", invoiceNumber);
+
+        var invoice = await db.Invoices.AsNoTracking().SingleAsync(i => i.InvoiceNumber == invoiceNumber);
+        return Results.Accepted($"/api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}", InvoiceResponse.From(invoice));
+    }
+
+    private static async Task<IResult> ListInvoices(string? status, InvoiceDbContext db, CancellationToken ct)
+    {
+        string[] statuses = [InvoiceStatus.Pending, InvoiceStatus.Sent, InvoiceStatus.Failed];
+        if (status is not null && !statuses.Contains(status))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["status"] = [$"Must be one of: {string.Join(", ", statuses)}."]
+            });
+        }
+
+        var query = db.Invoices.AsNoTracking();
+        if (status is not null)
+            query = query.Where(i => i.Status == status);
+
+        var invoices = await query.OrderBy(i => i.InvoiceNumber).ToListAsync(ct);
+        return Results.Ok(invoices.Select(InvoiceResponse.From));
     }
 
     private static async Task<IResult> GetInvoice(string invoiceNumber, InvoiceDbContext db, CancellationToken ct)
