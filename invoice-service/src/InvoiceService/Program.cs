@@ -39,8 +39,8 @@ builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
 {
     doc.Info.Title = "Invoice Service";
     doc.Info.Description =
-        "First, deliberately unprotected version: saves the invoice, sends it to the ERP simulator once " +
-        "(10s timeout, no retry) and records the outcome as Gönderildi or Başarısız.";
+        "Saves the invoice as Bekliyor and queues it in erp_outbox in the same transaction (202); " +
+        "the send to the ERP simulator happens in the background.";
     return Task.CompletedTask;
 }).AddSchemaTransformer((schema, context, _) =>
 {

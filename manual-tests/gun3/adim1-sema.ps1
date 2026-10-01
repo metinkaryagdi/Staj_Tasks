@@ -3,7 +3,6 @@
 #   - invoices.status artık Bekliyor / Gönderildi / Başarısız kabul ediyor, başka bir değeri reddediyor
 #   - erp_outbox tablosu istenen 8 kolon + eklenen 2 kolonla (locked_until, locked_by) var
 #   - erp_outbox.status yalnızca Bekliyor / Tamamlandı / Başarısız; bir fatura için tek kayıt; olmayan fatura için kayıt yok
-#   - Bu adımda davranış değişmedi: POST hâlâ simülatöre doğrudan gidiyor, erp_outbox'a hiçbir şey yazılmıyor
 # Kısıt denemeleri BEGIN ... ROLLBACK içinde yapılır, veritabanında iz bırakmaz.
 . "$PSScriptRoot\_common.ps1"
 
@@ -65,17 +64,4 @@ Write-Host ''
 $ok = Write-DbVerdict 'denemelerden geriye kayıt kalmadı' "$leftover kayıt" ($leftover -eq 0)
 $allPassed = $allPassed -and $ok
 
-Write-Step 'Bu adımda davranış değişmedi: bir fatura oluşturuluyor (hâlâ doğrudan simülatöre gider)'
-$outboxBefore = [int]@(Get-ServiceRows 'SELECT count(*) FROM erp_outbox;')[0]
-$r = New-ServiceInvoice
-Write-ServiceResult $r
-$outboxAfter = [int]@(Get-ServiceRows 'SELECT count(*) FROM erp_outbox;')[0]
-
-Write-DbHeader 'Yeni fatura' "Fatura numarası: $($r.InvoiceNumber)"
-Show-ServiceQuery "SELECT invoice_number, status, erp_reference, send_attempt_count FROM invoices WHERE invoice_number = '$($r.InvoiceNumber)';"
-Show-ServiceQuery 'SELECT count(*) AS outbox_kayit FROM erp_outbox;'
-$ok = Write-DbVerdict '201 (Gün 2 davranışı), erp_outbox boş kaldı' "$($r.HttpStatus), erp_outbox $outboxBefore -> $outboxAfter kayıt" `
-    ($r.HttpStatus -eq 201 -and $outboxAfter -eq $outboxBefore)
-$allPassed = $allPassed -and $ok
-
-Write-Result $allPassed 'şema hazır: invoices.status üç değer, erp_outbox 10 kolon ve kısıtlarıyla; davranış henüz değişmedi'
+Write-Result $allPassed 'şema hazır: invoices.status üç değer, erp_outbox 10 kolon ve kısıtlarıyla'

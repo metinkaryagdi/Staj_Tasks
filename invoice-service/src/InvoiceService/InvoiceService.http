@@ -2,14 +2,13 @@
 # Works in Visual Studio, Rider and VS Code (REST Client extension): click "Send Request" above each block.
 # Start the stack first: docker compose up -d --build
 #
-# Every create sends the invoice to the ERP simulator once; depending on the simulator's seeded behavior
-# the invoice ends up Gönderildi (with erpReference) or Başarısız (with lastError). No retry.
+# Create saves the invoice as Bekliyor and queues it in erp_outbox (202); the ERP is not called in that request.
 # Watch the sends live: docker compose logs -f invoice-service
 
 @baseUrl = http://localhost:5090
 @invoiceNumber = FTR-000001
 
-### 1) Create an invoice (201; check status)
+### 1) Create an invoice (202, status Bekliyor)
 POST {{baseUrl}}/api/v1/invoices
 Content-Type: application/json
 

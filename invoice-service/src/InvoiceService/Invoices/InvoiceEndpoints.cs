@@ -11,13 +11,12 @@ public static class InvoiceEndpoints
 
         group.MapPost("/", CreateInvoice)
             .WithName("CreateInvoice")
-            .WithSummary("Create an invoice and send it to the ERP once")
+            .WithSummary("Create an invoice and queue it for the ERP")
             .WithDescription(
-                "Saves the invoice with a generated number (FTR-000001), then sends it to the ERP in the same request. " +
-                "ERP 202 -> status Gönderildi with erpReference; any other outcome (429, 500, timeout after 10s, " +
-                "ERP unreachable) -> status Başarısız with lastError. The invoice is created either way, so the " +
-                "response is always 201; check status. No retry.")
-            .Produces<InvoiceResponse>(StatusCodes.Status201Created)
+                "Saves the invoice with a generated number (FTR-000001) and status Bekliyor, together with its " +
+                "erp_outbox entry in the same transaction, and returns 202. The ERP is not called in this request; " +
+                "the send happens in the background.")
+            .Produces<InvoiceResponse>(StatusCodes.Status202Accepted)
             .ProducesValidationProblem();
 
         group.MapPost("/{invoiceNumber}/resend", ResendInvoice)
@@ -42,14 +41,14 @@ public static class InvoiceEndpoints
     private static async Task<IResult> CreateInvoice(
         CreateInvoiceRequest request,
         InvoiceDbContext db,
-        InvoiceSender sender,
         TimeProvider time,
         ILoggerFactory loggerFactory)
     {
+        var logger = loggerFactory.CreateLogger("InvoiceService.Invoices");
         var errors = request.Validate();
         if (errors.Count > 0)
         {
-            loggerFactory.CreateLogger("InvoiceService.Invoices").LogWarning("Rejected invalid invoice request");
+            logger.LogWarning("Rejected invalid invoice request");
             return Results.ValidationProblem(errors);
         }
 
@@ -61,16 +60,26 @@ public static class InvoiceEndpoints
             Amount = request.Amount!.Value,
             Currency = request.Currency!,
             InvoiceDate = request.InvoiceDate!.Value,
-            Status = InvoiceStatus.Failed,
+            Status = InvoiceStatus.Pending,
             CreatedAt = now,
             UpdatedAt = now
         };
         db.Invoices.Add(invoice);
+        db.ErpOutbox.Add(new ErpOutboxEntry
+        {
+            InvoiceNumber = invoice.InvoiceNumber,
+            Status = OutboxStatus.Pending,
+            AttemptCount = 0,
+            NextAttemptAt = now,
+            CreatedAt = now
+        });
 
-        // The first save inside SendAsync inserts the row before the ERP is called.
-        var stored = await sender.SendAsync(invoice);
+        // One SaveChanges = one transaction: both rows are written or neither is. There is never an invoice that
+        // nobody will send, nor a send queued for an invoice that does not exist.
+        await db.SaveChangesAsync(CancellationToken.None);
+        logger.LogInformation("Invoice queued invoice={InvoiceNumber}", invoice.InvoiceNumber);
 
-        return Results.Created($"/api/v1/invoices/{Uri.EscapeDataString(stored.InvoiceNumber)}", InvoiceResponse.From(stored));
+        return Results.Accepted($"/api/v1/invoices/{Uri.EscapeDataString(invoice.InvoiceNumber)}", InvoiceResponse.From(invoice));
     }
 
     private static async Task<IResult> ResendInvoice(string invoiceNumber, InvoiceDbContext db, InvoiceSender sender)

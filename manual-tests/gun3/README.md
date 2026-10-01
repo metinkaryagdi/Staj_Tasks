@@ -24,4 +24,5 @@ Gün 3 adım adım yapılıyor; her adımın kendi testi var (kontrol listesinin
 
 | Adım | Ne kontrol ediliyor | Komut |
 |---|---|---|
-| 1 | Şema: `invoices.status` üç değer, `erp_outbox` 10 kolon (8 istenen + `locked_until`, `locked_by`), kısıtlar gerçekten çalışıyor; davranış henüz değişmedi | `.\manual-tests\gun3\adim1-sema.ps1` |
+| 1 | Şema: `invoices.status` üç değer, `erp_outbox` 10 kolon (8 istenen + `locked_until`, `locked_by`), kısıtlar gerçekten çalışıyor | `.\manual-tests\gun3\adim1-sema.ps1` |
+| 2 | `POST` fatura (Bekliyor) + `erp_outbox` kaydını aynı transaction'da yazıyor, `202` dönüyor, simülatöre gitmiyor; outbox yazılamazsa fatura da yazılmıyor | `.\manual-tests\gun3\adim2-outbox-yazma.ps1` |
