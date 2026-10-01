@@ -35,3 +35,33 @@ function Test-ServiceSql([string]$Sql) {
         Pop-Location
     }
 }
+
+# Aralıktaki faturaların hepsi Bekliyor'dan çıkana kadar (gönderildi ya da başarısız) bekler; geçen saniyeyi döner.
+# Süre dolarsa durur: kuyruğun boşalmaması bir hatadır, sessizce geçilmez.
+function Wait-QueueDrained([string]$From, [string]$To, [int]$TimeoutSeconds = 300) {
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $range = "invoice_number BETWEEN '$From' AND '$To'"
+    $last = -1
+    while ($true) {
+        $pending = [int]@(Get-ServiceRows "SELECT count(*) FROM invoices WHERE $range AND status = 'Bekliyor';")[0]
+        if ($pending -eq 0) { return [math]::Round($watch.Elapsed.TotalSeconds, 1) }
+        if ($pending -ne $last) { Write-Host ('  {0,5:N0} sn: {1} fatura Bekliyor' -f $watch.Elapsed.TotalSeconds, $pending) -ForegroundColor DarkGray }
+        $last = $pending
+        if ($watch.Elapsed.TotalSeconds -gt $TimeoutSeconds) { throw "Kuyruk $TimeoutSeconds sn içinde boşalmadı ($pending fatura Bekliyor)." }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
+# $Count fatura oluşturur, hepsinin 202 dönmesini bekler; ilk ve son fatura numarasını döner.
+function New-ServiceInvoices([int]$Count) {
+    $numbers = @()
+    $bad = 0
+    for ($i = 0; $i -lt $Count; $i++) {
+        $r = New-ServiceInvoice
+        if ($r.HttpStatus -ne 202) { $bad++ }
+        $numbers += $r.InvoiceNumber
+    }
+    Write-Host "  $Count fatura oluşturuldu: $($numbers[0]) .. $($numbers[-1]), 202 olmayan cevap: $bad"
+    if ($bad -gt 0) { throw "$bad fatura 202 almadı." }
+    [pscustomobject]@{ From = $numbers[0]; To = $numbers[-1] }
+}

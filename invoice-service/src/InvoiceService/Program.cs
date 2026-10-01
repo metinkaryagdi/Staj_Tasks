@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using InvoiceService.Data;
 using InvoiceService.Erp;
 using InvoiceService.Invoices;
+using InvoiceService.Outbox;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -19,6 +20,10 @@ builder.Services.AddOptions<ErpOptions>()
     .Bind(builder.Configuration.GetSection(ErpOptions.SectionName))
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<ErpOptions>, ErpOptionsValidator>();
+builder.Services.AddOptions<OutboxOptions>()
+    .Bind(builder.Configuration.GetSection(OutboxOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<OutboxOptions>, OutboxOptionsValidator>();
 
 // Plain typed client on purpose: no resilience/retry handler is added, so every send hits the ERP exactly once.
 builder.Services.AddHttpClient<ErpClient>((sp, http) =>
@@ -30,6 +35,8 @@ builder.Services.AddHttpClient<ErpClient>((sp, http) =>
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<InvoiceSender>();
+builder.Services.AddScoped<OutboxProcessor>();
+builder.Services.AddHostedService<OutboxWorker>();
 
 builder.Services.AddDbContext<InvoiceDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("InvoiceDb")));
@@ -105,7 +112,9 @@ static async Task MigrateDatabase(WebApplication app)
 static void LogErpSettings(WebApplication app)
 {
     var erp = app.Services.GetRequiredService<IOptions<ErpOptions>>().Value;
-    app.Logger.LogInformation("ERP settings: baseUrl={BaseUrl} timeout={Timeout}s retry=none", erp.BaseUrl, erp.TimeoutSeconds);
+    var outbox = app.Services.GetRequiredService<IOptions<OutboxOptions>>().Value;
+    app.Logger.LogInformation("ERP settings: baseUrl={BaseUrl} timeout={Timeout}s maxConcurrentSends={Max} retry=none",
+        erp.BaseUrl, erp.TimeoutSeconds, outbox.MaxConcurrentSends);
 }
 
 public partial class Program;

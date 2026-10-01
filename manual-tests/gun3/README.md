@@ -26,3 +26,4 @@ Gün 3 adım adım yapılıyor; her adımın kendi testi var (kontrol listesinin
 |---|---|---|
 | 1 | Şema: `invoices.status` üç değer, `erp_outbox` 10 kolon (8 istenen + `locked_until`, `locked_by`), kısıtlar gerçekten çalışıyor | `.\manual-tests\gun3\adim1-sema.ps1` |
 | 2 | `POST` fatura (Bekliyor) + `erp_outbox` kaydını aynı transaction'da yazıyor, `202` dönüyor, simülatöre gitmiyor; outbox yazılamazsa fatura da yazılmıyor | `.\manual-tests\gun3\adim2-outbox-yazma.ps1` |
+| 3 | Arka plan worker'ı kuyruğu boşaltıyor (şimdilik tek deneme): Success %100'de 20 fatura Gönderildi/Tamamlandı, referanslar aynı; LateResponse %100'de 25 fatura → simülatöre aynı anda en fazla 10 istek (10 + 10 + 5 dalga) | `.\manual-tests\gun3\adim3-worker.ps1` |

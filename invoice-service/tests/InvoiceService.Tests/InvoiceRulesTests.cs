@@ -1,6 +1,7 @@
 using InvoiceService.Data;
 using InvoiceService.Erp;
 using InvoiceService.Invoices;
+using InvoiceService.Outbox;
 using Microsoft.Extensions.Configuration;
 
 namespace InvoiceService.Tests;
@@ -98,5 +99,38 @@ public class InvoiceRulesTests
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
         var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
         Assert.Equal(10, Bind(configuration).TimeoutSeconds);
+    }
+
+    private static OutboxOptions BindOutbox(IConfiguration configuration)
+    {
+        var options = new OutboxOptions();
+        configuration.GetSection(OutboxOptions.SectionName).Bind(options);
+        return options;
+    }
+
+    [Theory]
+    [InlineData("10", null)]
+    [InlineData(null, "Outbox:MaxConcurrentSends is missing")]
+    [InlineData("0", "Outbox:MaxConcurrentSends must be greater than 0")]
+    public void Outbox_settings_are_validated(string? maxConcurrentSends, string? message)
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Outbox:MaxConcurrentSends"] = maxConcurrentSends
+        }).Build();
+        var result = new OutboxOptionsValidator(configuration).Validate(null, BindOutbox(configuration));
+
+        if (message is null)
+            Assert.True(result.Succeeded);
+        else
+            Assert.Contains(message, result.FailureMessage);
+    }
+
+    [Fact]
+    public void Shipped_settings_send_at_most_10_at_a_time()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
+        Assert.Equal(10, BindOutbox(configuration).MaxConcurrentSends);
     }
 }
