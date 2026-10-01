@@ -87,7 +87,8 @@ public sealed class OutboxProcessor(
     /// Limit: this relies on the ERP showing a request it has received by the time it is asked (at least ~2 s after
     /// our 10 s timeout). The simulator saves before it answers, so it always does; but if the ERP's own storage kept an
     /// earlier request waiting even longer, it would answer 404, the invoice would be posted again and both requests
-    /// could end up saved. Only the ERP refusing a second record for the same invoice number would rule that out.
+    /// could end up saved. Only the ERP refusing a second record for the same invoice number would rule that out
+    /// (the simulator does this when Simulator:IdempotentInvoices is on; it is off by default).
     /// </para>
     /// <para>
     /// Before giving up (all attempts used, or the last one cut off), the ERP is asked once more and nothing is sent:

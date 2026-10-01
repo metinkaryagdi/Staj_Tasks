@@ -103,9 +103,10 @@ static void LogSimulatorSettings(WebApplication app)
     app.Logger.LogInformation(
         "Simulator settings: seed={Seed} success={Success}% busy={Busy}% serverError={ServerError}% " +
         "saveThenError={SaveThenError}% lateResponse={LateResponse}% (total={Total}) lateDelay={LateDelay}s " +
-        "retryAfter={RetryMin}-{RetryMax}s format={RetryFormat}",
+        "retryAfter={RetryMin}-{RetryMax}s format={RetryFormat} idempotentInvoices={IdempotentInvoices}",
         o.Seed, Pct(r.Success), Pct(r.Busy), Pct(r.ServerError), Pct(r.SaveThenError), Pct(r.LateResponse), r.Total,
-        o.LateResponseDelaySeconds, o.RetryAfterMinSeconds, o.RetryAfterMaxSeconds, o.RetryAfterFormat);
+        o.LateResponseDelaySeconds, o.RetryAfterMinSeconds, o.RetryAfterMaxSeconds, o.RetryAfterFormat,
+        o.IdempotentInvoices);
 }
 
 public partial class Program;

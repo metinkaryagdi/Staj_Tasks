@@ -36,7 +36,8 @@ public class BehaviorSelectorTests
             ["Simulator:LateResponseDelaySeconds"] = "30",
             ["Simulator:RetryAfterMinSeconds"] = "5",
             ["Simulator:RetryAfterMaxSeconds"] = "30",
-            ["Simulator:RetryAfterFormat"] = "Seconds"
+            ["Simulator:RetryAfterFormat"] = "Seconds",
+            ["Simulator:IdempotentInvoices"] = "false"
         };
         if (withoutKey is not null)
             values.Remove($"Simulator:{withoutKey}");
@@ -200,6 +201,17 @@ public class BehaviorSelectorTests
         Assert.Equal(5, options.RetryAfterMinSeconds);
         Assert.Equal(30, options.RetryAfterMaxSeconds);
         Assert.Equal(RetryAfterFormat.Seconds, options.RetryAfterFormat);
+        Assert.False(options.IdempotentInvoices);
+    }
+
+    [Fact]
+    public void Idempotent_invoices_can_be_switched_on_from_the_settings_file()
+    {
+        var configuration = SettingsFile(overrides: new Dictionary<string, string?> { ["Simulator:IdempotentInvoices"] = "true" });
+        var options = Bind(configuration);
+
+        Assert.True(new SimulatorOptionsValidator(configuration).Validate(null, options).Succeeded);
+        Assert.True(options.IdempotentInvoices);
     }
 
     public static TheoryData<string> RequiredKeys => new(SimulatorOptionsValidator.RequiredKeys);

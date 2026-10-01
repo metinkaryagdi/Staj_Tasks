@@ -48,8 +48,9 @@ Hepsini sırayla çalıştırıp sonunda özet tablosu veren script (~16 dk; ç�
 
 ## Ek testler (QA bulgularının düzeltmeleri)
 
-Kontrol listesinin parçası değil; bağımsız QA denetiminde bulunan hataların düzeltmelerini gösterir. Düzeltmeden önce KALDI, sonra GEÇTİ.
+Kontrol listesinin parçası değil; bağımsız QA denetiminde bulunan hataların düzeltmelerini gösterir. Ek 1 düzeltmeden önce KALDI, sonra GEÇTİ.
 
 | # | Ne kontrol ediliyor | Komut |
 |---|---|---|
 | Ek 1 | Son deneme: 10. deneme simülatöre kaydedilip hata dönerse fatura Başarısız değil, simülatördeki referansla Gönderildi oluyor (F3); servis 10. denemede öldürülürse 11. deneme yapılmıyor, yalnızca simülatöre soruluyor (F2) (~11 dk) | `.\manual-tests\gun3\ek1-son-deneme.ps1` |
+| Ek 2 | Simülatörün `Simulator:IdempotentInvoices` ayarı (varsayılan kapalı): kapalıyken aynı fatura iki kayıt (Gün 1 davranışı); açıkken aynı içerik tek kayıt + aynı referans, farklı içerik 409. F1: simülatörün tablosu kilitlenip kaydı geç tamamlatılır, servis 1. denemede zaman aşımına düşer, 2. denemede GET 404 alıp yeniden POST eder; kapalıyken simülatörde 2 kayıt (servisin tek başına önleyemediği durum), açıkken 1 kayıt (~3 dk) | `.\manual-tests\gun3\ek2-idempotency.ps1` |

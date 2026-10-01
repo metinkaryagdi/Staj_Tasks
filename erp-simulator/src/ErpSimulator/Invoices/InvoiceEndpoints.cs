@@ -2,6 +2,7 @@ using System.Globalization;
 using ErpSimulator.Data;
 using ErpSimulator.Simulation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 
 namespace ErpSimulator.Invoices;
@@ -19,9 +20,12 @@ public static class InvoiceEndpoints
                 "The simulator picks one behavior per request from the configured rates: " +
                 "Success (202, saved), Busy (429 + Retry-After, not saved), ServerError (500, not saved), " +
                 "SaveThenError (500, but saved), LateResponse (saved, 202 after the configured delay, default 30s). " +
-                "Duplicates are NOT prevented: the same invoice number creates a new record with a new ERP reference.")
+                "By default duplicates are NOT prevented: the same invoice number creates a new record with a new ERP reference. " +
+                "With Simulator:IdempotentInvoices on, an invoice number that already has a record is not saved again: " +
+                "the same content returns 202 with the existing reference (no behavior is drawn), different content returns 409.")
             .Produces<InvoiceAcceptedResponse>(StatusCodes.Status202Accepted)
             .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
@@ -55,8 +59,25 @@ public static class InvoiceEndpoints
             return Results.ValidationProblem(errors);
         }
 
-        var decision = selector.Next();
         var settings = options.Value;
+
+        // With IdempotentInvoices on, requests for the same invoice number wait for each other (a lock held until the
+        // record is committed), so a second request always sees the first one's record, even if saving it was slow.
+        await using var invoiceLock = settings.IdempotentInvoices
+            ? await LockInvoiceNumber(db, request.InvoiceNumber!)
+            : null;
+        if (invoiceLock is not null)
+        {
+            var existing = await db.Invoices
+                .AsNoTracking()
+                .Where(i => i.InvoiceNumber == request.InvoiceNumber)
+                .OrderBy(i => i.Id)
+                .FirstOrDefaultAsync(CancellationToken.None);
+            if (existing is not null)
+                return Duplicate(existing, request, logger);
+        }
+
+        var decision = selector.Next();
 
         if (decision.Behavior == Behavior.Busy)
         {
@@ -99,6 +120,7 @@ public static class InvoiceEndpoints
 
             case Behavior.LateResponse:
             {
+                // Save commits (and releases the invoice number lock) before the delay, like a real ERP that answers late.
                 var invoice = await Save(db, request, decision);
                 try
                 {
@@ -160,7 +182,49 @@ public static class InvoiceEndpoints
         db.Invoices.Add(invoice);
         // CancellationToken.None: once the ERP decides to save, a client disconnect must not undo it.
         await db.SaveChangesAsync(CancellationToken.None);
+        if (db.Database.CurrentTransaction is { } invoiceLock)
+        {
+            await invoiceLock.CommitAsync(CancellationToken.None);
+            await invoiceLock.DisposeAsync();
+        }
         return invoice;
+    }
+
+    /// <summary>
+    /// Starts a transaction holding a lock on the invoice number until it ends (commit in Save, otherwise rollback
+    /// when the request finishes). A lock instead of a unique index: existing duplicates stay valid and the setting
+    /// can be switched off again.
+    /// </summary>
+    private static async Task<IDbContextTransaction> LockInvoiceNumber(ErpDbContext db, string invoiceNumber)
+    {
+        var transaction = await db.Database.BeginTransactionAsync(CancellationToken.None);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({invoiceNumber}, 0))", CancellationToken.None);
+        return transaction;
+    }
+
+    private static IResult Duplicate(ErpInvoice existing, CreateInvoiceRequest request, ILogger logger)
+    {
+        var sameContent = existing.CustomerCode == request.CustomerCode
+                          && existing.Amount == request.Amount
+                          && existing.Currency == request.Currency
+                          && existing.InvoiceDate == request.InvoiceDate;
+
+        if (!sameContent)
+        {
+            logger.LogInformation(
+                "ERP request invoice={InvoiceNumber} behavior=Conflict status=409 existing={ErpReference}",
+                request.InvoiceNumber, existing.ErpReference);
+            return Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Invoice number already used",
+                detail: $"Invoice '{request.InvoiceNumber}' is already recorded as {existing.ErpReference} with different content.");
+        }
+
+        logger.LogInformation(
+            "ERP request invoice={InvoiceNumber} behavior=Duplicate status=202 erpReference={ErpReference} (already recorded, not saved again)",
+            request.InvoiceNumber, existing.ErpReference);
+        return Accepted(existing);
     }
 
     private static IResult Accepted(ErpInvoice invoice) =>

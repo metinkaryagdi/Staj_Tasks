@@ -35,6 +35,7 @@ services:
       Simulator__Rates__LateResponse:
       Simulator__LateResponseDelaySeconds:
       Simulator__RetryAfterFormat:
+      Simulator__IdempotentInvoices:
     volumes:
       # Settings file is mounted so rates can be changed without rebuilding; restart the container to apply.
       - ./erp-simulator/src/ErpSimulator/appsettings.json:/app/appsettings.json:ro

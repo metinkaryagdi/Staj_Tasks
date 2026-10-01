@@ -28,6 +28,13 @@ public sealed class SimulatorOptions
 
     /// <summary>RFC 9110 allows Retry-After as delay-seconds ("17") or as an HTTP-date.</summary>
     public RetryAfterFormat RetryAfterFormat { get; set; }
+
+    /// <summary>
+    /// Off (the default): every POST creates a new record, so the same invoice number sent twice gives two records.
+    /// On: an invoice number the ERP already has is not saved again; the same content gets the existing reference
+    /// (202), different content gets 409. Requests for the same invoice number are handled one at a time.
+    /// </summary>
+    public bool IdempotentInvoices { get; set; }
 }
 
 public sealed class BehaviorRates
@@ -63,7 +70,8 @@ public sealed class SimulatorOptionsValidator(IConfiguration configuration) : IV
         "LateResponseDelaySeconds",
         "RetryAfterMinSeconds",
         "RetryAfterMaxSeconds",
-        "RetryAfterFormat"
+        "RetryAfterFormat",
+        "IdempotentInvoices"
     ];
 
     public ValidateOptionsResult Validate(string? name, SimulatorOptions options)

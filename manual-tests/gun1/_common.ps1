@@ -18,7 +18,8 @@ $SimulatorEnvKeys = @(
     'Simulator__Rates__SaveThenError',
     'Simulator__Rates__LateResponse',
     'Simulator__LateResponseDelaySeconds',
-    'Simulator__RetryAfterFormat'
+    'Simulator__RetryAfterFormat',
+    'Simulator__IdempotentInvoices'
 )
 
 function Write-Title([string]$Text) {
