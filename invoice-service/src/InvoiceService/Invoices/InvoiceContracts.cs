@@ -43,6 +43,7 @@ public sealed record InvoiceResponse(
     DateOnly InvoiceDate,
     string Status,
     string? ErpReference,
+    string? RejectReason,
     string? LastError,
     int SendAttemptCount,
     DateTimeOffset CreatedAt,
@@ -50,5 +51,5 @@ public sealed record InvoiceResponse(
 {
     public static InvoiceResponse From(Invoice i) => new(
         i.InvoiceNumber, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.Status,
-        i.ErpReference, i.LastError, i.SendAttemptCount, i.CreatedAt, i.UpdatedAt);
+        i.ErpReference, i.RejectReason, i.LastError, i.SendAttemptCount, i.CreatedAt, i.UpdatedAt);
 }

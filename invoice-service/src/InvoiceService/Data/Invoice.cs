@@ -19,6 +19,9 @@ public sealed class Invoice
     /// <summary>Reference returned by the ERP on 202; null while the invoice is not sent.</summary>
     public string? ErpReference { get; set; }
 
+    /// <summary>The ERP's reason from an invoice.rejected event; null unless the invoice is Reddedildi.</summary>
+    public string? RejectReason { get; set; }
+
     /// <summary>Description of the error from the last send; null after a successful send.</summary>
     public string? LastError { get; set; }
 
@@ -40,8 +43,19 @@ public static class InvoiceStatus
     public const string Pending = "Bekliyor";
     public const string Sent = "Gönderildi";
 
+    /// <summary>The ERP reported invoice.received.</summary>
+    public const string Processing = "İşleme Alındı";
+
+    /// <summary>Final: the ERP reported invoice.approved; no event can change it.</summary>
+    public const string Approved = "Onaylandı";
+
+    /// <summary>Final: the ERP reported invoice.rejected (reason in reject_reason); no event can change it.</summary>
+    public const string Rejected = "Reddedildi";
+
     /// <summary>Permanent: every attempt is used up (or the ERP rejected it); only a resend queues it again.</summary>
     public const string Failed = "Başarısız";
+
+    public static readonly string[] All = [Pending, Sent, Processing, Approved, Rejected, Failed];
 }
 
 public static class InvoiceNumber

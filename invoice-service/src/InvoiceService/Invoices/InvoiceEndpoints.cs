@@ -35,7 +35,7 @@ public static class InvoiceEndpoints
             .WithName("ListInvoices")
             .WithSummary("Invoices, optionally filtered by status")
             .WithDescription(
-                "status=Bekliyor, Gönderildi or Başarısız; without it every invoice is listed. Ordered by invoice number. " +
+                "status=Bekliyor, Gönderildi, İşleme Alındı, Onaylandı, Reddedildi or Başarısız; without it every invoice is listed. Ordered by invoice number. " +
                 "Used by the tests to wait until the queue is empty (no Bekliyor left).")
             .Produces<InvoiceResponse[]>()
             .ProducesValidationProblem();
@@ -145,7 +145,7 @@ public static class InvoiceEndpoints
 
     private static async Task<IResult> ListInvoices(string? status, InvoiceDbContext db, CancellationToken ct)
     {
-        string[] statuses = [InvoiceStatus.Pending, InvoiceStatus.Sent, InvoiceStatus.Failed];
+        var statuses = InvoiceStatus.All;
         if (status is not null && !statuses.Contains(status))
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
