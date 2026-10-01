@@ -66,7 +66,7 @@ public class ErpClientTests
     }
 
     [Fact]
-    public async Task Busy_is_failed_once_without_retry()
+    public async Task Busy_is_failed_once_and_passes_retry_after_on()
     {
         var (client, handler) = Create((_, _) =>
         {
@@ -86,7 +86,23 @@ public class ErpClientTests
         Assert.Equal(429, result.HttpStatus);
         Assert.Contains("429", result.Error);
         Assert.Contains("ERP is busy", result.Error);
+        Assert.Equal(TimeSpan.FromSeconds(5), result.RetryAfter?.Delta);
         Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task Retry_after_as_http_date_is_passed_on()
+    {
+        var (client, _) = Create((_, _) =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("") };
+            response.Headers.Add("Retry-After", "Thu, 01 Oct 2026 07:00:17 GMT");
+            return Task.FromResult(response);
+        });
+
+        var result = await client.SendAsync(SampleInvoice(), CancellationToken.None);
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 1, 7, 0, 17, TimeSpan.Zero), result.RetryAfter?.Date);
     }
 
     [Theory]

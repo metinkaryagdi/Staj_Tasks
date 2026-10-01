@@ -65,3 +65,44 @@ function New-ServiceInvoices([int]$Count) {
     if ($bad -gt 0) { throw "$bad fatura 202 almadı." }
     [pscustomobject]@{ From = $numbers[0]; To = $numbers[-1] }
 }
+
+# Servis logundan verilen faturaların denemelerini çıkarır: her deneme için başlangıç/bitiş, HTTP sonucu, Retry-After,
+# planlanan bekleme (wait) ve bir önceki denemenin bitişinden bu denemenin başlangıcına kadar gerçekten geçen süre.
+function Get-SendAttempts([string[]]$Invoices) {
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $starts = @{}
+    $rows = @()
+    foreach ($line in Get-ServiceLog) {
+        if ($line -match '^(\S+ \S+) info: .*ERP send start invoice=(\S+) attempt=(\d+)/') {
+            if ($Invoices -contains $Matches[2]) { $starts["$($Matches[2])#$($Matches[3])"] = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv) }
+        }
+        elseif ($line -match '^(\S+ \S+) info: .*ERP send invoice=(\S+) attempt=(\d+)/\d+ worker=(\S+) outcome=(\w+) http=(\S+) retryAfter=(.*?) wait=([\d.]+)s reason=') {
+            if ($Invoices -notcontains $Matches[2]) { continue }
+            $rows += [pscustomobject]@{
+                Invoice = $Matches[2]; Attempt = [int]$Matches[3]; Worker = $Matches[4]; Outcome = $Matches[5]; Http = $Matches[6]
+                RetryAfter = $Matches[7]; Wait = [double]::Parse($Matches[8], $inv)
+                End = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv); Start = $null; WaitedBefore = $null
+            }
+        }
+    }
+    $rows = @($rows | Sort-Object Invoice, Attempt)
+    for ($i = 0; $i -lt $rows.Count; $i++) {
+        $r = $rows[$i]
+        $r.Start = $starts["$($r.Invoice)#$($r.Attempt)"]
+        if ($i -gt 0 -and $rows[$i - 1].Invoice -eq $r.Invoice -and $r.Start) {
+            $r.WaitedBefore = [math]::Round(($r.Start - $rows[$i - 1].End).TotalSeconds, 3)
+        }
+    }
+    $rows
+}
+
+function Show-SendAttempts($Attempts) {
+    Write-Host ''
+    Write-Host ('  {0,-12} {1,7} {2,-10} {3,-5} {4,-31} {5,10} {6,16}' -f 'Fatura', 'Deneme', 'Sonuç', 'HTTP', 'Retry-After', 'Plan (sn)', 'Önce bekl. (sn)') -ForegroundColor Cyan
+    Write-Host ('  ' + ('-' * 98)) -ForegroundColor Cyan
+    foreach ($a in $Attempts) {
+        $waited = if ($null -ne $a.WaitedBefore) { '{0:N3}' -f $a.WaitedBefore } else { '-' }
+        Write-Host ('  {0,-12} {1,7} {2,-10} {3,-5} {4,-31} {5,10:N3} {6,16}' -f $a.Invoice, "$($a.Attempt)/10", $a.Outcome, $a.Http, $a.RetryAfter, $a.Wait, $waited)
+    }
+    Write-Host '  Plan: bu denemeden sonra beklenecek süre. Önce bekl.: önceki denemenin bitişinden bu denemenin başlangıcına geçen süre.' -ForegroundColor DarkGray
+}

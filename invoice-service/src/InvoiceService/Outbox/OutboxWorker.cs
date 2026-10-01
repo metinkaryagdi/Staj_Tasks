@@ -12,8 +12,11 @@ public sealed class OutboxWorker(
     IOptions<OutboxOptions> options,
     ILogger<OutboxWorker> logger) : BackgroundService
 {
-    /// <summary>How long to wait before looking again when nothing is due.</summary>
-    private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(1);
+    /// <summary>
+    /// How long to wait before looking again when nothing is due. Short, so a retry starts close to its next_attempt_at
+    /// (a Retry-After of 17 s is waited 17 s, not up to 18 s); the query is cheap thanks to the (status, next_attempt_at) index.
+    /// </summary>
+    private static readonly TimeSpan IdleDelay = TimeSpan.FromMilliseconds(250);
 
     /// <summary>Written to erp_outbox.locked_by: the container's host name, so two running copies can be told apart.</summary>
     public static readonly string WorkerId = Environment.MachineName;

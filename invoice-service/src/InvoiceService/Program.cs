@@ -47,7 +47,8 @@ builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
     doc.Info.Title = "Invoice Service";
     doc.Info.Description =
         "Saves the invoice as Bekliyor and queues it in erp_outbox in the same transaction (202); " +
-        "the send to the ERP simulator happens in the background.";
+        "a background worker sends it to the ERP simulator, retrying 429 after Retry-After and 500/timeout/unreachable " +
+        "with exponential backoff (max 60s, with jitter), at most 10 attempts.";
     return Task.CompletedTask;
 }).AddSchemaTransformer((schema, context, _) =>
 {
@@ -113,8 +114,10 @@ static void LogErpSettings(WebApplication app)
 {
     var erp = app.Services.GetRequiredService<IOptions<ErpOptions>>().Value;
     var outbox = app.Services.GetRequiredService<IOptions<OutboxOptions>>().Value;
-    app.Logger.LogInformation("ERP settings: baseUrl={BaseUrl} timeout={Timeout}s maxConcurrentSends={Max} retry=none",
-        erp.BaseUrl, erp.TimeoutSeconds, outbox.MaxConcurrentSends);
+    app.Logger.LogInformation(
+        "ERP settings: baseUrl={BaseUrl} timeout={Timeout}s maxConcurrentSends={Max} maxAttempts={MaxAttempts} " +
+        "backoff=2^n s (max {MaxBackoff}s with jitter) 429=Retry-After",
+        erp.BaseUrl, erp.TimeoutSeconds, outbox.MaxConcurrentSends, RetryPolicy.MaxAttempts, RetryPolicy.MaxBackoff.TotalSeconds);
 }
 
 public partial class Program;

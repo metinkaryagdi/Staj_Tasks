@@ -1,16 +1,23 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using InvoiceService.Data;
 
 namespace InvoiceService.Erp;
 
-public sealed record ErpSendResult(bool Accepted, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed);
+/// <summary>
+/// Outcome of one request to the ERP. <see cref="HttpStatus"/> is null when no answer came (timeout, ERP unreachable).
+/// <see cref="RetryAfter"/> is the Retry-After header as sent (seconds or an HTTP date), if there was one.
+/// </summary>
+public sealed record ErpSendResult(
+    bool Accepted, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed,
+    RetryConditionHeaderValue? RetryAfter = null);
 
 /// <summary>
-/// Sends one invoice to the ERP simulator exactly once. Deliberately unprotected in this version:
-/// no retry, no waiting, no duplicate protection and the Retry-After header is not read.
+/// Sends one invoice to the ERP simulator exactly once and reports what happened. Deciding whether and when to try
+/// again is not done here but by the outbox (RetryPolicy); the Retry-After header is passed on for that.
 /// Only a 202 with an ERP reference counts as accepted; every other outcome is returned as a failure.
 /// </summary>
 public sealed class ErpClient(HttpClient http)
@@ -45,7 +52,10 @@ public sealed class ErpClient(HttpClient http)
             var status = (int)response.StatusCode;
 
             if (response.StatusCode != HttpStatusCode.Accepted)
-                return Failed(status, $"ERP {status} {response.ReasonPhrase} döndü: {Describe(body)}", watch);
+            {
+                return new ErpSendResult(false, null, status, $"ERP {status} {response.ReasonPhrase} döndü: {Describe(body)}",
+                    watch.Elapsed, response.Headers.RetryAfter);
+            }
 
             var reference = ReadErpReference(body);
             if (reference is null)

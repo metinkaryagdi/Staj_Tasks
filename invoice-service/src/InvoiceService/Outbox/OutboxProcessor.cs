@@ -1,3 +1,4 @@
+using System.Globalization;
 using InvoiceService.Data;
 using InvoiceService.Erp;
 using Microsoft.EntityFrameworkCore;
@@ -55,18 +56,30 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
     }
 
     /// <summary>
-    /// Sends one taken entry and writes the outcome to erp_outbox and invoices in one transaction.
-    /// For now a single attempt: 202 -> Gönderildi / Tamamlandı, anything else -> Başarısız on both.
+    /// Sends one taken entry and writes the outcome to erp_outbox and invoices in one transaction, following
+    /// <see cref="RetryPolicy"/>: sent -> Gönderildi / Tamamlandı; retry -> both stay Bekliyor with next_attempt_at
+    /// moved to now + wait; failed -> Başarısız on both.
     /// </summary>
     public async Task SendAsync(ClaimedEntry entry, string workerId)
     {
         // CancellationToken.None: once the ERP is called, the outcome must be recorded even while the service stops.
         var invoice = await db.Invoices.AsNoTracking().SingleAsync(i => i.InvoiceNumber == entry.InvoiceNumber, CancellationToken.None);
+
+        logger.LogInformation("ERP send start invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker}",
+            entry.InvoiceNumber, entry.Attempt, RetryPolicy.MaxAttempts, workerId);
         var result = await erp.SendAsync(invoice, CancellationToken.None);
 
         var now = time.GetUtcNow();
-        var invoiceStatus = result.Accepted ? InvoiceStatus.Sent : InvoiceStatus.Failed;
-        var outboxStatus = result.Accepted ? OutboxStatus.Completed : OutboxStatus.Failed;
+        var decision = RetryPolicy.Decide(result, entry.Attempt, now, Random.Shared.NextDouble());
+        var (invoiceStatus, outboxStatus) = decision.Outcome switch
+        {
+            SendOutcome.Sent => (InvoiceStatus.Sent, OutboxStatus.Completed),
+            SendOutcome.Failed => (InvoiceStatus.Failed, OutboxStatus.Failed),
+            _ => (InvoiceStatus.Pending, OutboxStatus.Pending)
+        };
+        var done = decision.Outcome != SendOutcome.Retry;
+        DateTimeOffset? processedAt = done ? now : null;
+        var nextAttemptAt = done ? now : now + decision.Delay;
 
         await using var transaction = await db.Database.BeginTransactionAsync(CancellationToken.None);
 
@@ -77,7 +90,8 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
             .ExecuteUpdateAsync(s => s
                 .SetProperty(o => o.Status, outboxStatus)
                 .SetProperty(o => o.LastError, result.Error)
-                .SetProperty(o => o.ProcessedAt, now)
+                .SetProperty(o => o.NextAttemptAt, nextAttemptAt)
+                .SetProperty(o => o.ProcessedAt, processedAt)
                 .SetProperty(o => o.LockedUntil, (DateTimeOffset?)null)
                 .SetProperty(o => o.LockedBy, (string?)null), CancellationToken.None);
 
@@ -94,10 +108,11 @@ public sealed class OutboxProcessor(InvoiceDbContext db, ErpClient erp, TimeProv
         }
 
         logger.LogInformation(
-            "ERP send invoice={InvoiceNumber} attempt={Attempt} worker={Worker} result={Status} http={HttpStatus} " +
-            "erpReference={ErpReference} elapsed={ElapsedMs}ms error={Error}{NotWritten}",
-            entry.InvoiceNumber, entry.Attempt, workerId, invoiceStatus, result.HttpStatus?.ToString() ?? "-",
-            result.ErpReference ?? "-", (long)result.Elapsed.TotalMilliseconds, result.Error ?? "-",
+            "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} outcome={Outcome} http={HttpStatus} " +
+            "retryAfter={RetryAfter} wait={WaitSeconds}s reason={Reason} erpReference={ErpReference} elapsed={ElapsedMs}ms error={Error}{NotWritten}",
+            entry.InvoiceNumber, entry.Attempt, RetryPolicy.MaxAttempts, workerId, decision.Outcome, result.HttpStatus?.ToString() ?? "-",
+            result.RetryAfter?.ToString() ?? "-", decision.Delay.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture),
+            decision.Reason, result.ErpReference ?? "-", (long)result.Elapsed.TotalMilliseconds, result.Error ?? "-",
             owned == 1 ? "" : " (not written: the entry is no longer held by this worker)");
     }
 }
