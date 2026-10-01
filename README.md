@@ -125,8 +125,8 @@ bekleyip tekrar dener ve sonucu yazar (outbox pattern).
   - `send_attempt_count`: faturanın ömrü boyunca yapılan deneme sayısı; resend'de sıfırlanmaz.
 - **`erp_outbox`**: faturanın gönderim kaydı, fatura başına bir satır (`invoice_number` unique).
   `id`, `invoice_number`, `status` (`Bekliyor` / `Tamamlandı` / `Başarısız`), `attempt_count`, `next_attempt_at`,
-  `last_error`, `created_at`, `processed_at` ve eklenen üç kolon: `locked_until`, `locked_by`, `claim_token`
-  (neden gerektikleri aşağıda, Gün 3 bölümünde).
+  `last_error`, `created_at`, `processed_at` ve eklenen üç kolon: `locked_until` (kaydın kilidi ne zamana kadar),
+  `locked_by` (kaydı hangi servis kopyası aldı), `claim_token` (her alımın kimliği).
 
 ### Endpoint'ler
 
@@ -216,94 +216,13 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ## Gün 3 — Güvenli Gönderim
 
-Bugünün işi: gönderimin arka plana alınması (outbox + worker), tekrar deneme kuralları, çift kayıt koruması, resend'in
-yalnızca kuyruğa alması ve listeleme endpoint'i. Kontrol listesi, adım testleri ve ek testler:
-[`manual-tests/gun3/`](manual-tests/gun3/README.md) (`.\manual-tests\gun3\kontrol-listesi.ps1` 7 maddeyi sırayla çalıştırır).
+Bugünün işi: fatura artık istek içinde gönderilmiyor; `erp_outbox`'a yazılıyor ve arka plandaki worker gönderiyor
+(tekrar deneme, çift kayıt koruması, yarıda kalan gönderimin kurtarılması; yukarıda [Fatura Servisi](#fatura-servisi)
+bölümünde). Resend artık yalnızca kuyruğa alıyor, durum filtreli listeleme eklendi. Simülatöre varsayılanı kapalı
+`IdempotentInvoices` ayarı eklendi.
 
-### 1) Outbox pattern nedir, hangi sorunu çözer
-
-**Çözdüğü sorun: iki ayrı yere yazma ("dual write").** Fatura oluşturmak aslında iki iş: faturayı kendi veritabanımıza
-yazmak ve onu ERP'ye göndermek. Bu ikisi tek bir işlemde yapılamaz (biri veritabanı, diğeri ağ üzerinden başka bir
-sistem). Hangi sırayla yapılırsa yapılsın arada bir şey ters giderse tutarsızlık olur:
-- Önce kaydedip sonra ERP'ye gönderirsek ve gönderim sırasında servis çökerse ya da ERP cevap vermezse, fatura bizde var
-  ama ERP'ye gitmemiş olur ve kimse onu tekrar göndermez (Gün 2'de "kaybolan" faturalar buydu).
-- Önce ERP'ye gönderip sonra kaydedersek ve kayıt başarısız olursa, ERP'de bizim bilmediğimiz bir fatura olur.
-
-**Çözüm:** Faturayla birlikte, aynı veritabanı işleminde (transaction) bir "gönderilecekler" kaydı (outbox) yazılır.
-Transaction ya ikisini birden yazar ya hiçbirini; "kaydedildi ama gönderilmesi unutuldu" durumu olamaz. Gönderimi ayrı
-bir arka plan işçisi yapar: outbox'tan sırası gelenleri okur, ERP'ye gönderir, sonucu yazar. Servis çökse bile outbox
-kaydı veritabanında durduğu için iş kaldığı yerden devam eder.
-
-**Bedeli:**
-- Gönderim artık "en az bir kez" (at-least-once) yapılır: işçi gönderip sonucu yazamadan çökerse aynı kayıt yeniden
-  gönderilir. Bu yüzden alıcı tarafta (ya da gönderenin kendisinde) çift kayda karşı bir koruma gerekir; bizde bu 4.
-  bölümde.
-- Gönderim artık eşzamanlı değildir: API 202 döner, sonuç sonradan oluşur; durum listeleme endpoint'iyle izlenir.
-- Outbox'tan kayıt almanın iki yaygın yolu var: tabloyu düzenli aralıklarla sorgulamak (polling) ya da veritabanı
-  değişiklik akışını dinlemek (CDC, ör. Debezium). Biz polling kullandık: basit ve ek altyapı gerektirmiyor.
-
-**Bizde nasıl:** `POST /api/v1/invoices` faturayı `Bekliyor` durumunda ve `erp_outbox` kaydını tek bir `SaveChanges`
-ile (aynı transaction) yazıyor ve 202 dönüyor. Outbox kaydı yazılamazsa faturanın da yazılmadığı, outbox'a yazmayı
-bilerek bozan bir testle gösterildi.
-
-### 2) Exponential backoff ve jitter nedir, jitter neden gerekir
-
-**Exponential backoff:** Başarısız bir isteği tekrar denerken her seferinde beklemeyi katlayarak artırmak (2, 4, 8,
-16… sn). Sabit kısa aralıklarla denemek zaten zorlanan bir sistemi daha da yorar; katlanarak bekleme, sorun kısa
-sürüyorsa hızlı toparlanmayı, uzun sürüyorsa yükü azaltmayı sağlar. Beklemenin sonsuz büyümemesi için bir tavan konur
-(bizde 60 sn).
-
-**Jitter:** Her beklemeye eklenen küçük rastgele bir sapma. **Neden gerekir:** Aynı anda başarısız olan çok sayıda
-istek (ör. ERP kapalıyken gönderilen yüzlerce fatura) jitter olmadan hep tam aynı anlarda tekrar denenir (2. saniyede
-hepsi, 4. saniyede hepsi…) ve ERP açıldığı anda tek bir dalga halinde üzerine yığılıp onu yeniden düşürebilir
-("thundering herd"). Jitter bu denemeleri zamana yayar.
-
-**Bizde nasıl:** 500, zaman aşımı ve ulaşılamama durumlarında bekleme 2^deneme sn; tavan 60 sn, üzerine 0–1 sn rastgele
-jitter (tavanda taban 59 sn tutuluyor ki jitter eklenince bile 60'ı geçmesin). 429'da jitter yok: simülatörün
-`Retry-After` başlığında söylediği süre kadar bekleniyor (saniye ya da tarih biçimi). Değerler ayar dosyasından okunuyor.
-
-### 3) Eklenen kolonlar
-
-`erp_outbox` tablosuna görevdeki 8 kolona ek olarak üç kolon eklendi:
-- **`locked_until`:** Bir işçi kaydı aldığında "şu saate kadar bu kayıt benim" diye yazar (60 sn). **Neden gerekli:**
-  Servis gönderim sırasında öldürülürse kaydın sonucu hiç yazılmaz; bu kolon olmasa kayıt ya sonsuza kadar "alınmış"
-  kalır ya da hemen başka bir işçi tarafından alınıp hâlâ süren bir gönderimle çakışırdı. Süre dolunca kayıt güvenle
-  yeniden alınabiliyor.
-- **`locked_by`:** Kaydı hangi servis kopyasının aldığı. **Neden gerekli:** İki kopya çalışırken bir kaydın o an hangi
-  kopyada olduğu ve hangi faturayı hangisinin gönderdiği bu kolondan görülebiliyor (madde 7'nin kanıtı).
-- **`claim_token`:** Bir işçi kaydı her aldığında yazılan yeni, rastgele bir kimlik; sonuç yazılınca silinir.
-  **Neden gerekli:** Sonuç yalnızca kayıt hâlâ bu kimliği taşıyorsa yazılıyor, fatura da yalnızca kayıt hâlâ bu
-  kimlikle tutuluyorsa gönderiliyor. Böylece kilit süresi dolmuş eski bir iş (ör. donmuş bir süreç), kaydı ondan sonra
-  alanın yerine ne gönderim yapabiliyor ne de onun sonucunun üzerine yazabiliyor. Son denemesi yarıda kalan kayıt aynı
-  deneme numarasıyla yeniden alındığı için yalnızca deneme numarası bu ayrımı yapamıyordu.
-
-### 4) Çift kayıt nasıl önlendi
-
-Simülatör aynı faturayı her gelişinde yeniden kaydediyor; çift kaydı engellemek servisin işi. Fatura daha önce en az bir
-kez gönderilmeye çalışıldıysa, servis tekrar göndermeden önce simülatöre `GET /api/v1/invoices/{numara}` ile "bu fatura
-sende var mı?" diye soruyor. Varsa tekrar göndermiyor, simülatördeki referansı alıp faturayı Gönderildi yapıyor;
-yalnızca simülatör açıkça "yok" (404) derse yeniden gönderiyor. Simülatöre sorulamazsa (kapalı, hata, zaman aşımı) hiç
-göndermiyor, denemeyi başarısız sayıp daha sonra tekrar deniyor. Haklar bittiğinde de faturayı Başarısız yapmadan önce
-simülatöre son kez soruyor; böylece son deneme simülatörde kaydedilip hata dönmüşse fatura yanlışlıkla Başarısız
-kalmıyor.
-
-### 5) Servis öldürüldüğünde faturalar neden kaybolmadı
-
-- Kabul edilen her fatura önce veritabanına yazılıyor: POST, fatura ve outbox kaydı aynı transaction'da kaydedildikten
-  sonra 202 dönüyor. Servis bu andan sonra ne zaman öldürülürse öldürülsün iş veritabanında duruyor.
-- Gönderim sırasında öldürülürse kaydın kilidi (`locked_until`) 60 sn sonra doluyor ve kayıt yeniden alınıyor. Yarıda
-  kalan denemede istek simülatöre ulaşmış olabileceği için servis önce simülatöre soruyor; oradaysa tekrar göndermiyor.
-- Deneme sayısı gönderimden önce artırılıyor: yarıda kalan deneme de sayılıyor ve 10 deneme sınırı aşılmıyor.
-
-### 6) İki kopya aynı kaydı neden aynı anda göndermedi
-
-- İşçiler outbox'tan kaydı tek bir SQL cümlesiyle alıyor (`FOR UPDATE SKIP LOCKED`): iki kopya aynı anda sorgulasa bile
-  birinin almakta olduğu satırı diğeri atlıyor; aynı satırı ikisi birden alamıyor.
-- Aynı cümlede kayda `locked_until` ve `locked_by` yazılıyor; kayıt, işlem bittikten sonra da kilit süresi boyunca
-  alınmış görünüyor ve diğer kopya onu almıyor.
-- Sonuç yalnızca kayıt hâlâ o alımın kimliğini (`claim_token`) taşıyorsa yazılıyor; fatura da yalnızca kayıt hâlâ
-  o kimlikle tutuluyorsa gönderiliyor.
-- Her kopya yalnızca boş gönderim yeri kadar kayıt alıyor; gönderemeyeceği kayıtları kilitleyip diğerinden saklamıyor.
+Kontrol listesi, adım testleri ve ek testler: [`manual-tests/gun3/`](manual-tests/gun3/README.md)
+(`.\manual-tests\gun3\kontrol-listesi.ps1` 7 maddeyi sırayla çalıştırır).
 
 ---
 
