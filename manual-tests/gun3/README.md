@@ -10,7 +10,7 @@ Script'ler engellenirse: `Set-ExecutionPolicy -Scope Process Bypass`.
 
 | # | Madde | Komut |
 |---|---|---|
-| 1 | Hata oranları 0 → 100 fatura: hepsi Gönderildi, simülatörde her faturadan tam bir kayıt, `erp_reference` iki tarafta aynı | _yazılacak_ |
+| 1 | Hata oranları 0 → 100 fatura: hepsi Gönderildi, simülatörde her faturadan tam bir kayıt, `erp_reference` iki tarafta aynı | `.\manual-tests\gun3\1-hata-yok.ps1` |
 | 2 | Varsayılan oranlar → 1000 fatura, kuyruk boşalana kadar bekle → sonuç tablosu, boşalma süresi, fatura başına ortalama deneme | _yazılacak_ |
 | 3 | Busy %100 → 5 fatura, 1 dk sonra Success %100: her denemeden önce beklenen süre = Retry-After (saniye ve tarih biçimi) | _yazılacak_ |
 | 4 | ServerError %100 → 1 fatura: bekleme katlanarak artıyor, 60 sn'yi geçmiyor, 10. denemede Başarısız; sonra Success %100 + resend → Gönderildi | _yazılacak_ |
@@ -22,7 +22,7 @@ Script'ler engellenirse: `Set-ExecutionPolicy -Scope Process Bypass`.
 
 Gün 3 adım adım yapılıyor; her adımın kendi testi var (kontrol listesinin parçası değil):
 
-Hepsini sırayla çalıştırıp sonunda özet tablosu veren script (~16 dk; çıktı `manual-tests\output\gun3-adimlar-*.log`'a da yazılır):
+Hepsini sırayla çalıştırıp sonunda özet tablosu veren script (~11 dk; çıktı `manual-tests\output\gun3-adimlar-*.log`'a da yazılır):
 
 ```powershell
 .\manual-tests\gun3\adimlar.ps1          # 1'den 6'ya
