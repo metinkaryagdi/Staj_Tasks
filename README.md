@@ -5,7 +5,7 @@ Fatura entegrasyonu üzerine staj projesi: bir fatura servisi ve ona hata ürete
 | Uygulama | Klasör | Ne yapar |
 |---|---|---|
 | ERP Simülatörü | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; her isteğe seed'li rastgele bir hata davranışı uygular |
-| Fatura Servisi | `invoice-service/` | Faturayı kaydeder, ERP Simülatörü'ne gönderir ve sonucu yazar |
+| Fatura Servisi | `invoice-service/` | Faturayı ve gönderim kaydını birlikte kaydeder; arka planda ERP'ye gönderir ve sonucu yazar |
 
 Her günün teslim edilen hali bir git tag'idir; README yalnızca uygulamaları ve **bugünün** işini anlatır.
 Önceki günlerin anlatımı ve sonuçları kendi tag'inde durur (bkz. [Günler](#günler)).
@@ -53,7 +53,8 @@ POST /api/v1/invoices
 
 ### Davranışlar
 
-Her POST için aşağıdaki davranışlardan biri seed'li rastgele seçimle seçilir. Oranlar gerçek yüzdedir:
+Geçerli POST için aşağıdaki davranışlardan biri seed'li rastgele seçimle seçilir. Idempotency açıkken mevcut fatura
+bulunursa yeni davranış seçilmez. Oranlar gerçek yüzdedir:
 
 | Davranış | Varsayılan oran | Cevap | Fatura kaydedilir mi |
 |---|---|---|---|
@@ -61,11 +62,11 @@ Her POST için aşağıdaki davranışlardan biri seed'li rastgele seçimle seç
 | `Busy` | %15 | `429` + `Retry-After` (5–30 sn) | Hayır |
 | `ServerError` | %10 | `500` | Hayır |
 | `SaveThenError` | %5 | `500` | Evet |
-| `LateResponse` | %10 | 30 sn bekleyip `202` | Evet (kayıt istek gelince yapılır, yalnızca cevap gecikir) |
+| `LateResponse` | %10 | 30 sn bekleyip `202` | Evet (önce kayıt tamamlanır, sonra cevap geciktirilir) |
 
 - **Retry-After** iki biçimde gönderilebilir (RFC 9110): saniye `Retry-After: 17` (varsayılan) veya HTTP-date
   `Retry-After: Tue, 29 Sep 2026 07:00:17 GMT`; `RetryAfterFormat` ayarıyla seçilir.
-- **Çift kayıt varsayılan olarak engellenmez:** aynı fatura numarası her gelişte yeni ERP referansıyla yeni kayıt açar.
+- **Çift kayıt varsayılan olarak engellenmez:** kaydeden bir davranış seçilirse aynı fatura numarası tekrar kaydedilebilir.
   `IdempotentInvoices` ayarı açılırsa (aşağıda) aynı numara ikinci kez kaydedilmez.
 - **Seed:** aynı seed + aynı istek sırası = aynı davranış dizisi. Simülatör yeniden başlayınca dizi baştan başlar.
 - **Log:** her istek seçilen davranışla loglanır: `ERP request #12 invoice=INV-2026-0001 behavior=Busy status=429 retryAfter=17s`
@@ -92,11 +93,13 @@ Her POST için aşağıdaki davranışlardan biri seed'li rastgele seçimle seç
   yazar; örneğin diğerlerine dokunmadan yalnızca `Busy` 100 yapılırsa:
   `Simulator:Rates must add up to exactly 100 (was 185: Success=60 Busy=100 ServerError=10 SaveThenError=5 LateResponse=10).`
 - `Success` 100, hata oranlarının hepsi 0 ise simülatör kusursuz bir ERP gibi davranır.
-- **`IdempotentInvoices`** (varsayılan `false`): `false` iken her POST yeni kayıt açar (yukarıdaki davranış). `true` iken
+- **`IdempotentInvoices`** (varsayılan `false`): `false` iken tekrarlar engellenmez (yukarıdaki davranış). `true` iken
   aynı fatura numarasıyla gelen istekler sırayla işlenir (ilk isteğin kaydı tamamlanana kadar ikincisi bekler) ve numara
   zaten kayıtlıysa yeniden kaydedilmez: içerik aynıysa mevcut referansla `202` (davranış seçilmez, logda
-  `behavior=Duplicate`), farklıysa `409`. Veritabanına unique index eklenmedi: eski çift kayıtlar geçerli kalır ve ayar
-  geri kapatılabilir.
+  `behavior=Duplicate`), farklıysa `409`. Kontrol ve kayıt, fatura numarasından üretilen PostgreSQL transaction
+  kilidi (`pg_advisory_xact_lock`) altında yapılır; kilit kayıt commit edilene kadar tutulur. Veritabanına unique index
+  eklenmedi: eski çift kayıtlar silinmez ve ayar geri kapatılabilir. Koruma, aynı veritabanını kullanan bütün
+  gönderim yollarının bu kilide uymasını gerektirir; devam eden istekler bitmeden mod değiştirilmemelidir.
 - Açılışta ayarlar loglanır: `Simulator settings: seed=42 success=60% busy=15% ... (total=100) ...`
 
 Tek seferlik değişiklik ortam değişkeniyle de yapılabilir (toplam yine 100 olmalı):
@@ -113,7 +116,9 @@ $env:Simulator__Rates__Success=0; $env:Simulator__Rates__Busy=100; $env:Simulato
 
 Fatura isteğin içinde ERP'ye gönderilmez: fatura ve bir "gönderilecekler" kaydı (`erp_outbox`) aynı transaction'da
 yazılır, istek hemen `202` döner. Arka plandaki worker kuyruktan sırası gelenleri simülatöre gönderir, hataya göre
-bekleyip tekrar dener ve sonucu yazar (outbox pattern).
+bekleyip tekrar dener ve sonucu yazar (outbox pattern). Böylece faturanın kaydedilip gönderim işinin unutulması
+önlenir: iki kayıt birlikte yazılır ya da ikisi de geri alınır. Bu yerel transaction, ERP'deki kaydı kapsamaz;
+uzaktaki çift kayıt sorunu ayrıca ele alınır.
 
 ### Veri
 
@@ -125,8 +130,10 @@ bekleyip tekrar dener ve sonucu yazar (outbox pattern).
   - `send_attempt_count`: faturanın ömrü boyunca yapılan deneme sayısı; resend'de sıfırlanmaz.
 - **`erp_outbox`**: faturanın gönderim kaydı, fatura başına bir satır (`invoice_number` unique).
   `id`, `invoice_number`, `status` (`Bekliyor` / `Tamamlandı` / `Başarısız`), `attempt_count`, `next_attempt_at`,
-  `last_error`, `created_at`, `processed_at` ve eklenen üç kolon: `locked_until` (kaydın kilidi ne zamana kadar),
-  `locked_by` (kaydı hangi servis kopyası aldı), `claim_token` (her alımın kimliği).
+  `last_error`, `created_at`, `processed_at`. Eklenen kolonlar:
+  - `locked_until`: sahipliğin bitiş zamanı; worker ölürse kayıt süre dolunca yeniden alınabilir.
+  - `locked_by`: kaydı alan servis kopyası; hangi worker'ın çalıştığını izlemek için.
+  - `claim_token`: her alımda yeni kimlik; eski alımın sonucunun yeni alımın sonucunu ezmesini önlemek için.
 
 ### Endpoint'ler
 
@@ -141,22 +148,29 @@ bekleyip tekrar dener ve sonucu yazar (outbox pattern).
 
 - Worker kuyruktan zamanı gelmiş (`next_attempt_at` geçmiş, kilitsiz) kayıtları tek bir SQL cümlesiyle alır
   (`FOR UPDATE SKIP LOCKED`); kayda `locked_until`, `locked_by`, yeni bir `claim_token` yazar ve deneme sayısını
-  gönderimden **önce** artırır. Aynı anda en fazla `MaxConcurrentSends` (10) gönderim yapar.
+  gönderimden **önce** artırır. Her servis kopyası aynı anda en fazla `MaxConcurrentSends` (10) gönderim yapar.
 - Tekrar deneme kuralları:
 
   | Simülatörün cevabı | Ne olur |
   |---|---|
-  | `202` | `Gönderildi` + `erp_reference`, outbox `Tamamlandı` |
+  | ERP referansı içeren `202` | `Gönderildi` + `erp_reference`, outbox `Tamamlandı` |
   | `429` | `Retry-After` kadar beklenir (saniye ya da tarih biçimi); jitter eklenmez |
-  | `500`, 10 sn zaman aşımı, ulaşılamama | 2, 4, 8 … sn (deneme numarasına göre katlanarak), en fazla 60 sn, üzerine 0–1 sn rastgele jitter |
+  | `500`, 10 sn zaman aşımı, ulaşılamama | 2, 4, 8 … sn + 0–1 sn rastgele jitter; planlanan toplam bekleme en fazla 60 sn |
   | 429 dışında 4xx | Hemen `Başarısız`, tekrar denenmez |
-  | 10. deneme de başarısız | `Başarısız` (fatura ve outbox) |
+  | 10. deneme de başarısız | Son ERP sorgusunda kayıt bulunursa `Gönderildi`; bulunamaz veya sorgulanamazsa iki kayıt da `Başarısız` |
 
 - **Çift kayıt koruması:** fatura daha önce gönderilmeye çalışıldıysa servis POST'tan önce simülatöre `GET` ile sorar:
   varsa referansı alır (POST yok), açıkça `404` ise gönderir, sorulamazsa göndermez ve sonra tekrar dener. Hakları
   bitince faturayı `Başarısız` yapmadan önce bir kez daha sorar.
-- **Servis öldürülürse:** kaydın kilidi `LockSeconds` (60 sn) sonra dolar ve kayıt yeniden alınır; sonuç yalnızca
-  kayıt hâlâ o alımın `claim_token`'ını taşıyorsa yazılır.
+- **Servis öldürülürse:** fatura ve outbox veritabanında kalır. Kilit, kaydın alındığı andan itibaren `LockSeconds`
+  (60 sn) geçince dolar ve kayıt yeniden alınabilir. Sonuç yalnızca kayıt hâlâ o alımın `claim_token`'ını taşıyorsa
+  yazılır. Son denemesi yarıda kalmış kayıt yeniden POST edilmez; yalnızca ERP'ye sorulur.
+- **İki kopyanın koordinasyonu:** `SKIP LOCKED` aynı satırın birlikte alınmasını önler; süreli sahiplik, transaction
+  bittikten sonra da kaydı diğer worker'dan korur. POST öncesinde token ve süre tekrar kontrol edilir. Ancak bu kontrol
+  ile HTTP çağrısı atomik değildir; arada uzun süre duran bir worker için mutlak gönderim engeli sayılmaz.
+- **Backoff:** 429 ve erişilemeyen ERP denemeleri de sayılır; sonraki 500'ün beklemesi toplam deneme numarasına göre
+  hesaplanır. Jitter, birlikte hata alan faturaların aynı anda yeniden yüklenmesini azaltır. Deneme hakları tükenirse
+  resend ile yeni bir tur başlatılabilir; fatura üzerindeki ömür boyu sayaç sıfırlanmaz.
 - Her deneme loglanır:
   `ERP send invoice=FTR-000042 attempt=3/10 worker=… claim=1a2b3c4d check=notFound outcome=Retry http=500 … wait=8.412s reason=…`
 
@@ -223,6 +237,61 @@ bölümünde). Resend artık yalnızca kuyruğa alıyor, durum filtreli listelem
 
 Kontrol listesi, adım testleri ve ek testler: [`manual-tests/gun3/`](manual-tests/gun3/README.md)
 (`.\manual-tests\gun3\kontrol-listesi.ps1` 7 maddeyi sırayla çalıştırır).
+
+### Son doğrulama — 1 Ekim 2026
+
+Yedi görev testi, `IdempotentInvoices=false` ile **21,2 dakikada geçti**. Test edilen aralık
+`FTR-011552 .. FTR-013412`: 1.861 fatura Gönderildi, outbox kayıtları Tamamlandı; ERP'de her faturadan bir kayıt
+ve referanslar iki tarafta aynı. Son durumda bekleyen ve kilitli kayıt yok. Bunlar bu çalıştırmanın sonuçlarıdır;
+bütün olası arıza koşulları için garanti değildir.
+
+| # | Senaryo | Sonuç |
+|---|---|---|
+| 1 | Hata yok, 100 fatura | 100 Gönderildi; tek kayıt; referanslar 100/100 aynı |
+| 2 | Varsayılan oranlar, 1000 fatura | 1000 Gönderildi; ayrıntılar aşağıda |
+| 3 | Busy %100, sonra Success %100 | Retry-After saniye ve tarih biçimlerinde 23'er bekleme kontrolü; tolerans dışında uyumsuzluk yok; 10 fatura Gönderildi |
+| 4 | ServerError %100, ardından resend | 10. denemede fatura ve outbox Başarısız; resend sonrası Gönderildi. En uzun plan 59,998 sn; ölçülen aralık 60,010 sn |
+| 5 | ERP kapalı, 50 fatura; 2 dk sonra açılış | 50/50 POST 202; sonunda 50 Gönderildi; çift kayıt yok |
+| 6 | 200 fatura, 3 kez kill | 14 gönderim yarıda kaldı; sonunda 200 Gönderildi; kayıp ve çift kayıt yok |
+| 7 | İki kopya, 500 fatura | 500 Gönderildi; 751 deneme (422 + 329); aynı faturada gözlenen çakışma yok; kopya başına en fazla 10, toplam 20 gönderim |
+
+**1000 fatura testi** (`FTR-011652 .. FTR-012651`):
+
+| Durum | Fatura sayısı |
+|---|---|
+| Serviste Gönderildi | 1000 |
+| Serviste Başarısız | 0 |
+| Simülatörde birden fazla kaydı olan | 0 |
+| Serviste Gönderildi ama simülatörde olmayan | 0 |
+| ERP referansı iki tarafta farklı olan | 0 |
+
+Kuyruk ilk POST'tan **196,2 sn** sonra boşaldı. Fatura başına ortalama **1,516 (yuvarlanmış 1,52) deneme**.
+Yerel ham çıktı: `manual-tests/output/gun3-kontrol-listesi-20261001-181408.log`.
+Bu çıktı Git'e dahil değildir; teslim kanıtı olarak ayrıca paylaşılmalıdır.
+
+**Ek 2 — idempotency:** `ek2-idempotency.ps1` tek referansı da dizi olarak değerlendirecek şekilde düzeltildi ve
+yeniden çalıştırıldı; dört bölümün tamamı geçti. Kapalı modda aynı fatura iki kayıt, açık modda aynı içerik tek kayıt
+ve aynı referans, farklı tutar `409` üretti. Kayıt geciktirilerek kurulan F1 senaryosunda:
+
+| Ayar | Fatura | ERP sonucu |
+|---|---|---|
+| `false` | `FTR-011550` | 2 kayıt: `ERP-00013845`, `ERP-00013846` |
+| `true` | `FTR-011551` | 1 kayıt: `ERP-00013847`; servisteki referansla aynı |
+
+Ek testin ham çıktıları repo dışındaki yerel `qa-ek2-duzeltme-20261001-181117` kanıt klasöründedir;
+`ek2-transcript.log` ve `verification.log` teslimle ayrıca paylaşılmalıdır. Test sonunda ayar `false` değerine döndü.
+
+### Bilinen sınırlar
+
+- **F1:** ilk POST ERP'de henüz kaydedilmeden zaman aşımı olursa, sonraki GET `404` dönebilir ve ikinci POST çift kayıt
+  oluşturabilir. Varsayılan modda görevin “hangi durum olursa olsun tek kayıt” şartı kesin olarak sağlanmıyor.
+  `IdempotentInvoices=true`, simülatöre eklenen alıcı tarafı korumasıdır; Fatura Servisi'nin tek başına garantisi değildir.
+- **Bekleme süreleri:** 60 sn sınırı jitter dahil planlanan beklemeye uygulanır. Kuyruk taraması, kapasite ve veritabanı
+  gecikmesi gerçek aralığı uzatabilir. Son testte 60,010 sn ölçüldü; gerçek sürenin kesinlikle 60 sn altında kaldığı
+  söylenemez. Retry-After testi de mutlak eşitlik yerine ölçüm toleransı kullanır.
+- **Tutar hassasiyeti:** doğrudan simülatöre ikiden fazla ondalıklı tutar gönderimi kabul ediliyor, veritabanı ise iki
+  ondalık saklıyor. Aynı ham isteğin tekrarında içerik karşılaştırması `409` üretebilir. Kod incelemesinde bulunan bu
+  durum henüz düzeltilmedi veya ayrı bir çalışma zamanı testiyle doğrulanmadı; geçen ek test iki ondalıklı tutar kullandı.
 
 ---
 

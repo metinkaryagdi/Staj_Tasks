@@ -90,7 +90,7 @@ function Invoke-SlowSave([string]$Title) {
     Show-ErpQuery "SELECT id, invoice_number, erp_reference, behavior, received_at FROM invoices WHERE invoice_number = '$number' ORDER BY id;"
 
     $row = @(Get-ServiceRows "SELECT status, coalesce(erp_reference, '-') FROM invoices WHERE invoice_number = '$number';")[0] -split '\|'
-    [pscustomobject]@{ Number = $number; Status = $row[0]; Reference = $row[1]; ErpRefs = Get-ErpRefs $number
+    [pscustomobject]@{ Number = $number; Status = $row[0]; Reference = $row[1]; ErpRefs = @(Get-ErpRefs $number)
                        Duplicates = @(Get-SimulatorLog | Where-Object { $_ -match "invoice=$number behavior=Duplicate" }).Count }
 }
 
@@ -105,7 +105,7 @@ $n = "${prefix}A"
 Write-Step "A) Ayar kapalı: $n iki kez gönderiliyor"
 $r1 = Send-InvoiceAmount $n '1250.50'
 $r2 = Send-InvoiceAmount $n '1250.50'
-$refs = Get-ErpRefs $n
+$refs = @(Get-ErpRefs $n)
 Write-DbHeader 'A) Ayar kapalı' "Fatura numarası: $n"
 Show-ErpQuery "SELECT id, invoice_number, erp_reference, behavior FROM invoices WHERE invoice_number = '$n' ORDER BY id;"
 $ok = Write-DbVerdict 'iki istek de 202; simülatörde 2 kayıt, referanslar farklı (Gün 1 davranışı)' `
@@ -121,7 +121,7 @@ Write-Step "B) Ayar açık: $n iki kez aynı içerikle, sonra farklı tutarla g�
 $r1 = Send-InvoiceAmount $n '1250.50'
 $r2 = Send-InvoiceAmount $n '1250.50'
 $r3 = Send-InvoiceAmount $n '999.00'
-$refs = Get-ErpRefs $n
+$refs = @(Get-ErpRefs $n)
 $dup = @(Get-SimulatorLog | Where-Object { $_ -match "invoice=$n behavior=Duplicate" }).Count
 Write-DbHeader 'B) Ayar açık' "Fatura numarası: $n"
 Show-ErpQuery "SELECT id, invoice_number, erp_reference, amount, behavior FROM invoices WHERE invoice_number = '$n' ORDER BY id;"
