@@ -2,6 +2,14 @@
 # (Wait-Service, Get-ServiceRows, Show-ServiceQuery, Write-DbVerdict ...). Doğrudan çalıştırılmaz.
 . "$PSScriptRoot\..\gun2\_common.ps1"
 
+# Gün 1'deki Write-Result ile aynı çıktı; ek olarak sonucu adimlar.ps1'in özet tablosu için saklar.
+function Write-Result([bool]$Passed, [string]$Text) {
+    $global:Gun3LastResult = $Passed
+    Write-Host ''
+    if ($Passed) { Write-Host "SONUÇ: GEÇTİ  - $Text" -ForegroundColor Green }
+    else         { Write-Host "SONUÇ: KALDI  - $Text" -ForegroundColor Red }
+}
+
 # Çift tırnaklı tanımlayıcı içeren SQL için ("__EFMigrationsHistory"): PowerShell 5.1 native komut argümanlarındaki
 # çift tırnakları siler, bu yüzden SQL psql'e argümanla değil stdin'den verilir.
 function Invoke-ServiceSqlStdin([string]$Sql, [switch]$Rows) {

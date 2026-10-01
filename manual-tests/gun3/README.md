@@ -22,11 +22,18 @@ Script'ler engellenirse: `Set-ExecutionPolicy -Scope Process Bypass`.
 
 Gün 3 adım adım yapılıyor; her adımın kendi testi var (kontrol listesinin parçası değil):
 
+Hepsini sırayla çalıştırıp sonunda özet tablosu veren script (~16 dk; çıktı `manual-tests\output\gun3-adimlar-*.log`'a da yazılır):
+
+```powershell
+.\manual-tests\gun3\adimlar.ps1          # 1'den 6'ya
+.\manual-tests\gun3\adimlar.ps1 -From 4  # 4'ten başlayarak
+```
+
 | Adım | Ne kontrol ediliyor | Komut |
 |---|---|---|
 | 1 | Şema: `invoices.status` üç değer, `erp_outbox` 10 kolon (8 istenen + `locked_until`, `locked_by`), kısıtlar gerçekten çalışıyor | `.\manual-tests\gun3\adim1-sema.ps1` |
-| 2 | `POST` fatura (Bekliyor) + `erp_outbox` kaydını aynı transaction'da yazıyor, `202` dönüyor, simülatöre gitmiyor; outbox yazılamazsa fatura da yazılmıyor | `.\manual-tests\gun3\adim2-outbox-yazma.ps1` |
-| 3 | Arka plan worker'ı kuyruğu boşaltıyor (şimdilik tek deneme): Success %100'de 20 fatura Gönderildi/Tamamlandı, referanslar aynı; LateResponse %100'de 25 fatura → simülatöre aynı anda en fazla 10 istek (10 + 10 + 5 dalga) | `.\manual-tests\gun3\adim3-worker.ps1` |
+| 2 | `POST` fatura (Bekliyor) + `erp_outbox` kaydını aynı transaction'da yazıyor, simülatör 30 sn bekletirken bile hemen `202` dönüyor (gönderim arka planda); outbox yazılamazsa fatura da yazılmıyor | `.\manual-tests\gun3\adim2-outbox-yazma.ps1` |
+| 3 | Arka plan worker'ı kuyruğu boşaltıyor: Success %100'de 20 fatura Gönderildi/Tamamlandı, referanslar aynı; LateResponse %100'de 25 fatura → simülatöre aynı anda en fazla 10 istek (10 + 10 + 5 dalga), sonunda 25'i Gönderildi, çift kayıt yok | `.\manual-tests\gun3\adim3-worker.ps1` |
 | 4 | Tekrar deneme: 429'dan sonra tam Retry-After kadar bekleniyor (saniye ve tarih biçimi); 500'de 2/4/8/16/32/59 sn + 0–1 sn jitter, hiçbiri 60'ı geçmiyor; 10. deneme de başarısızsa fatura ve outbox Başarısız (~8 dk) | `.\manual-tests\gun3\adim4-tekrar-deneme.ps1` |
 | 5 | Çift kayıt koruması: daha önce gönderilmeye çalışılmış fatura için POST'tan önce simülatöre GET ile soruluyor. SaveThenError ve LateResponse'ta 2. denemede `found`, POST yok; simülatör kapalıyken `unknown`, POST yok; açılınca `notFound` → POST. Varsayılan oranlarla 100 fatura: çift kayıt 0, kayıp 0 (~4 dk) | `.\manual-tests\gun3\adim5-cift-kayit.ps1` |
 | 6 | `GET /api/v1/invoices?status=…` veritabanıyla aynı sayıları dönüyor, geçersiz durum 400; resend: olmayan 404, Başarısız olmayan 409; resend simülatöre gitmiyor, kuyruğa alıyor (202): simülatörde kayıtlıysa `found` (POST yok), değilse `notFound` → POST; outbox kaydı olmayan Gün 2 faturası da kuyruğa alınıyor; aynı anda iki resend → 202 + 409 (~1 dk) | `.\manual-tests\gun3\adim6-endpointler.ps1` |

@@ -1,24 +1,26 @@
-﻿# Gün 3 - Adım 2: POST faturayı ve erp_outbox kaydını aynı transaction'da yazıyor, 202 dönüyor, simülatöre gitmiyor.
-# (Kontrol listesinin parçası değil, adımın kendi testi. Worker henüz yok: faturalar Bekliyor'da kalır.)
+﻿# Gün 3 - Adım 2: POST faturayı ve erp_outbox kaydını aynı transaction'da yazıyor, 202 dönüyor, simülatörü beklemiyor.
+# (Kontrol listesinin parçası değil, adımın kendi testi. Worker'ın olduğu son sürümde de geçer.)
 #
-#   1) Simülatör açıkken 5 fatura: hepsi 202 + Bekliyor; her biri için tam bir erp_outbox kaydı (Bekliyor, 0 deneme);
-#      simülatöre hiç istek gitmiyor (simülatör logunda ve erp-db'de bu faturalar yok).
+#   1) Simülatör LateResponse %100 (her isteği 30 sn bekletir) iken 5 fatura: POST simülatöre gitseydi her cevap en az
+#      10 sn (zaman aşımı) sürerdi. Hepsi milisaniyeler içinde 202 + Bekliyor + 0 deneme dönüyor; her faturanın tam bir
+#      erp_outbox kaydı var ve ikisi aynı anda (aynı created_at, aynı transaction) yazılmış; servis logunda gönderim
+#      ("ERP send start") her zaman "Invoice queued" satırından sonra, arka plandaki worker'dan geliyor.
 #   2) Aynı transaction: erp_outbox'a yazmayı geçici bir trigger ile bozuyoruz. POST hata almalı ve fatura da
 #      yazılmamalı (yarım kayıt yok). Trigger script sonunda her durumda kaldırılır.
 . "$PSScriptRoot\_common.ps1"
 
-Write-Title 'Adım 2) POST: fatura + erp_outbox aynı transaction''da, 202, simülatöre gitmiyor'
+Write-Title 'Adım 2) POST: fatura + erp_outbox aynı transaction''da, 202, simülatörü beklemiyor'
 
 Write-Step 'Fatura Servisi yeni kodla derlenip yeniden başlatılıyor...'
 Invoke-Compose @('up', '-d', '--build', 'invoice-service')
 Wait-Service
-Restart-Simulator
-Write-Host '  İki uygulama da ayakta (simülatör açık: servis ona gitseydi logunda görünecekti).'
+Restart-Simulator @{ Simulator__Rates__Success = 0; Simulator__Rates__Busy = 0; Simulator__Rates__ServerError = 0
+                     Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 100 }
 
 $allPassed = $true
 
 # --- 1) 5 fatura ------------------------------------------------------------------------------------------------
-Write-Step '5 fatura oluşturuluyor'
+Write-Step '5 fatura oluşturuluyor (simülatör her isteği 30 sn bekletiyor)'
 $results = @()
 for ($i = 0; $i -lt 5; $i++) {
     $r = New-ServiceInvoice
@@ -27,29 +29,43 @@ for ($i = 0; $i -lt 5; $i++) {
 }
 $from = $results[0].InvoiceNumber
 $to = $results[-1].InvoiceNumber
-$httpOk = @($results | Where-Object { $_.HttpStatus -eq 202 -and $_.Status -eq 'Bekliyor' -and $_.Attempts -eq 0 }).Count
+$httpOk = @($results | Where-Object { $_.HttpStatus -eq 202 -and $_.Status -eq 'Bekliyor' -and $_.Attempts -eq 0 -and $_.Seconds -lt 1 }).Count
 Write-Host ''
-$ok = Write-DbVerdict '5 cevabın hepsi 202, status Bekliyor, deneme 0' "$httpOk/5" ($httpOk -eq 5)
+$ok = Write-DbVerdict '5 cevabın hepsi 1 sn''den kısa sürede 202, status Bekliyor, deneme 0 (simülatör beklenmedi)' "$httpOk/5" ($httpOk -eq 5)
 $allPassed = $allPassed -and $ok
 
 $range = "invoice_number BETWEEN '$from' AND '$to'"
 Write-DbHeader 'Fatura ve outbox kayıtları' "Fatura aralığı: $from .. $to"
-Show-ServiceQuery "SELECT invoice_number, status, erp_reference, last_error, send_attempt_count, created_at FROM invoices WHERE $range ORDER BY 1;"
-Show-ServiceQuery ("SELECT id, invoice_number, status, attempt_count, next_attempt_at, last_error, created_at, processed_at, locked_until, locked_by " +
-    "FROM erp_outbox WHERE $range ORDER BY id;")
-Show-ErpQuery "SELECT count(*) AS kayit FROM invoices WHERE $range;"
+Write-Host '  (Worker faturaları hemen almaya başlar; deneme sayısı ve durum bu yüzden değişmiş olabilir. Kontrol edilen:' -ForegroundColor DarkGray
+Write-Host '   her faturanın tam bir outbox kaydı var ve ikisi aynı transaction''da, aynı created_at ile yazılmış.)' -ForegroundColor DarkGray
+Show-ServiceQuery "SELECT invoice_number, status, send_attempt_count, created_at FROM invoices WHERE $range ORDER BY 1;"
+Show-ServiceQuery "SELECT id, invoice_number, status, attempt_count, created_at, locked_by FROM erp_outbox WHERE $range ORDER BY id;"
 
-$pairs = [int]@(Get-ServiceRows ("SELECT count(*) FROM invoices i JOIN erp_outbox o USING (invoice_number) WHERE i.$range " +
-    "AND i.status = 'Bekliyor' AND o.status = 'Bekliyor' AND o.attempt_count = 0 AND o.next_attempt_at = o.created_at " +
-    "AND o.processed_at IS NULL AND o.locked_until IS NULL AND o.last_error IS NULL AND i.created_at = o.created_at;"))[0]
+$pairs = [int]@(Get-ServiceRows ("SELECT count(*) FROM invoices i JOIN erp_outbox o USING (invoice_number) " +
+    "WHERE i.$range AND i.created_at = o.created_at;"))[0]
 $outboxRows = [int]@(Get-ServiceRows "SELECT count(*) FROM erp_outbox WHERE $range;")[0]
-$erpRows = [int]@(Get-ErpRows "SELECT count(*) FROM invoices WHERE $range;")[0]
-$logLines = @(Get-SimulatorLog | Where-Object { $_ -match 'invoice=(FTR-\d+)' -and $Matches[1] -ge $from -and $Matches[1] -le $to }).Count
+
+# Servis logu: her fatura için "Invoice queued" (POST isteği) satırı, "ERP send start" (worker) satırından önce.
+Start-Sleep -Seconds 1
+$inv = [Globalization.CultureInfo]::InvariantCulture
+$queued = @{}; $started = @{}
+foreach ($line in Get-ServiceLog) {
+    if ($line -match '^(\S+ \S+) info: .*Invoice queued invoice=(\S+)') { $queued[$Matches[2]] = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv) }
+    elseif ($line -match '^(\S+ \S+) info: .*ERP send start invoice=(\S+) attempt=1/') { $started[$Matches[2]] = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv) }
+}
 Write-Host ''
-$ok = Write-DbVerdict ('5 fatura Bekliyor, her birinin tam bir outbox kaydı var (Bekliyor, 0 deneme, hemen gönderilebilir, ' +
-    'aynı created_at); simülatörde 0 kayıt, logunda 0 istek') `
-    "$pairs fatura+outbox çifti, $outboxRows outbox kaydı; simülatörde $erpRows kayıt, logunda $logLines istek" `
-    ($pairs -eq 5 -and $outboxRows -eq 5 -and $erpRows -eq 0 -and $logLines -eq 0)
+Write-Host '  Servis logu (fatura -> kuyruğa alındı, worker gönderime başladı):' -ForegroundColor DarkGray
+$ordered = 0
+foreach ($r in $results) {
+    $q = $queued[$r.InvoiceNumber]; $s = $started[$r.InvoiceNumber]
+    Write-Host ('    {0}  queued {1}  send start {2}' -f $r.InvoiceNumber, $(if ($q) { $q.ToString('HH:mm:ss.fff') } else { '-' }), $(if ($s) { $s.ToString('HH:mm:ss.fff') } else { '-' }))
+    if ($q -and $s -and $q -le $s) { $ordered++ }
+}
+Write-Host ''
+$ok = Write-DbVerdict ('5 fatura, her birinin tam bir outbox kaydı var, aynı created_at; logda 5 faturanın hepsi önce kuyruğa alınmış, ' +
+    'sonra worker göndermeye başlamış') `
+    "$pairs fatura+outbox çifti (aynı created_at), $outboxRows outbox kaydı; logda sırası doğru olan $ordered fatura" `
+    ($pairs -eq 5 -and $outboxRows -eq 5 -and $ordered -eq 5)
 $allPassed = $allPassed -and $ok
 
 # --- 2) Aynı transaction -----------------------------------------------------------------------------------------
@@ -93,4 +109,6 @@ $ok = Write-DbVerdict '202 Bekliyor, 1 outbox kaydı' "$($r.HttpStatus) $($r.Sta
     ($r.HttpStatus -eq 202 -and $r.Status -eq 'Bekliyor' -and $outbox -eq 1)
 $allPassed = $allPassed -and $ok
 
-Write-Result $allPassed 'POST faturayı ve outbox kaydını birlikte yazıyor (biri yazılamazsa ikisi de yok), 202 dönüyor, simülatöre gitmiyor'
+Restart-Simulator
+
+Write-Result $allPassed 'POST faturayı ve outbox kaydını birlikte yazıyor (biri yazılamazsa ikisi de yok), 202 dönüyor, simülatörü beklemiyor'

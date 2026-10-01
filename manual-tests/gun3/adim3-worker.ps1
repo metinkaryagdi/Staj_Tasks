@@ -1,11 +1,11 @@
-﻿# Gün 3 - Adım 3: arka plan worker'ı (kontrol listesinin parçası değil, adımın kendi testi).
-# Bu adımda her fatura tek kez denenir: 202 -> Gönderildi / Tamamlandı, başka her sonuç -> Başarısız. Tekrar deneme Adım 4'te.
+﻿# Gün 3 - Adım 3: arka plan worker'ı (kontrol listesinin parçası değil, adımın kendi testi; son sürümde de geçer).
 #
 #   A) Success %100, 20 fatura: worker kuyruğu boşaltıyor; hepsi Gönderildi, outbox Tamamlandı, 1 deneme, kilit temizlenmiş,
 #      simülatörde her faturadan tam bir kayıt ve erp_reference iki tarafta aynı.
 #   B) LateResponse %100 (simülatör 30 sn bekletir, servis 10 sn'de vazgeçer), 25 fatura: her gönderim 10 sn sürdüğü için
 #      aynı anda kaç gönderim yapıldığı simülatörün kayıt saatlerinden görülür: en fazla 10 (ayar dosyasındaki
-#      Outbox:MaxConcurrentSends), yani 10 + 10 + 5'lik dalgalar.
+#      Outbox:MaxConcurrentSends), yani 10 + 10 + 5'lik dalgalar. Sonunda (Adım 4-5'in tekrar denemesi ve
+#      çift kayıt korumasıyla) 25 fatura Gönderildi, simülatörde her birinden tek kayıt.
 . "$PSScriptRoot\_common.ps1"
 
 Write-Title 'Adım 3) Arka plan worker''ı: kuyruğu boşaltıyor, aynı anda en fazla 10 gönderim'
@@ -58,10 +58,10 @@ Restart-Simulator @{
     Simulator__Rates__SaveThenError = 0
     Simulator__Rates__LateResponse  = 100
 }
-Write-Step 'B) 25 fatura oluşturuluyor; her gönderim 10 sn''de zaman aşımına düşecek'
+Write-Step 'B) 25 fatura oluşturuluyor; her ilk gönderim 10 sn''de zaman aşımına düşecek'
 $b = New-ServiceInvoices 25
 $seconds = Wait-QueueDrained $b.From $b.To 180
-Write-Host "  Kuyruk $seconds sn'de boşaldı (10'ar 10'ar gönderilirse ~30 sn)."
+Write-Host "  Kuyruk $seconds sn'de boşaldı (10'ar 10'ar gönderilirse ~30-35 sn)."
 
 $range = "invoice_number BETWEEN '$($b.From)' AND '$($b.To)'"
 Write-DbHeader 'B) Aynı anda kaç gönderim: simülatöre isteklerin geliş saatleri' "Fatura aralığı: $($b.From) .. $($b.To)"
@@ -80,14 +80,15 @@ foreach ($t in $arrivals) {
 }
 $logMax = (@(Get-ServiceLog | Where-Object { $_ -match 'inFlight=(\d+)' } | ForEach-Object { [int]($_ -replace '^.*inFlight=(\d+).*$', '$1') }) |
     Measure-Object -Maximum).Maximum
-$failed = [int]@(Get-ServiceRows ("SELECT count(*) FROM invoices i JOIN erp_outbox o USING (invoice_number) WHERE i.$range " +
-    "AND i.status = 'Başarısız' AND o.status = 'Başarısız' AND o.attempt_count = 1 AND o.last_error LIKE '%zaman aşımı%';"))[0]
+$sent = [int]@(Get-ServiceRows ("SELECT count(*) FROM invoices i JOIN erp_outbox o USING (invoice_number) WHERE i.$range " +
+    "AND i.status = 'Gönderildi' AND o.status = 'Tamamlandı';"))[0]
+$multiple = @(Get-ErpRows "SELECT invoice_number FROM invoices WHERE $range GROUP BY 1 HAVING count(*) > 1;").Count
 Write-Host ''
-Write-Host '  (Bu adımda tek deneme olduğu için zaman aşımına düşen faturalar Başarısız; Adım 4''te tekrar denenecekler.)' -ForegroundColor DarkGray
+Write-Host '  (İlk gönderimler zaman aşımına düşer; 2. denemede simülatöre sorulur, fatura orada kayıtlı olduğu için POST yapılmadan Gönderildi olur.)' -ForegroundColor DarkGray
 $ok = Write-DbVerdict ('simülatöre 25 istek; aynı anda en fazla 10 gönderim (simülatör kayıt saatlerinden ve servis logundan); ' +
-    '25 fatura ve outbox Başarısız, 1 deneme, hata zaman aşımı') `
-    "$($arrivals.Count) istek; aynı anda en fazla $maxInFlight (servis logunda en fazla inFlight=$logMax); $failed Başarısız" `
-    ($arrivals.Count -eq 25 -and $maxInFlight -eq 10 -and $logMax -le 10 -and $failed -eq 25)
+    '25 fatura Gönderildi ve outbox Tamamlandı; simülatörde birden fazla kaydı olan 0') `
+    "$($arrivals.Count) istek; aynı anda en fazla $maxInFlight (servis logunda en fazla inFlight=$logMax); $sent Gönderildi; birden fazla kaydı olan $multiple" `
+    ($arrivals.Count -eq 25 -and $maxInFlight -eq 10 -and $logMax -le 10 -and $sent -eq 25 -and $multiple -eq 0)
 $allPassed = $allPassed -and $ok
 
 Restart-Simulator
