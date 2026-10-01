@@ -54,3 +54,5 @@ finally {
     Write-Host ("  Toplam süre: {0:N1} dk. Bütün çıktı: {1}" -f $total.Elapsed.TotalMinutes, $log) -ForegroundColor DarkGray
     Stop-Transcript | Out-Null
 }
+# Biri bile GEÇTİ değilse (KALDI, HATA, SONUÇ YOK) çıkış kodu 1: script'i çağıran bir araç başarısızlığı anlayabilsin.
+if (@($results | Where-Object { $_.Sonuc -ne 'GEÇTİ' }).Count -gt 0 -or $results.Count -ne $scripts.Count) { exit 1 }

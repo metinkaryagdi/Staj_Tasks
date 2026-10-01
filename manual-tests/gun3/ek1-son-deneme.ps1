@@ -11,21 +11,15 @@
 #      yapılmamalı; fatura simülatörde olduğu için Gönderildi olmalı.
 #      Düzeltmeden önce: kayıt 11. kez deneniyordu (attempt=11/10).
 . "$PSScriptRoot\_common.ps1"
+# Script bir hatayla yarıda kesilirse simülatör değiştirilmiş ayarda kalıp, servis de öldürülmüş durumda kalıp sonraki
+# testleri bozmasın: servis başlatılır, simülatör varsayılan ayarlarına döndürülür, hata yine yukarı iletilir.
+trap { Write-Host "Hata: $_ - servis başlatılıyor, simülatör varsayılan ayarlarına döndürülüyor." -ForegroundColor Red
+       try { Invoke-Compose @('start', 'invoice-service') } catch { }; try { Restart-Simulator } catch { }; break }
 
 Write-Title 'Ek 1) Son deneme: kaydedip hata veren 10. deneme (F3) ve 10. denemede öldürülen servis (F2)'
 
 $only = @{ Simulator__Rates__Success = 0; Simulator__Rates__Busy = 0; Simulator__Rates__ServerError = 0
            Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0 }
-
-function Wait-NinthAttemptDone([string]$Number) {
-    $watch = [Diagnostics.Stopwatch]::StartNew()
-    while ($true) {
-        $row = @(Get-ServiceRows "SELECT attempt_count, locked_until IS NULL FROM erp_outbox WHERE invoice_number = '$Number';")[0] -split '\|'
-        if ([int]$row[0] -ge 9 -and $row[1] -eq 't') { return }
-        if ($watch.Elapsed.TotalSeconds -gt 420) { throw "$Number 9. denemeyi 420 sn içinde bitirmedi." }
-        Start-Sleep -Milliseconds 500
-    }
-}
 
 # Simülatörün logu container yeniden oluşturulunca sıfırlanır. Simülatör 10. denemeden hemen önce yeniden başlatıldığı
 # için bu sayı yalnızca 10. deneme ve sonrasındaki POST'ları gösterir: tam 1 olmalı (10. deneme), sonrasında POST yok.

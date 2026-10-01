@@ -85,27 +85,33 @@ function New-ServiceInvoices([int]$Count) {
 
 # Servis logundan verilen faturaların denemelerini çıkarır: her deneme için başlangıç/bitiş, HTTP sonucu, Retry-After,
 # planlanan bekleme (wait) ve bir önceki denemenin bitişinden bu denemenin başlangıcına kadar gerçekten geçen süre.
+# Başlangıç ve sonuç satırları alım kimliğiyle (log'daki claim=, erp_outbox.claim_token) eşlenir: her alımın kimliği
+# farklıdır. Resend deneme numarasını 1'e döndürdüğü, yarıda kalan son deneme aynı numarayla yeniden alındığı ve iki
+# kopya aynı faturayı farklı zamanlarda alabildiği için "fatura + deneme numarası" bir denemeyi ayırt etmez.
+# Denemeler zamana göre sıralanır.
 function Get-SendAttempts([string[]]$Invoices) {
     $inv = [Globalization.CultureInfo]::InvariantCulture
     $starts = @{}
     $rows = @()
     foreach ($line in Get-ServiceLog) {
-        if ($line -match '^(\S+ \S+) info: .*ERP send start invoice=(\S+) attempt=(\d+)/') {
-            if ($Invoices -contains $Matches[2]) { $starts["$($Matches[2])#$($Matches[3])"] = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv) }
+        if ($line -match '^(\S+ \S+) info: .*ERP send start invoice=(\S+) attempt=(\d+)/\d+ worker=\S+ claim=(\w+)') {
+            if ($Invoices -contains $Matches[2]) { $starts[$Matches[4]] = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv) }
+            continue
         }
-        elseif ($line -match '^(\S+ \S+) info: .*ERP send invoice=(\S+) attempt=(\d+)/\d+ worker=(\S+) check=(\S+) outcome=(\w+) http=(\S+) retryAfter=(.*?) wait=([\d.]+)s reason=') {
+        elseif ($line -match '^(\S+ \S+) info: .*ERP send invoice=(\S+) attempt=(\d+)/\d+ worker=(\S+) claim=(\w+) check=(\S+) outcome=(\w+) http=(\S+) retryAfter=(.*?) wait=([\d.]+)s reason=') {
             if ($Invoices -notcontains $Matches[2]) { continue }
+            $start = $starts[$Matches[5]]
+            $starts.Remove($Matches[5])
             $rows += [pscustomobject]@{
-                Invoice = $Matches[2]; Attempt = [int]$Matches[3]; Worker = $Matches[4]; Check = $Matches[5]; Outcome = $Matches[6]
-                Http = $Matches[7]; RetryAfter = $Matches[8]; Wait = [double]::Parse($Matches[9], $inv)
-                End = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv); Start = $null; WaitedBefore = $null
+                Invoice = $Matches[2]; Attempt = [int]$Matches[3]; Worker = $Matches[4]; Claim = $Matches[5]; Check = $Matches[6]
+                Outcome = $Matches[7]; Http = $Matches[8]; RetryAfter = $Matches[9]; Wait = [double]::Parse($Matches[10], $inv)
+                End = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv); Start = $start; WaitedBefore = $null
             }
         }
     }
-    $rows = @($rows | Sort-Object Invoice, Attempt)
+    $rows = @($rows | Sort-Object Invoice, End)
     for ($i = 0; $i -lt $rows.Count; $i++) {
         $r = $rows[$i]
-        $r.Start = $starts["$($r.Invoice)#$($r.Attempt)"]
         if ($i -gt 0 -and $rows[$i - 1].Invoice -eq $r.Invoice -and $r.Start) {
             $r.WaitedBefore = [math]::Round(($r.Start - $rows[$i - 1].End).TotalSeconds, 3)
         }
@@ -123,4 +129,16 @@ function Show-SendAttempts($Attempts) {
     }
     Write-Host '  Kontrol: first = ilk gönderim (doğrudan POST); found = simülatörde zaten var, POST yapılmadı; notFound = yok, POST yapıldı; unknown = sorulamadı, POST yapılmadı.' -ForegroundColor DarkGray
     Write-Host '  Plan: bu denemeden sonra beklenecek süre. Önce bekl.: önceki denemenin bitişinden bu denemenin başlangıcına geçen süre.' -ForegroundColor DarkGray
+}
+
+# Faturanın 9. denemesi bitene kadar bekler (outbox attempt_count 9 ve kilit bırakılmış): 10. ve son deneme
+# ~59 sn sonra başlayacak. Son deneme senaryolarını (ek1, adim6) kurmak için.
+function Wait-NinthAttemptDone([string]$Number) {
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        $row = @(Get-ServiceRows "SELECT attempt_count, locked_until IS NULL FROM erp_outbox WHERE invoice_number = '$Number';")[0] -split '\|'
+        if ([int]$row[0] -ge 9 -and $row[1] -eq 't') { return }
+        if ($watch.Elapsed.TotalSeconds -gt 420) { throw "$Number 9. denemeyi 420 sn içinde bitirmedi." }
+        Start-Sleep -Milliseconds 500
+    }
 }

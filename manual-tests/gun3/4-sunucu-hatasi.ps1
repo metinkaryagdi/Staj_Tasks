@@ -4,6 +4,9 @@
 #
 # Bekleme: 2^n sn (2, 4, 8, 16, 32), sonra 59 sn; her birine 0-1 sn jitter eklenir, toplam hiçbir zaman 60 sn'yi geçmez.
 . "$PSScriptRoot\_common.ps1"
+# Script bir hatayla yarıda kesilirse simülatör değiştirilmiş ayarda (ör. ServerError %100 ya da durdurulmuş) kalıp sonraki
+# testleri bozmasın: varsayılan ayarlarına döndürülür, hata yine yukarı iletilir.
+trap { Write-Host "Hata: $_ - simülatör varsayılan ayarlarına döndürülüyor." -ForegroundColor Red; try { Restart-Simulator } catch { }; break }
 
 Write-Title '4) ServerError %100 -> 1 fatura: katlanarak artan bekleme, 10. denemede Başarısız; sonra resend -> Gönderildi'
 

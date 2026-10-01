@@ -1,5 +1,5 @@
 ﻿# Gün 3 - adım testlerinin hepsini sırayla çalıştırır (adim1 ... adim6), sonunda her birinin sonucunu tablo halinde yazar.
-# Toplam ~11 dk. Script'ler simülatörü ve Fatura Servisi'ni yeniden başlatır: bu sırada başka bir test çalıştırmayın.
+# Toplam ~16 dk. Script'ler simülatörü ve Fatura Servisi'ni yeniden başlatır: bu sırada başka bir test çalıştırmayın.
 # Ekrandaki bütün çıktı ayrıca manual-tests\output\gun3-adimlar-<zaman>.log dosyasına yazılır.
 #   .\manual-tests\gun3\adimlar.ps1            -> hepsi
 #   .\manual-tests\gun3\adimlar.ps1 -From 4    -> 4'ten başlayarak
@@ -52,3 +52,5 @@ finally {
     Write-Host ("  Toplam süre: {0:N1} dk. Bütün çıktı: {1}" -f $total.Elapsed.TotalMinutes, $log) -ForegroundColor DarkGray
     Stop-Transcript | Out-Null
 }
+# Biri bile GEÇTİ değilse (KALDI, HATA, SONUÇ YOK) çıkış kodu 1: script'i çağıran bir araç başarısızlığı anlayabilsin.
+if (@($results | Where-Object { $_.Sonuc -ne 'GEÇTİ' }).Count -gt 0 -or $results.Count -ne $scripts.Count) { exit 1 }

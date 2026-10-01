@@ -8,6 +8,9 @@
 # Simülatör yeniden başlarken (birkaç sn) gelen bir deneme "ulaşılamadı" alır ve backoff ile bekler; o deneme 429 olmadığı
 # için Retry-After karşılaştırmasına girmez.
 . "$PSScriptRoot\_common.ps1"
+# Script bir hatayla yarıda kesilirse simülatör değiştirilmiş ayarda (ör. ServerError %100 ya da durdurulmuş) kalıp sonraki
+# testleri bozmasın: varsayılan ayarlarına döndürülür, hata yine yukarı iletilir.
+trap { Write-Host "Hata: $_ - simülatör varsayılan ayarlarına döndürülüyor." -ForegroundColor Red; try { Restart-Simulator } catch { }; break }
 
 Write-Title '3) Busy %100 -> 5 fatura, 1 dk sonra Success %100: her denemeden önce beklenen süre = Retry-After'
 

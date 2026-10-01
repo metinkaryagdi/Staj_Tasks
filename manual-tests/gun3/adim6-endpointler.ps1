@@ -1,16 +1,20 @@
-﻿# Gün 3 - Adım 6: endpoint değişiklikleri (kontrol listesinin parçası değil, adımın kendi testi). ~1 dk.
+﻿# Gün 3 - Adım 6: endpoint değişiklikleri (kontrol listesinin parçası değil, adımın kendi testi). ~6 dk.
 #
 #   A) GET /api/v1/invoices?status=...: her durum için dönen fatura sayısı veritabanındakiyle aynı; durum verilmezse hepsi;
 #      geçersiz durum 400.
 #   B) resend kuralları: olmayan fatura 404; Gönderildi ve Bekliyor fatura 409; hiçbirinde veritabanı değişmiyor.
-#   C) resend simülatöre gitmiyor, yalnızca kuyruğa alıyor (202, Bekliyor). Simülatör Success %100 iken:
-#      C1) Adım 3'te zaman aşımıyla Başarısız kalmış ama simülatörde kayıtlı bir fatura: worker "found" der, POST yok,
-#          fatura simülatördeki referansla Gönderildi, simülatörde hâlâ 1 kayıt.
-#      C2) Gün 2'den kalan, outbox kaydı olmayan ve simülatörde olmayan Başarısız bir fatura: resend outbox kaydını
-#          oluşturur, worker "notFound" -> POST -> Gönderildi, simülatörde 1 kayıt.
-#   D) Aynı Başarısız faturaya aynı anda iki resend: biri 202, diğeri 409.
-# C ve D'de kullanılacak faturalar veritabanından seçilir; bulunamazsa script durur (önce adim3-worker.ps1 çalıştırılmalı).
+#   C) "Başarısız ama simülatörde kayıtlı" bir faturaya aynı anda iki resend:
+#      - biri 202 (fatura Bekliyor, resend simülatöre kendisi gitmiyor), diğeri 409;
+#      - worker faturayı simülatörde bulur ("found"): tekrar POST yok, fatura simülatördeki referansla Gönderildi,
+#        simülatörde hâlâ tek kayıt.
+#      Başlangıç durumu veritabanına dokunmadan, gerçekte olabileceği gibi üretilir: fatura 9 kez ServerError alır;
+#      10. denemede simülatör LateResponse'tadır (isteği alınca kaydeder, cevap vermez); servis 10 sn'de vazgeçip
+#      Başarısız demeden önce simülatöre son kez sorar, ama simülatör o arada öldürülmüştür ("sorulamadı"). Fatura serviste
+#      Başarısız, simülatörün veritabanında kayıtlı kalır.
 . "$PSScriptRoot\_common.ps1"
+# Script bir hatayla yarıda kesilirse simülatör öldürülmüş ya da değiştirilmiş ayarda kalıp sonraki testleri bozmasın:
+# varsayılan ayarlarına döndürülür, hata yine yukarı iletilir.
+trap { Write-Host "Hata: $_ - simülatör varsayılan ayarlarına döndürülüyor." -ForegroundColor Red; try { Restart-Simulator } catch { }; break }
 
 Write-Title 'Adım 6) resend yalnızca kuyruğa alıyor; GET /api/v1/invoices?status=... ile listeleme'
 
@@ -54,7 +58,10 @@ $allPassed = $allPassed -and $listOk -and $ok
 
 # --- B) resend kuralları ------------------------------------------------------------------------------------------
 Write-Step 'B) resend: 404 / 409'
-$sentInvoice = @(Get-ServiceRows "SELECT invoice_number FROM invoices WHERE status = 'Gönderildi' ORDER BY invoice_number DESC LIMIT 1;")[0]
+# Gönderildi bir fatura: simülatör Success %100'deyken bir fatura oluşturup gönderilmesi beklenir (temiz kurulumda da çalışsın).
+$sentInvoice = (New-ServiceInvoices 1).From
+Wait-QueueDrained $sentInvoice $sentInvoice 60 | Out-Null
+if (@(Get-ServiceRows "SELECT status FROM invoices WHERE invoice_number = '$sentInvoice';")[0] -ne 'Gönderildi') { throw "$sentInvoice Gönderildi olmadı; B bölümü kurulamadı." }
 # Yeni fatura: resend geldiğinde Bekliyor'dur ya da worker onu o arada göndermiştir; ikisinde de 409. Worker durumunu
 # değiştirebileceği için bu satırda yalnızca 409 kontrol edilir.
 $pending = New-ServiceInvoice
@@ -74,74 +81,72 @@ foreach ($case in $cases) {
     $allPassed = $allPassed -and $ok
 }
 
-# --- C) resend akışı ----------------------------------------------------------------------------------------------
+# --- C) Başarısız ama simülatörde kayıtlı faturaya aynı anda iki resend ------------------------------------------
 function Show-InvoiceState([string]$Title, [string]$Number) {
     Write-DbHeader $Title "Fatura numarası: $Number"
     Show-ServiceQuery "SELECT invoice_number, status, erp_reference, send_attempt_count, last_error FROM invoices WHERE invoice_number = '$Number';"
-    Show-ServiceQuery "SELECT invoice_number, status, attempt_count, next_attempt_at, processed_at, last_error FROM erp_outbox WHERE invoice_number = '$Number';"
+    Show-ServiceQuery "SELECT invoice_number, status, attempt_count, processed_at, last_error FROM erp_outbox WHERE invoice_number = '$Number';"
     Show-ErpQuery "SELECT id, invoice_number, erp_reference, behavior, received_at FROM invoices WHERE invoice_number = '$Number' ORDER BY id;"
 }
 
-# C1: outbox'ı Başarısız (zaman aşımı) ve simülatörde tam 1 kaydı olan bir fatura.
-$candidates = @(Get-ServiceRows ("SELECT invoice_number FROM invoices i JOIN erp_outbox o USING (invoice_number) " +
-    "WHERE i.status = 'Başarısız' AND o.status = 'Başarısız' AND o.last_error LIKE '%zaman aşımı%' ORDER BY 1 LIMIT 50;"))
-$inErp = if ($candidates) { @(Get-ErpRows ("SELECT invoice_number FROM invoices WHERE invoice_number IN ('" + ($candidates -join "','") + "') " +
-    "GROUP BY 1 HAVING count(*) = 1 ORDER BY 1;")) } else { @() }
-if ($inErp.Count -lt 2) { throw 'C1/D için zaman aşımıyla Başarısız kalmış ve simülatörde kayıtlı 2 fatura bulunamadı; önce .\manual-tests\gun3\adim3-worker.ps1 çalıştırın.' }
-$c1 = $inErp[0]
-$d = $inErp[1]
+$only = @{ Simulator__Rates__Success = 0; Simulator__Rates__Busy = 0; Simulator__Rates__ServerError = 0
+           Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0 }
 
-# C2: outbox kaydı olmayan (Gün 2'den), simülatörde hiç kaydı olmayan Başarısız bir fatura.
-$candidates = @(Get-ServiceRows ("SELECT invoice_number FROM invoices i WHERE status = 'Başarısız' " +
-    "AND NOT EXISTS (SELECT 1 FROM erp_outbox o WHERE o.invoice_number = i.invoice_number) ORDER BY 1 DESC LIMIT 50;"))
-$present = if ($candidates) { @(Get-ErpRows ("SELECT DISTINCT invoice_number FROM invoices WHERE invoice_number IN ('" + ($candidates -join "','") + "');")) } else { @() }
-$c2 = @($candidates | Where-Object { $present -notcontains $_ })[0]
-if (-not $c2) { throw 'C2 için Gün 2''den kalan, simülatörde olmayan Başarısız bir fatura bulunamadı.' }
+$settings = $only.Clone(); $settings.Simulator__Rates__ServerError = 100
+Restart-Simulator $settings
+Write-Step 'C) Başlangıç durumu: 1 fatura, 9 deneme ServerError ile tükenene kadar bekleniyor (~4 dk)'
+$number = (New-ServiceInvoices 1).From
+Wait-NinthAttemptDone $number
+Write-Host "  $number 9. denemeyi bitirdi. Simülatör LateResponse %100'e alınıyor (isteği kaydeder, 30 sn cevap vermez)."
+$settings = $only.Clone(); $settings.Simulator__Rates__LateResponse = 100
+Restart-Simulator $settings
 
-foreach ($case in @(
-        @{ Name = 'C1) Simülatörde zaten kayıtlı Başarısız fatura'; Number = $c1; Check = 'found';    Posts = 0 }
-        @{ Name = 'C2) Outbox kaydı olmayan, simülatörde olmayan Başarısız fatura (Gün 2)'; Number = $c2; Check = 'notFound'; Posts = 1 })) {
-    $number = $case.Number
-    Write-Step "$($case.Name): $number"
-    Show-InvoiceState "$($case.Name) - resend öncesi" $number
-    $postsBefore = @(Get-SimulatorLog | Where-Object { $_ -match "ERP request #\d+ invoice=$number behavior=" }).Count
-    $erpBefore = [int]@(Get-ErpRows "SELECT count(*) FROM invoices WHERE invoice_number = '$number';")[0]
-
-    $r = Send-ServiceResend $number
-    Write-Host "  resend -> HTTP $($r.HttpStatus), status $($r.Status), süre $($r.Seconds) sn"
-    Wait-QueueDrained $number $number 60 | Out-Null
-
-    Show-InvoiceState "$($case.Name) - kuyruk boşaldıktan sonra" $number
-    $attempt = @(Get-SendAttempts @($number))[-1]
-    $postsAfter = @(Get-SimulatorLog | Where-Object { $_ -match "ERP request #\d+ invoice=$number behavior=" }).Count
-    $state = @(Get-ServiceRows ("SELECT i.status, coalesce(i.erp_reference, '-'), o.status, o.attempt_count FROM invoices i " +
-        "JOIN erp_outbox o USING (invoice_number) WHERE invoice_number = '$number';"))[0] -split '\|'
-    $erpRefs = @(Get-ErpRows "SELECT erp_reference FROM invoices WHERE invoice_number = '$number' ORDER BY id;")
-    Write-Host ''
-    $ok = Write-DbVerdict ("resend 202 Bekliyor (simülatöre gitmeden); worker '$($case.Check)', simülatöre $($case.Posts) POST; fatura Gönderildi, " +
-        'outbox Tamamlandı (1 deneme); simülatörde 1 kayıt ve referansı faturadakiyle aynı') `
-        ("resend $($r.HttpStatus) $($r.Status); worker '$($attempt.Check)', $($postsAfter - $postsBefore) POST; fatura $($state[0]), " +
-         "outbox $($state[2]) ($($state[3]) deneme); simülatörde $erpBefore -> $($erpRefs.Count) kayıt, referans $($state[1]) / $($erpRefs -join ',')") `
-        ($r.HttpStatus -eq 202 -and $r.Status -eq 'Bekliyor' -and $attempt.Check -eq $case.Check -and ($postsAfter - $postsBefore) -eq $case.Posts -and
-         $state[0] -eq 'Gönderildi' -and $state[2] -eq 'Tamamlandı' -and $state[3] -eq '1' -and $erpRefs.Count -eq 1 -and $erpRefs[0] -eq $state[1])
-    $allPassed = $allPassed -and $ok
+Write-Step '10. denemenin simülatöre ulaşması bekleniyor'
+$watch = [Diagnostics.Stopwatch]::StartNew()
+while ([int]@(Get-ErpRows "SELECT count(*) FROM invoices WHERE invoice_number = '$number';")[0] -lt 1) {
+    if ($watch.Elapsed.TotalSeconds -gt 120) { throw "$number 10. denemesi 120 sn içinde simülatöre ulaşmadı." }
+    Start-Sleep -Milliseconds 250
 }
+Write-Host "  10. deneme simülatöre ulaştı ve kaydedildi; servis cevabı bekliyor (10 sn'de zaman aşımı)."
+Write-Step 'Simülatör öldürülüyor (docker kill): servisin son kontrolü simülatöre ulaşamayacak'
+Invoke-Compose @('kill', 'erp-simulator')
+Wait-QueueDrained $number $number 60 | Out-Null
 
-# --- D) Aynı anda iki resend ---------------------------------------------------------------------------------------
-Write-Step "D) Aynı Başarısız faturaya aynı anda iki resend: $d"
-$tasks = 1..2 | ForEach-Object { $script:Http.PostAsync("$ServiceUrl/api/v1/invoices/$d/resend", $null) }
-$codes = @($tasks | ForEach-Object { [int]$_.GetAwaiter().GetResult().StatusCode } | Sort-Object)
-Write-Host "  HTTP: $($codes -join ', ')"
-Wait-QueueDrained $d $d 60 | Out-Null
-$erpCount = [int]@(Get-ErpRows "SELECT count(*) FROM invoices WHERE invoice_number = '$d';")[0]
-$status = @(Get-ServiceRows "SELECT status FROM invoices WHERE invoice_number = '$d';")[0]
-Write-DbHeader 'D) İki resend' "Fatura numarası: $d"
-Show-ServiceQuery "SELECT invoice_number, status, erp_reference, send_attempt_count FROM invoices WHERE invoice_number = '$d';"
-Show-ErpQuery "SELECT invoice_number, count(*) AS kayit FROM invoices WHERE invoice_number = '$d' GROUP BY 1;"
-$ok = Write-DbVerdict 'biri 202, diğeri 409; fatura Gönderildi; simülatörde 1 kayıt' "$($codes -join ' ve '); fatura $status; simülatörde $erpCount kayıt" `
-    (($codes -join ',') -eq '202,409' -and $status -eq 'Gönderildi' -and $erpCount -eq 1)
+Show-InvoiceState 'C) Başlangıç durumu: serviste Başarısız, simülatörde kayıtlı' $number
+$before = @(Get-ServiceRows "SELECT i.status, o.status, coalesce(i.last_error, '') FROM invoices i JOIN erp_outbox o USING (invoice_number) WHERE invoice_number = '$number';")[0] -split '\|'
+$erpBefore = [int]@(Get-ErpRows "SELECT count(*) FROM invoices WHERE invoice_number = '$number';")[0]
+Write-Host ''
+$setupOk = Write-DbVerdict 'fatura ve outbox Başarısız, hata "Son durum ERP''ye sorulamadı"; simülatörde 1 kayıt' `
+    "fatura $($before[0]), outbox $($before[1]); hata: $($before[2]); simülatörde $erpBefore kayıt" `
+    ($before[0] -eq 'Başarısız' -and $before[1] -eq 'Başarısız' -and $before[2] -match 'sorulamadı' -and $erpBefore -eq 1)
+if (-not $setupOk) { throw 'Başlangıç durumu kurulamadı (zamanlama); testi yeniden çalıştırın.' }
+
+Restart-Simulator @{ Simulator__Rates__Success = 100; Simulator__Rates__Busy = 0; Simulator__Rates__ServerError = 0
+                     Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0 }
+Write-Step "Aynı faturaya aynı anda iki resend: $number"
+$tasks = 1..2 | ForEach-Object { $script:Http.PostAsync("$ServiceUrl/api/v1/invoices/$number/resend", $null) }
+$responses = @($tasks | ForEach-Object { $_.GetAwaiter().GetResult() })
+$codes = @($responses | ForEach-Object { [int]$_.StatusCode } | Sort-Object)
+$acceptedBody = ($responses | Where-Object { [int]$_.StatusCode -eq 202 } | Select-Object -First 1)
+$acceptedStatus = if ($acceptedBody) { ($acceptedBody.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json).status } else { '-' }
+Write-Host "  HTTP: $($codes -join ', '); kabul edilenin cevabındaki durum: $acceptedStatus"
+Wait-QueueDrained $number $number 60 | Out-Null
+
+Show-InvoiceState 'C) İki resend sonrası' $number
+$attempt = @(Get-SendAttempts @($number))[-1]
+$postsAfter = @(Get-SimulatorLog | Where-Object { $_ -match "ERP request #\d+ invoice=$number behavior=" }).Count
+$state = @(Get-ServiceRows ("SELECT i.status, coalesce(i.erp_reference, '-'), o.status, o.attempt_count FROM invoices i " +
+    "JOIN erp_outbox o USING (invoice_number) WHERE invoice_number = '$number';"))[0] -split '\|'
+$erpRefs = @(Get-ErpRows "SELECT erp_reference FROM invoices WHERE invoice_number = '$number' ORDER BY id;")
+Write-Host ''
+$ok = Write-DbVerdict ("resend'lerden biri 202 (Bekliyor), diğeri 409; worker 'found', simülatör yeniden başlatıldıktan sonra 0 POST; " +
+    'fatura Gönderildi, outbox Tamamlandı (resend sonrası 1 deneme); simülatörde 1 kayıt ve referansı faturadakiyle aynı') `
+    ("$($codes -join ' ve ') ($acceptedStatus); worker '$($attempt.Check)', $postsAfter POST; fatura $($state[0]), outbox $($state[2]) " +
+     "($($state[3]) deneme); simülatörde $($erpRefs.Count) kayıt, referans $($state[1]) / $($erpRefs -join ',')") `
+    (($codes -join ',') -eq '202,409' -and $acceptedStatus -eq 'Bekliyor' -and $attempt.Check -eq 'found' -and $postsAfter -eq 0 -and
+     $state[0] -eq 'Gönderildi' -and $state[2] -eq 'Tamamlandı' -and $state[3] -eq '1' -and $erpRefs.Count -eq 1 -and $erpRefs[0] -eq $state[1])
 $allPassed = $allPassed -and $ok
 
 Restart-Simulator
 
-Write-Result $allPassed 'GET ?status= doğru listeliyor; resend yalnızca Başarısız faturayı kuyruğa alıyor, simülatöre kendisi gitmiyor, çift kayıt oluşmuyor'
+Write-Result $allPassed 'GET ?status= doğru listeliyor; resend yalnızca Başarısız faturayı kuyruğa alıyor, simülatöre kendisi gitmiyor; simülatörde kayıtlı faturaya resend çift kayıt oluşturmuyor'

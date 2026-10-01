@@ -22,13 +22,15 @@ function Get-CopyLog([string]$Service) {
 
 Wait-Service
 Restart-Simulator
-Write-Step 'İkinci kopya (invoice-service-2) başlatılıyor'
-Invoke-Compose @('--profile', 'iki-kopya', 'up', '-d', '--build', 'invoice-service-2')
-$ServiceUrl = $ServiceUrl2
-Wait-Service
-$ServiceUrl = $ServiceUrl1
 
 try {
+    # Başlatma da try içinde: kopya açılırken (ör. health beklenirken) hata olursa finally onu yine durdurur.
+    Write-Step 'İkinci kopya (invoice-service-2) başlatılıyor'
+    Invoke-Compose @('--profile', 'iki-kopya', 'up', '-d', '--build', 'invoice-service-2')
+    $ServiceUrl = $ServiceUrl2
+    Wait-Service
+    $ServiceUrl = $ServiceUrl1
+
     $workers = @{}
     foreach ($service in 'invoice-service', 'invoice-service-2') {
         $line = Get-CopyLog $service | Where-Object { $_ -match 'Outbox worker started worker=(\S+)' } | Select-Object -Last 1
@@ -53,25 +55,59 @@ try {
     $seconds = Wait-QueueDrained $from $to 900
     Write-Host "  Kuyruk $seconds sn'de boşaldı."
 
-    # Her denemeyi (fatura + deneme numarası) hangi kopya yaptı?
-    $byAttempt = @{}
+    # Her denemenin zaman aralığı (logdaki "send start" .. sonuç satırı, alım kimliğiyle eşlenir) ve onu hangi kopyanın yaptığı.
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $intervals = @()
     foreach ($service in 'invoice-service', 'invoice-service-2') {
+        $open = @{}
         foreach ($line in Get-CopyLog $service) {
-            if ($line -match 'ERP send invoice=(\S+) attempt=(\d+)/\d+ worker=(\S+)' -and $numbers -contains $Matches[1]) {
-                $key = "$($Matches[1])#$($Matches[2])"
-                if (-not $byAttempt.ContainsKey($key)) { $byAttempt[$key] = @() }
-                $byAttempt[$key] += $Matches[3]
+            if ($line -match '^(\S+ \S+) info: .*ERP send start invoice=(\S+) attempt=(\d+)/\d+ worker=(\S+) claim=(\w+)' -and $numbers -contains $Matches[2]) {
+                $open[$Matches[5]] = [pscustomobject]@{
+                    Invoice = $Matches[2]; Worker = $Matches[4]; End = $null
+                    Start = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv) }
+            }
+            elseif ($line -match '^(\S+ \S+) info: .*ERP send invoice=(\S+) attempt=(\d+)/\d+ worker=\S+ claim=(\w+)' -and $open.ContainsKey($Matches[4])) {
+                $key = $Matches[4]
+                $open[$key].End = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss.fff', $inv)
+                $intervals += $open[$key]
+                $open.Remove($key)
             }
         }
     }
-    $both = @($byAttempt.Keys | Where-Object { $byAttempt[$_].Count -gt 1 })
-    $perWorker = $byAttempt.Values | ForEach-Object { $_ } | Group-Object | ForEach-Object { "$($_.Name)=$($_.Count)" }
-    $invoicesByBoth = @($numbers | Where-Object {
-        $n = $_; @($byAttempt.Keys | Where-Object { $_ -like "$n#*" } | ForEach-Object { $byAttempt[$_] } | Sort-Object -Unique).Count -gt 1 }).Count
-    Write-Step 'Denemeleri hangi kopya yaptı (servis logları)'
+    $perWorker = $intervals | Group-Object Worker | ForEach-Object { "$($_.Name)=$($_.Count)" }
+
+    # Aynı faturanın, farklı kopyalarda yapılmış iki denemesi zamanda üst üste biniyor mu? (0 olmalı)
+    $overlaps = 0
+    $invoicesByBoth = 0
+    foreach ($group in $intervals | Group-Object Invoice) {
+        $list = @($group.Group | Sort-Object Start)
+        if (@($list | Select-Object -ExpandProperty Worker -Unique).Count -gt 1) { $invoicesByBoth++ }
+        for ($i = 0; $i -lt $list.Count; $i++) {
+            for ($j = $i + 1; $j -lt $list.Count; $j++) {
+                if ($list[$i].Worker -ne $list[$j].Worker -and $list[$j].Start -lt $list[$i].End -and $list[$i].Start -lt $list[$j].End) { $overlaps++ }
+            }
+        }
+    }
+
+    # İki kopya gerçekten aynı anda çalıştı mı: bütün aralıklar zaman çizgisinde taranır.
+    $events = foreach ($iv in $intervals) {
+        [pscustomobject]@{ Time = $iv.Start; Delta = 1; Worker = $iv.Worker; Order = 1 }
+        [pscustomobject]@{ Time = $iv.End; Delta = -1; Worker = $iv.Worker; Order = 0 }
+    }
+    $active = @{}; $bothActive = $false; $maxTotal = 0
+    foreach ($e in $events | Sort-Object Time, Order) {
+        $active[$e.Worker] = [int]$active[$e.Worker] + $e.Delta
+        $busy = @($active.Keys | Where-Object { $active[$_] -gt 0 })
+        if ($busy.Count -ge 2) { $bothActive = $true }
+        $total = ($active.Values | Measure-Object -Sum).Sum
+        if ($total -gt $maxTotal) { $maxTotal = $total }
+    }
+
+    Write-Step 'Denemeleri hangi kopya yaptı (iki kopyanın logları, deneme başlangıç..bitiş aralıkları)'
     Write-Host "  Deneme sayısı kopya başına: $($perWorker -join ', ')"
+    Write-Host "  İki kopya aynı anda gönderim yaptı mı: $(if ($bothActive) { 'evet' } else { 'HAYIR' }); aynı anda en fazla $maxTotal gönderim (kopya başına en fazla 10)"
     Write-Host "  Farklı denemeleri iki kopya tarafından yapılmış fatura: $invoicesByBoth (bir kopya bekleyip bıraktığı faturayı diğeri alabilir; bu normal)"
-    Write-Host "  Aynı denemesi iki kopyada birden görünen: $($both.Count)"
+    Write-Host "  Aynı faturanın iki kopyadaki denemelerinin zamanda üst üste bindiği durum: $overlaps"
 
     Write-Step 'Karşılaştırma: servisteki her fatura simülatörün GET endpoint''iyle sorgulanıyor'
     $c = Compare-Invoices -From $from -To $to
@@ -84,11 +120,11 @@ try {
     Show-ErpQuery "SELECT invoice_number, count(*) AS kayit FROM invoices WHERE $where GROUP BY 1 HAVING count(*) > 1;"
     $db = Get-DbComparison $from $to
     Write-Host ''
-    $ok = Write-DbVerdict ('500 POST 202 (iki kopyaya bölünmüş); iki kopya da gönderim yaptı; hiçbir deneme iki kopyada birden yok; ' +
+    $ok = Write-DbVerdict ('500 POST 202 (iki kopyaya bölünmüş); iki kopya aynı anda gönderim yaptı; aynı faturayı iki kopya hiçbir an birlikte göndermedi; ' +
         'simülatörde birden fazla kaydı olan 0; Gönderildi ama simülatörde olmayan 0; referanslar aynı') `
-        ("$($numbers.Count) POST 202; $($perWorker -join ', '); iki kopyada birden görünen deneme $($both.Count); " +
+        ("$($numbers.Count) POST 202; $($perWorker -join ', '); aynı anda çalıştılar: $bothActive; üst üste binen $overlaps; " +
          "birden fazla kayıt $($db.MultipleRecords); Gönderildi+yok $($db.SentMissing); referans aynı $($db.ReferenceMatches)/$($db.SentFound)") `
-        ($numbers.Count -eq 500 -and @($perWorker).Count -eq 2 -and $both.Count -eq 0 -and $db.MultipleRecords -eq 0 -and
+        ($numbers.Count -eq 500 -and @($perWorker).Count -eq 2 -and $bothActive -and $overlaps -eq 0 -and $db.MultipleRecords -eq 0 -and
          $db.SentMissing -eq 0 -and $db.ReferenceMatches -eq $db.SentFound -and $c.Unknown -eq 0)
 }
 finally {

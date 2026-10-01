@@ -9,6 +9,10 @@
 # Kayıp: 202 alınan bir faturanın serviste olmaması, ya da kuyruk boşaldığında Bekliyor kalması, ya da Gönderildi olup
 # simülatörde olmaması.
 . "$PSScriptRoot\_common.ps1"
+# Script bir hatayla yarıda kesilirse simülatör değiştirilmiş ayarda kalıp, servis de öldürülmüş durumda kalıp sonraki
+# testleri bozmasın: servis başlatılır, simülatör varsayılan ayarlarına döndürülür, hata yine yukarı iletilir.
+trap { Write-Host "Hata: $_ - servis başlatılıyor, simülatör varsayılan ayarlarına döndürülüyor." -ForegroundColor Red
+       try { Invoke-Compose @('start', 'invoice-service') } catch { }; try { Restart-Simulator } catch { }; break }
 
 Write-Title '6) 200 fatura gönderilirken servis 3 kez docker kill ile öldürülüyor -> kayıp 0, çift kayıt 0'
 
@@ -56,10 +60,11 @@ Write-Host "  Kuyruk $seconds sn'de boşaldı."
 # Yarıda kalan denemeler: başlangıç satırı var, sonuç satırı yok.
 $started = @{}; $finished = @{}
 foreach ($line in Get-ServiceLog) {
-    if ($line -match 'ERP send start invoice=(\S+) attempt=(\d+)/' -and $numbers -contains $Matches[1]) { $started["$($Matches[1])#$($Matches[2])"] = $true }
-    elseif ($line -match 'ERP send invoice=(\S+) attempt=(\d+)/' -and $numbers -contains $Matches[1]) { $finished["$($Matches[1])#$($Matches[2])"] = $true }
+    # Alım kimliğiyle (claim) eşlenir: yarıda kalan son deneme aynı numarayla yeniden alınabilir.
+    if ($line -match 'ERP send start invoice=(\S+) attempt=(\d+)/\d+ worker=\S+ claim=(\w+)' -and $numbers -contains $Matches[1]) { $started[$Matches[3]] = "$($Matches[1])#$($Matches[2])" }
+    elseif ($line -match 'ERP send invoice=(\S+) attempt=(\d+)/\d+ worker=\S+ claim=(\w+)' -and $numbers -contains $Matches[1]) { $finished[$Matches[3]] = $true }
 }
-$cut = @($started.Keys | Where-Object { -not $finished.ContainsKey($_) } | Sort-Object)
+$cut = @($started.Keys | Where-Object { -not $finished.ContainsKey($_) } | ForEach-Object { $started[$_] } | Sort-Object)
 $cutInvoices = @($cut | ForEach-Object { ($_ -split '#')[0] } | Sort-Object -Unique)
 Write-Step "Öldürülme anında yarıda kalan denemeler: $($cut.Count)"
 $cut | ForEach-Object { Write-Host "  $($_ -replace '#', ' deneme ')" }
@@ -82,10 +87,11 @@ $pending = [int]@(Get-ServiceRows "SELECT count(*) FROM invoices WHERE $where AN
 $db = Get-DbComparison $from $to
 $lost = (200 - $rows) + $pending + $db.SentMissing
 Write-Host ''
-$ok = Write-DbVerdict ('200 POST 202; serviste 200 fatura, Bekliyor kalan 0; Gönderildi ama simülatörde olmayan 0 (kayıp 0); ' +
+$ok = Write-DbVerdict ('en az bir gönderim öldürülme anında yarıda kaldı; 200 POST 202; serviste 200 fatura, Bekliyor kalan 0; ' +
+    'Gönderildi ama simülatörde olmayan 0 (kayıp 0); ' +
     'simülatörde birden fazla kaydı olan 0 (çift kayıt 0); referanslar aynı') `
-    ("$accepted POST 202; serviste $rows fatura, Bekliyor $pending; Gönderildi+yok $($db.SentMissing) (kayıp $lost); " +
+    ("yarıda kalan $($cut.Count); $accepted POST 202; serviste $rows fatura, Bekliyor $pending; Gönderildi+yok $($db.SentMissing) (kayıp $lost); " +
      "birden fazla kayıt $($db.MultipleRecords); referans aynı $($db.ReferenceMatches)/$($db.SentFound); Başarısız $($db.FailedMissing + $db.FailedFound)") `
-    ($accepted -eq 200 -and $rows -eq 200 -and $lost -eq 0 -and $db.MultipleRecords -eq 0 -and $db.ReferenceMatches -eq $db.SentFound -and $c.Unknown -eq 0)
+    ($cut.Count -gt 0 -and $accepted -eq 200 -and $rows -eq 200 -and $lost -eq 0 -and $db.MultipleRecords -eq 0 -and $db.ReferenceMatches -eq $db.SentFound -and $c.Unknown -eq 0)
 
 Write-Result $ok "3 kez docker kill, $($cut.Count) gönderim yarıda kaldı; kayıp $lost, çift kayıt $($db.MultipleRecords); $($db.SentFound) Gönderildi"

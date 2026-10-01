@@ -5,6 +5,9 @@
 # Kapalıyken: ilk deneme simülatöre ulaşamaz; sonraki denemelerde servis önce simülatöre sorar, soramadığı için
 # ("unknown") POST yapmaz ve katlanarak artan bekleme ile tekrar dener.
 . "$PSScriptRoot\_common.ps1"
+# Script bir hatayla yarıda kesilirse simülatör değiştirilmiş ayarda (ör. ServerError %100 ya da durdurulmuş) kalıp sonraki
+# testleri bozmasın: varsayılan ayarlarına döndürülür, hata yine yukarı iletilir.
+trap { Write-Host "Hata: $_ - simülatör varsayılan ayarlarına döndürülüyor." -ForegroundColor Red; try { Restart-Simulator } catch { }; break }
 
 Write-Title '5) Simülatör kapalı -> 50 fatura (202), 2 dk sonra simülatör açılıyor -> 50''si Gönderildi, çift kayıt yok'
 

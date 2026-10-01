@@ -287,7 +287,7 @@ function Get-DbComparison([string]$From, [string]$To) {
 function Format-Comparison($c) {
     "Gönderildi+var $($c.SentFound), Başarısız+yok $($c.FailedMissing), Başarısız+var $($c.FailedFound), " +
     "Gönderildi+yok $($c.SentMissing), birden fazla kayıt $($c.MultipleRecords), simülatörde $($c.SimulatorRecords) kayıt, " +
-    "sorgulanamadı $($c.Unknown)"
+    "referansı aynı $($c.ReferenceMatches), sorgulanamadı $($c.Unknown)"
 }
 
 # Madde 2: serviste hepsi Gönderildi, simülatörde her fatura tek kayıt, fatura no -> erp_reference çiftleri birebir aynı.
