@@ -36,6 +36,8 @@ services:
       Simulator__LateResponseDelaySeconds:
       Simulator__RetryAfterFormat:
       Simulator__IdempotentInvoices:
+      # Day 4: where the simulator sends its events (the invoice service on the "apps" network).
+      Webhooks__TargetUrl: "http://invoice-service:8080/api/v1/erp-webhooks"
     volumes:
       # Settings file is mounted so rates can be changed without rebuilding; restart the container to apply.
       - ./erp-simulator/src/ErpSimulator/appsettings.json:/app/appsettings.json:ro

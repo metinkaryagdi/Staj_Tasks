@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using ErpSimulator.Data;
 using ErpSimulator.Invoices;
 using ErpSimulator.Simulation;
+using ErpSimulator.Webhooks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -20,6 +21,16 @@ builder.Services.AddOptions<SimulatorOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<SimulatorOptions>, SimulatorOptionsValidator>();
 builder.Services.AddSingleton<BehaviorSelector>();
+
+builder.Services.AddOptions<WebhookOptions>()
+    .Bind(builder.Configuration.GetSection(WebhookOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<WebhookOptions>, WebhookOptionsValidator>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<WebhookPlanner>();
+// The 5 s limit is applied per send by the dispatcher (its own token), so the client itself never cuts a send short.
+builder.Services.AddHttpClient(WebhookDispatcher.HttpClientName, http => http.Timeout = Timeout.InfiniteTimeSpan);
+builder.Services.AddHostedService<WebhookDispatcher>();
 
 builder.Services.AddDbContext<ErpDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("ErpDb")));
@@ -107,6 +118,14 @@ static void LogSimulatorSettings(WebApplication app)
         o.Seed, Pct(r.Success), Pct(r.Busy), Pct(r.ServerError), Pct(r.SaveThenError), Pct(r.LateResponse), r.Total,
         o.LateResponseDelaySeconds, o.RetryAfterMinSeconds, o.RetryAfterMaxSeconds, o.RetryAfterFormat,
         o.IdempotentInvoices);
+
+    // The secret itself is never logged.
+    var w = app.Services.GetRequiredService<IOptions<WebhookOptions>>().Value;
+    app.Logger.LogInformation(
+        "Webhook settings: target={Target} timeout={Timeout}s retries={Retries}s first={FirstMin}-{FirstMax}s " +
+        "second={SecondMin}-{SecondMax}s approval={Approval}% maxConcurrent={Max}",
+        w.TargetUrl, w.TimeoutSeconds, string.Join(",", w.RetryDelaysSeconds), w.FirstEventMinSeconds, w.FirstEventMaxSeconds,
+        w.SecondEventMinSeconds, w.SecondEventMaxSeconds, Pct(w.ApprovalRate), w.MaxConcurrentSends);
 }
 
 public partial class Program;

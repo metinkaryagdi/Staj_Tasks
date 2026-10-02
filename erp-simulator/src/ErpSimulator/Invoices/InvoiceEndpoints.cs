@@ -1,6 +1,7 @@
 using System.Globalization;
 using ErpSimulator.Data;
 using ErpSimulator.Simulation;
+using ErpSimulator.Webhooks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
@@ -46,6 +47,7 @@ public static class InvoiceEndpoints
         HttpContext http,
         ErpDbContext db,
         BehaviorSelector selector,
+        WebhookPlanner planner,
         IOptions<SimulatorOptions> options,
         ILoggerFactory loggerFactory)
     {
@@ -96,7 +98,7 @@ public static class InvoiceEndpoints
         {
             case Behavior.Success:
             {
-                var invoice = await Save(db, request, decision);
+                var invoice = await Save(db, planner, request, decision);
                 return Accepted(invoice);
             }
 
@@ -113,7 +115,7 @@ public static class InvoiceEndpoints
                     title: "ERP internal error");
 
             case Behavior.SaveThenError:
-                await Save(db, request, decision);
+                await Save(db, planner, request, decision);
                 return Results.Problem(
                     statusCode: StatusCodes.Status500InternalServerError,
                     title: "ERP internal error");
@@ -121,7 +123,7 @@ public static class InvoiceEndpoints
             case Behavior.LateResponse:
             {
                 // Save commits (and releases the invoice number lock) before the delay, like a real ERP that answers late.
-                var invoice = await Save(db, request, decision);
+                var invoice = await Save(db, planner, request, decision);
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(settings.LateResponseDelaySeconds), http.RequestAborted);
@@ -165,7 +167,13 @@ public static class InvoiceEndpoints
             invoiceNumber, true, records[0].ErpReference, records.Count, records));
     }
 
-    private static async Task<ErpInvoice> Save(ErpDbContext db, CreateInvoiceRequest request, BehaviorDecision decision)
+    /// <summary>
+    /// Saves the record and plans its events (webhook_deliveries) in one transaction: a saved invoice always gets its
+    /// events, and no event exists for an invoice that was not saved. The events need the ERP reference, which the
+    /// database generates on insert, so the record is inserted first.
+    /// </summary>
+    private static async Task<ErpInvoice> Save(
+        ErpDbContext db, WebhookPlanner planner, CreateInvoiceRequest request, BehaviorDecision decision)
     {
         var invoice = new ErpInvoice
         {
@@ -179,14 +187,17 @@ public static class InvoiceEndpoints
             RequestSequence = decision.Sequence
         };
 
+        // With IdempotentInvoices on, the invoice number lock's transaction is already open; it is committed here too.
+        var transaction = db.Database.CurrentTransaction ?? await db.Database.BeginTransactionAsync(CancellationToken.None);
+
         db.Invoices.Add(invoice);
         // CancellationToken.None: once the ERP decides to save, a client disconnect must not undo it.
         await db.SaveChangesAsync(CancellationToken.None);
-        if (db.Database.CurrentTransaction is { } invoiceLock)
-        {
-            await invoiceLock.CommitAsync(CancellationToken.None);
-            await invoiceLock.DisposeAsync();
-        }
+        db.WebhookDeliveries.AddRange(planner.Plan(invoice, invoice.ReceivedAt));
+        await db.SaveChangesAsync(CancellationToken.None);
+
+        await transaction.CommitAsync(CancellationToken.None);
+        await transaction.DisposeAsync();
         return invoice;
     }
 
