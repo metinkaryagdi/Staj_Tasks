@@ -38,6 +38,9 @@ public sealed class WebhookDelivery
     /// <summary>One of <see cref="DeliveryStatus"/>.</summary>
     public required string Status { get; set; }
 
+    /// <summary>When the first send started (before the HTTP request); null until the row is first sent.</summary>
+    public DateTimeOffset? FirstSentAt { get; set; }
+
     /// <summary>Sends made so far (the first one included).</summary>
     public int AttemptCount { get; set; }
 

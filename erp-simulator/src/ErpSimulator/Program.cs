@@ -126,6 +126,11 @@ static void LogSimulatorSettings(WebApplication app)
         "second={SecondMin}-{SecondMax}s approval={Approval}% maxConcurrent={Max}",
         w.Enabled, w.TargetUrl, w.TimeoutSeconds, string.Join(",", w.RetryDelaysSeconds), w.FirstEventMinSeconds, w.FirstEventMaxSeconds,
         w.SecondEventMinSeconds, w.SecondEventMaxSeconds, Pct(w.ApprovalRate), w.MaxConcurrentSends);
+
+    var p = w.Problems;
+    app.Logger.LogInformation(
+        "Webhook problems: duplicate={Duplicate}% orderMix={OrderMix}% lostDecision={Lost}% fake={Fake}% replay={Replay}% replayAge={ReplayAge}s",
+        Pct(p.DuplicateRate), Pct(p.OrderMixRate), Pct(p.LostDecisionRate), Pct(p.FakeRate), Pct(p.ReplayRate), p.ReplayAgeSeconds);
 }
 
 public partial class Program;

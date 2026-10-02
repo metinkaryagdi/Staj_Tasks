@@ -61,6 +61,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             entity.Property(e => e.OccurredAt).HasColumnName("occurred_at");
             entity.Property(e => e.DueAt).HasColumnName("due_at");
             entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(16);
+            entity.Property(e => e.FirstSentAt).HasColumnName("first_sent_at");
             entity.Property(e => e.AttemptCount).HasColumnName("attempt_count");
             entity.Property(e => e.LastHttpStatus).HasColumnName("last_http_status");
             entity.Property(e => e.LastError).HasColumnName("last_error");

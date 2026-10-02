@@ -10,7 +10,8 @@ namespace ErpSimulator.Webhooks;
 
 /// <summary>
 /// Sends due rows of webhook_deliveries to the invoice service. A send that gets no 2xx within Webhooks:TimeoutSeconds
-/// is retried after RetryDelaysSeconds[0], [1], ... (5, 10, 20, 40, 80 s); after the last retry the row is Failed.
+/// is retried RetryDelaysSeconds[0], [1], ... (5, 10, 20, 40, 80 s) after that send started, so sends start 5, 10, 20,
+/// 40, 80 s apart even when each one waits the full 5 s for an answer; after the last retry the row is Failed.
 /// The row is signed at send time with the current timestamp; the body never changes.
 /// <para>
 /// One simulator instance: rows being sent are tracked in memory so the next poll does not take them again. If the
@@ -52,8 +53,40 @@ public sealed class WebhookDispatcher(
                 logger.LogWarning("Webhook dispatcher poll failed: {Message}", ex.Message);
             }
 
-            try { await Task.Delay(settings.PollMilliseconds, stoppingToken); }
+            try { await Task.Delay(await NextWakeAsync(settings, stoppingToken), stoppingToken); }
             catch (OperationCanceledException) { return; }
+        }
+    }
+
+    /// <summary>
+    /// How long to sleep: until the next pending event is due, but at most PollMilliseconds (a row written meanwhile is
+    /// then still picked up in time; new events are due at least 2 s after they are written). Waking exactly at due_at
+    /// instead of on a fixed 200 ms tick keeps the send within a few milliseconds of its planned time.
+    /// </summary>
+    private async Task<TimeSpan> NextWakeAsync(WebhookOptions settings, CancellationToken ct)
+    {
+        var poll = TimeSpan.FromMilliseconds(settings.PollMilliseconds);
+        // All send slots busy: a free slot is what we are waiting for, not a due time.
+        if (_inFlight.Count >= settings.MaxConcurrentSends)
+            return poll;
+        try
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<ErpDbContext>();
+            var busy = _inFlight.Keys.ToArray();
+            var next = await db.WebhookDeliveries.AsNoTracking()
+                .Where(d => d.Status == DeliveryStatus.Pending && !busy.Contains(d.Id))
+                .MinAsync(d => (DateTimeOffset?)d.DueAt, ct);
+            if (next is null)
+                return poll;
+            // Rounded up to whole milliseconds, so the loop does not wake a fraction of a millisecond too early.
+            var wait = TimeSpan.FromMilliseconds(Math.Ceiling((next.Value - time.GetUtcNow()).TotalMilliseconds));
+            return wait <= TimeSpan.Zero ? TimeSpan.Zero : wait < poll ? wait : poll;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning("Webhook dispatcher could not read the next due time: {Message}", ex.Message);
+            return poll;
         }
     }
 
@@ -93,6 +126,7 @@ public sealed class WebhookDispatcher(
 
             int? httpStatus = null;
             string? error = null;
+            var sentAt = time.GetUtcNow();
             var started = time.GetTimestamp();
             try
             {
@@ -127,7 +161,9 @@ public sealed class WebhookDispatcher(
                 : rejected ? DeliveryStatus.Rejected
                 : retry ? DeliveryStatus.Pending
                 : DeliveryStatus.Failed;
-            var nextDue = retry ? now.AddSeconds(settings.RetryDelaysSeconds[attempt - 1]) : row.DueAt;
+            // Counted from when this send started, not from when it failed: a send without an answer takes the full
+            // timeout, and counting from its end would stretch every gap by that much (10, 15, 25 ... instead of 5, 10, 20 ...).
+            var nextDue = retry ? sentAt.AddSeconds(settings.RetryDelaysSeconds[attempt - 1]) : row.DueAt;
             DateTimeOffset? completedAt = delivered || rejected ? now : null;
 
             await using (var scope = scopes.CreateAsyncScope())
@@ -141,7 +177,8 @@ public sealed class WebhookDispatcher(
                         .SetProperty(d => d.DueAt, nextDue)
                         .SetProperty(d => d.LastHttpStatus, httpStatus)
                         .SetProperty(d => d.LastError, error)
-                        .SetProperty(d => d.CompletedAt, completedAt), CancellationToken.None);
+                        .SetProperty(d => d.CompletedAt, completedAt)
+                        .SetProperty(d => d.FirstSentAt, d => d.FirstSentAt ?? sentAt), CancellationToken.None);
             }
 
             logger.LogInformation(

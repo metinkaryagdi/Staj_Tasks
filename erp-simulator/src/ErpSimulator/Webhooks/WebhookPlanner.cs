@@ -20,7 +20,8 @@ public sealed record ErpEventBody(
 /// (approved / rejected by ApprovalRate) after SecondEvent seconds more; then the deliberate problems
 /// (Webhooks:Problems), each drawn on its own:
 /// <list type="bullet">
-/// <item>order mix (per invoice): the two events swap times, so the decision is sent first;</item>
+/// <item>order mix (per invoice): the two events swap times, so the decision is sent first (not when the decision is
+/// lost: with no decision to send there is nothing to reorder, and invoice.received keeps its 2-10 s time);</item>
 /// <item>lost decision (per invoice): the decision is written as Skipped and never sent;</item>
 /// <item>duplicate (per sent event): a second row with the same event_id and body, 0-2 s later;</item>
 /// <item>fake (per invoice): a decision with its own event_id, signed with a wrong key at send time;</item>
@@ -68,8 +69,9 @@ public sealed class WebhookPlanner
             var replayDecision = Chance(50);
             var replayDelay = Seconds(1, 5);
 
-            // Order mix: the decision takes invoice.received's time and the other way round.
-            if (orderMix)
+            // Order mix: the decision takes invoice.received's time and the other way round. Still drawn for every invoice
+            // (independent of the other problems), but it has nothing to reorder when the decision is never sent.
+            if (orderMix && !lost)
                 (receivedAt, decidedAt) = (decidedAt, receivedAt);
 
             var received = New(invoice, ErpEventType.Received, receivedAt, null, DeliveryKind.Normal, savedAt);

@@ -25,7 +25,10 @@ public sealed class WebhookOptions
     /// <summary>A send without a 2xx answer within this time counts as failed.</summary>
     public int TimeoutSeconds { get; set; }
 
-    /// <summary>Wait before each retry; its length is the number of retries (task: 5, 10, 20, 40, 80).</summary>
+    /// <summary>
+    /// Time from the start of a failed send to the start of the next one; its length is the number of retries
+    /// (task: 5, 10, 20, 40, 80).
+    /// </summary>
     public int[] RetryDelaysSeconds { get; set; } = [];
 
     /// <summary>invoice.received is due this long after the invoice is saved (random in [min, max]).</summary>

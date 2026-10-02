@@ -191,6 +191,18 @@ public class WebhookPlannerTests
     }
 
     [Fact]
+    public void Order_mix_does_nothing_when_the_decision_is_lost()
+    {
+        var planner = Planner(WithProblems(p => { p.OrderMixRate = 100; p.LostDecisionRate = 100; }));
+        for (var i = 0; i < 500; i++)
+        {
+            var events = planner.Plan(Invoice(i), SavedAt);
+            var received = Assert.Single(events, e => e.EventType == ErpEventType.Received);
+            Assert.InRange((received.DueAt - SavedAt).TotalSeconds, 2, 10);
+        }
+    }
+
+    [Fact]
     public void Lost_decision_is_written_but_never_due_to_be_sent()
     {
         var events = Planner(WithProblems(p => { p.LostDecisionRate = 100; p.DuplicateRate = 100; })).Plan(Invoice(), SavedAt);
@@ -247,17 +259,20 @@ public class WebhookPlannerTests
         var lost = plans.Count(p => p.Any(e => e.Kind == DeliveryKind.LostDecision));
         var fake = plans.Count(p => p.Any(e => e.Kind == DeliveryKind.Fake));
         var replay = plans.Count(p => p.Any(e => e.Kind == DeliveryKind.Replay));
-        var mixed = plans.Count(p => p[1].DueAt < p[0].DueAt);
+        // Order mix shows only where a decision is sent (a lost decision has nothing to reorder).
+        var withDecision = plans.Where(p => !p.Any(e => e.Kind == DeliveryKind.LostDecision)).ToList();
+        var mixed = withDecision.Count(p => p[1].DueAt < p[0].DueAt);
         var duplicates = plans.Sum(p => p.Count(e => e.Kind == DeliveryKind.Duplicate));
         var sentEvents = plans.Sum(p => p.Count(e => e.Kind == DeliveryKind.Normal));
 
         Assert.InRange(lost, 400, 600);
         Assert.InRange(fake, 400, 600);
         Assert.InRange(replay, 400, 600);
-        Assert.InRange(mixed, 1350, 1650);
         Assert.InRange(duplicates * 100.0 / sentEvents, 9, 11);
-        // Independent: about 5 % of the order-mixed invoices also lost their decision.
-        var both = plans.Count(p => p[1].DueAt < p[0].DueAt && p.Any(e => e.Kind == DeliveryKind.LostDecision));
-        Assert.InRange(both, 40, 115);
+        // Independent of the lost-decision draw: still about 15 % among the invoices that keep their decision.
+        Assert.InRange(mixed * 100.0 / withDecision.Count, 13.5, 16.5);
+        // Independent of each other: about 5 % x 5 % = 0.25 % of the invoices get both a fake and a replayed event.
+        var fakeAndReplay = plans.Count(p => p.Any(e => e.Kind == DeliveryKind.Fake) && p.Any(e => e.Kind == DeliveryKind.Replay));
+        Assert.InRange(fakeAndReplay, 10, 45);
     }
 }
