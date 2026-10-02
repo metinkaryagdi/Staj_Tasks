@@ -65,14 +65,34 @@ public static class DeliveryStatus
     /// <summary>A fake or replayed event the invoice service rejected: not sent again (task rule).</summary>
     public const string Rejected = "Rejected";
 
-    public static readonly string[] All = [Pending, Delivered, Failed, Rejected];
+    /// <summary>Never sent on purpose (a lost decision): kept so the simulator can tell which invoices lost theirs.</summary>
+    public const string Skipped = "Skipped";
+
+    public static readonly string[] All = [Pending, Delivered, Failed, Rejected, Skipped];
 }
 
+/// <summary>A normal event or one of the deliberate problems (Webhooks:Problems).</summary>
 public static class DeliveryKind
 {
     public const string Normal = "Normal";
 
-    public static readonly string[] All = [Normal];
+    /// <summary>A second send of a normal event, same event_id and body.</summary>
+    public const string Duplicate = "Duplicate";
+
+    /// <summary>The decision that is never sent (status Skipped).</summary>
+    public const string LostDecision = "LostDecision";
+
+    /// <summary>A decision with its own event_id, signed with a wrong key.</summary>
+    public const string Fake = "Fake";
+
+    /// <summary>An already planned event sent again later with a timestamp Webhooks:Problems:ReplayAgeSeconds old,
+    /// validly signed for that timestamp.</summary>
+    public const string Replay = "Replay";
+
+    public static readonly string[] All = [Normal, Duplicate, LostDecision, Fake, Replay];
+
+    /// <summary>Kinds the invoice service is expected to reject; once rejected they are not sent again.</summary>
+    public static bool NotRetriedWhenRejected(string kind) => kind is Fake or Replay;
 }
 
 public static class ErpEventType

@@ -70,8 +70,11 @@ public sealed class WebhookEventProcessor(InvoiceDbContext db, TimeProvider time
     }
 
     /// <summary>
-    /// Applies the invoice's waiting (Bekliyor) events, oldest occurred_at first. Called by the outbox in the same
-    /// transaction that made the invoice Gönderildi, after that UPDATE (which holds the invoice's row lock).
+    /// Applies the invoice's waiting (Bekliyor) events in the order they reached the service (received_at). Called by
+    /// the outbox in the same transaction that made the invoice Gönderildi, after that UPDATE (which holds the
+    /// invoice's row lock). Arrival order, not occurred_at: an event is then treated the same whether the invoice was
+    /// already Gönderildi when it arrived or not (e.g. a decision that arrived before invoice.received still makes the
+    /// later invoice.received Yok Sayıldı).
     /// </summary>
     public async Task ApplyWaitingAsync(string invoiceNumber, CancellationToken ct)
     {
@@ -83,7 +86,7 @@ public sealed class WebhookEventProcessor(InvoiceDbContext db, TimeProvider time
             .FromSql($"""
                 SELECT * FROM erp_webhook_events
                 WHERE invoice_number = {invoiceNumber} AND status = {WebhookEventStatus.Pending}
-                ORDER BY occurred_at, received_at
+                ORDER BY received_at, occurred_at
                 FOR UPDATE
                 """)
             .ToListAsync(ct);

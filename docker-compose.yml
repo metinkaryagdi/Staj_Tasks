@@ -38,6 +38,14 @@ services:
       Simulator__IdempotentInvoices:
       # Day 4: where the simulator sends its events (the invoice service on the "apps" network).
       Webhooks__TargetUrl: "http://invoice-service:8080/api/v1/erp-webhooks"
+      # Optional overrides of the event problem rates (e.g. all 0 for checklist 2), passed through like the ones above.
+      Webhooks__Enabled:
+      Webhooks__ApprovalRate:
+      Webhooks__Problems__DuplicateRate:
+      Webhooks__Problems__OrderMixRate:
+      Webhooks__Problems__LostDecisionRate:
+      Webhooks__Problems__FakeRate:
+      Webhooks__Problems__ReplayRate:
     volumes:
       # Settings file is mounted so rates can be changed without rebuilding; restart the container to apply.
       - ./erp-simulator/src/ErpSimulator/appsettings.json:/app/appsettings.json:ro

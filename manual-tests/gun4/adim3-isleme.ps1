@@ -27,8 +27,10 @@ $startedAt = [datetime]::UtcNow.AddSeconds(-2)
 $allPassed = $true
 function Check([bool]$Passed) { if (-not $Passed) { $script:allPassed = $false } }
 
+# Webhooks__Enabled = false (Adım 6'dan beri): bu script haberleri kendisi gönderiyor; simülatörün kendi haberleri
+# (Adım 5) araya girip senaryoyu bozmasın.
 $success = @{ Simulator__Rates__Success = 100; Simulator__Rates__Busy = 0; Simulator__Rates__ServerError = 0
-              Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0 }
+              Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0; Webhooks__Enabled = 'false' }
 
 function Send-Event([string]$Id, [string]$Type, [string]$Invoice, [string]$Reference, [string]$Reason) {
     $body = [Text.Encoding]::UTF8.GetBytes((New-WebhookBody "$prefix$Id" $Type $Invoice $Reference $Reason))
@@ -147,7 +149,7 @@ Check (Write-DbVerdict 'fatura İşleme Alındı (bir kez işlendi)' $row.Status
 # --- E) Faturadan önce gelen haber ------------------------------------------------------------------------------------
 Write-Step 'E) Faturadan önce gelen haber: simülatör LateResponse %100 (30 sn geç cevap, servis 10 sn''de vazgeçer)'
 Restart-Simulator @{ Simulator__Rates__Success = 0; Simulator__Rates__Busy = 0; Simulator__Rates__ServerError = 0
-                     Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 100 }
+                     Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 100; Webhooks__Enabled = 'false' }
 $late = (New-ServiceInvoice).InvoiceNumber
 Write-Host "  $late oluşturuldu; simülatörün kaydetmesi bekleniyor..."
 $watch = [Diagnostics.Stopwatch]::StartNew()

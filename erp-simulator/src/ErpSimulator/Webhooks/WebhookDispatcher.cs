@@ -26,6 +26,9 @@ public sealed class WebhookDispatcher(
 
     private readonly ConcurrentDictionary<long, byte> _inFlight = new();
 
+    /// <summary>Signs fake events: a key the invoice service does not have.</summary>
+    private const string FakeSecret = "not-the-shared-secret-fake-events-are-signed-with-this";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var settings = options.Value;
@@ -75,13 +78,18 @@ public sealed class WebhookDispatcher(
             var attempt = row.AttemptCount + 1;
             var maxAttempts = settings.RetryDelaysSeconds.Length + 1;
             var body = Encoding.UTF8.GetBytes(row.Payload);
-            var timestamp = time.GetUtcNow().ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+            // Replay: an old timestamp with a signature that is valid for it. Fake: a wrong key.
+            var signedAt = row.Kind == DeliveryKind.Replay
+                ? time.GetUtcNow().AddSeconds(-settings.Problems.ReplayAgeSeconds)
+                : time.GetUtcNow();
+            var timestamp = signedAt.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+            var key = row.Kind == DeliveryKind.Fake ? FakeSecret : settings.Secret;
 
             using var request = new HttpRequestMessage(HttpMethod.Post, settings.TargetUrl);
             request.Content = new ByteArrayContent(body);
             request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             request.Headers.TryAddWithoutValidation(WebhookSignature.TimestampHeader, timestamp);
-            request.Headers.TryAddWithoutValidation(WebhookSignature.SignatureHeader, WebhookSignature.Compute(settings.Secret, timestamp, body));
+            request.Headers.TryAddWithoutValidation(WebhookSignature.SignatureHeader, WebhookSignature.Compute(key, timestamp, body));
 
             int? httpStatus = null;
             string? error = null;
@@ -111,10 +119,16 @@ public sealed class WebhookDispatcher(
 
             var now = time.GetUtcNow();
             var delivered = error is null;
-            var retry = !delivered && attempt < maxAttempts;
-            var status = delivered ? DeliveryStatus.Delivered : retry ? DeliveryStatus.Pending : DeliveryStatus.Failed;
+            // A fake or replayed event that got an answer other than 2xx was rejected: it is not sent again (task rule).
+            // Without an answer (timeout, service down) it was not rejected yet, so it is retried like any other.
+            var rejected = !delivered && httpStatus is not null && DeliveryKind.NotRetriedWhenRejected(row.Kind);
+            var retry = !delivered && !rejected && attempt < maxAttempts;
+            var status = delivered ? DeliveryStatus.Delivered
+                : rejected ? DeliveryStatus.Rejected
+                : retry ? DeliveryStatus.Pending
+                : DeliveryStatus.Failed;
             var nextDue = retry ? now.AddSeconds(settings.RetryDelaysSeconds[attempt - 1]) : row.DueAt;
-            DateTimeOffset? completedAt = delivered ? now : null;
+            DateTimeOffset? completedAt = delivered || rejected ? now : null;
 
             await using (var scope = scopes.CreateAsyncScope())
             {

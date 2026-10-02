@@ -18,8 +18,11 @@ Write-Title 'Adım 5) Simülatörün gönderdiği haberler: 100 fatura (hata yok
 $allPassed = $true
 function Check([bool]$Passed) { if (-not $Passed) { $script:allPassed = $false } }
 
+# Adım 6'dan beri simülatör haberlerde sorun da çıkarıyor; bu script sorunsuz akışı ölçtüğü için hepsi 0.
 $success = @{ Simulator__Rates__Success = 100; Simulator__Rates__Busy = 0; Simulator__Rates__ServerError = 0
-              Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0 }
+              Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0
+              Webhooks__Problems__DuplicateRate = 0; Webhooks__Problems__OrderMixRate = 0; Webhooks__Problems__LostDecisionRate = 0
+              Webhooks__Problems__FakeRate = 0; Webhooks__Problems__ReplayRate = 0 }
 
 function InList([string[]]$Numbers) { ($Numbers | ForEach-Object { "'$_'" }) -join ',' }
 

@@ -19,7 +19,15 @@ $SimulatorEnvKeys = @(
     'Simulator__Rates__LateResponse',
     'Simulator__LateResponseDelaySeconds',
     'Simulator__RetryAfterFormat',
-    'Simulator__IdempotentInvoices'
+    'Simulator__IdempotentInvoices',
+    # Gün 4: haber sorunlarının oranları
+    'Webhooks__Enabled',
+    'Webhooks__ApprovalRate',
+    'Webhooks__Problems__DuplicateRate',
+    'Webhooks__Problems__OrderMixRate',
+    'Webhooks__Problems__LostDecisionRate',
+    'Webhooks__Problems__FakeRate',
+    'Webhooks__Problems__ReplayRate'
 )
 
 function Write-Title([string]$Text) {

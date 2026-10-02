@@ -54,11 +54,11 @@ function EventInsert([string]$Id, [string]$Type = 'invoice.received', [string]$S
     "VALUES ('$Id', '$Type', 'FTR-999999', 'ERP-TEST', now(), now(), '$Status', '{}', $Count);"
 }
 foreach ($case in @(
-        @{ Name = 'geçerli haber'; Sql = (EventInsert 'evt-1'); Accept = $true },
-        @{ Name = 'aynı event_id iki kez'; Sql = (EventInsert 'evt-1') + ' ' + (EventInsert 'evt-1'); Accept = $false },
-        @{ Name = "event_type = 'invoice.paid'"; Sql = (EventInsert 'evt-2' -Type 'invoice.paid'); Accept = $false },
-        @{ Name = "status = 'Silindi'"; Sql = (EventInsert 'evt-3' -Status 'Silindi'); Accept = $false },
-        @{ Name = 'delivery_count = 0'; Sql = (EventInsert 'evt-4' -Count '0'); Accept = $false })) {
+        @{ Name = 'geçerli haber'; Sql = (EventInsert 'sema-test-1'); Accept = $true },
+        @{ Name = 'aynı event_id iki kez'; Sql = (EventInsert 'sema-test-1') + ' ' + (EventInsert 'sema-test-1'); Accept = $false },
+        @{ Name = "event_type = 'invoice.paid'"; Sql = (EventInsert 'sema-test-2' -Type 'invoice.paid'); Accept = $false },
+        @{ Name = "status = 'Silindi'"; Sql = (EventInsert 'sema-test-3' -Status 'Silindi'); Accept = $false },
+        @{ Name = 'delivery_count = 0'; Sql = (EventInsert 'sema-test-4' -Count '0'); Accept = $false })) {
     $r = Test-ServiceSql $case.Sql
     $text = if ($r.Accepted) { 'kabul' } else { "red ($($r.Error))" }
     Check (Write-DbVerdict "$($case.Name) -> $(if ($case.Accept) { 'kabul' } else { 'red' })" $text ($r.Accepted -eq $case.Accept))
@@ -66,16 +66,16 @@ foreach ($case in @(
 
 # --- D) Tekrar sayımı -----------------------------------------------------------------------------------------------
 Write-DbHeader 'D) Tekrar gelen haber' 'Aynı event_id iki kez INSERT ... ON CONFLICT; sonunda geri alınır'
-$upsert = (EventInsert 'evt-tekrar').TrimEnd(';') +
+$upsert = (EventInsert 'sema-test-tekrar').TrimEnd(';') +
     ' ON CONFLICT (event_id) DO UPDATE SET delivery_count = erp_webhook_events.delivery_count + 1 RETURNING (xmax = 0) AS eklendi;'
-$rows = @(Invoke-ServiceSqlStdin ("BEGIN; $upsert $upsert SELECT count(*) || '|' || max(delivery_count) FROM erp_webhook_events WHERE event_id = 'evt-tekrar'; ROLLBACK;") -Rows |
+$rows = @(Invoke-ServiceSqlStdin ("BEGIN; $upsert $upsert SELECT count(*) || '|' || max(delivery_count) FROM erp_webhook_events WHERE event_id = 'sema-test-tekrar'; ROLLBACK;") -Rows |
     Where-Object { $_ -notin @('BEGIN', 'ROLLBACK', 'INSERT 0 1') })
 Write-Host "  SQL (iki kez): $upsert" -ForegroundColor DarkGray
 Write-Host "  1. istek eklendi mi: $($rows[0])   2. istek eklendi mi: $($rows[1])   satır|delivery_count: $($rows[2])"
 Check (Write-DbVerdict '1. istek t, 2. istek f; satır=1 delivery_count=2' "$($rows[0]), $($rows[1]); satır=$(($rows[2] -split '\|')[0]) delivery_count=$(($rows[2] -split '\|')[1])" `
     ($rows[0] -eq 't' -and $rows[1] -eq 'f' -and $rows[2] -eq '1|2'))
 
-$left = @(Get-ServiceRows "SELECT count(*) FROM erp_webhook_events WHERE event_id LIKE 'evt-%';")[0]
-Check (Write-DbVerdict 'bu script''in deneme satırları (evt-*) tabloda yok (hepsi geri alındı)' $left ($left -eq '0'))
+$left = @(Get-ServiceRows "SELECT count(*) FROM erp_webhook_events WHERE event_id LIKE 'sema-test-%';")[0]
+Check (Write-DbVerdict 'bu script''in deneme satırları (sema-test-*) tabloda yok (hepsi geri alındı)' $left ($left -eq '0'))
 
 Write-Result $allPassed 'şema görevdeki gibi; kısıtlar yanlış veriyi reddediyor, tekrar gelen haber satır eklemeden sayılıyor'

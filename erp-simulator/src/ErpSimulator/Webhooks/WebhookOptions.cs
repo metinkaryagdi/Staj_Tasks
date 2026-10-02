@@ -10,6 +10,12 @@ public sealed class WebhookOptions
 {
     public const string SectionName = "Webhooks";
 
+    /// <summary>
+    /// Off: a saved invoice gets no events at all. For tests that send hand-made events and must not get the
+    /// simulator's own ones in between; the task's behavior is on.
+    /// </summary>
+    public bool Enabled { get; set; }
+
     /// <summary>The invoice service's POST /api/v1/erp-webhooks address.</summary>
     public string TargetUrl { get; set; } = "";
 
@@ -41,15 +47,41 @@ public sealed class WebhookOptions
 
     /// <summary>How often the dispatcher looks for due events, in milliseconds.</summary>
     public int PollMilliseconds { get; set; }
+
+    /// <summary>The deliberate problems; each rate is drawn independently of the others.</summary>
+    public WebhookProblems Problems { get; set; } = new();
+}
+
+/// <summary>Rates in percent, each drawn on its own (they do not have to add up to anything).</summary>
+public sealed class WebhookProblems
+{
+    /// <summary>Per event: the event is sent twice with the same event_id.</summary>
+    public double DuplicateRate { get; set; }
+
+    /// <summary>Per invoice: the decision is sent before invoice.received.</summary>
+    public double OrderMixRate { get; set; }
+
+    /// <summary>Per invoice: the decision is never sent.</summary>
+    public double LostDecisionRate { get; set; }
+
+    /// <summary>Per invoice: a decision with a wrong signature is sent for it.</summary>
+    public double FakeRate { get; set; }
+
+    /// <summary>Per invoice: one of its events is sent again later with an old timestamp and a signature valid for it.</summary>
+    public double ReplayRate { get; set; }
+
+    /// <summary>How old the replayed event's timestamp is, in seconds (task: 10 minutes).</summary>
+    public int ReplayAgeSeconds { get; set; }
 }
 
 public sealed class WebhookOptionsValidator(IConfiguration configuration) : IValidateOptions<WebhookOptions>
 {
     public static readonly string[] RequiredKeys =
     [
-        "TargetUrl", "Secret", "TimeoutSeconds", "RetryDelaysSeconds:0", "FirstEventMinSeconds", "FirstEventMaxSeconds",
+        "Enabled", "TargetUrl", "Secret", "TimeoutSeconds", "RetryDelaysSeconds:0", "FirstEventMinSeconds", "FirstEventMaxSeconds",
         "SecondEventMinSeconds", "SecondEventMaxSeconds", "ApprovalRate", "RejectReasons:0", "MaxConcurrentSends",
-        "PollMilliseconds"
+        "PollMilliseconds", "Problems:DuplicateRate", "Problems:OrderMixRate", "Problems:LostDecisionRate",
+        "Problems:FakeRate", "Problems:ReplayRate", "Problems:ReplayAgeSeconds"
     ];
 
     public const int MinSecretBytes = 32;
@@ -87,6 +119,20 @@ public sealed class WebhookOptionsValidator(IConfiguration configuration) : IVal
             errors.Add($"Webhooks:MaxConcurrentSends must be greater than 0 (was {options.MaxConcurrentSends}).");
         if (options.PollMilliseconds <= 0)
             errors.Add($"Webhooks:PollMilliseconds must be greater than 0 (was {options.PollMilliseconds}).");
+
+        var p = options.Problems;
+        foreach (var (rateName, value) in new[]
+                 {
+                     (nameof(p.DuplicateRate), p.DuplicateRate), (nameof(p.OrderMixRate), p.OrderMixRate),
+                     (nameof(p.LostDecisionRate), p.LostDecisionRate), (nameof(p.FakeRate), p.FakeRate),
+                     (nameof(p.ReplayRate), p.ReplayRate)
+                 })
+        {
+            if (!double.IsFinite(value) || value is < 0 or > 100)
+                errors.Add($"Webhooks:Problems:{rateName} must be a number between 0 and 100 (was {value}).");
+        }
+        if (p.ReplayAgeSeconds <= 0)
+            errors.Add($"Webhooks:Problems:ReplayAgeSeconds must be greater than 0 (was {p.ReplayAgeSeconds}).");
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }

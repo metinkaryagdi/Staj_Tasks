@@ -15,6 +15,7 @@ public class WebhookPlannerTests
     // Same values as appsettings.json.
     private static WebhookOptions Defaults() => new()
     {
+        Enabled = true,
         TargetUrl = "http://localhost:5090/api/v1/erp-webhooks",
         Secret = "dev-only-erp-webhook-secret-do-not-use-in-production",
         TimeoutSeconds = 5,
@@ -26,8 +27,16 @@ public class WebhookPlannerTests
         ApprovalRate = 80,
         RejectReasons = ["Vergi numarası geçersiz", "Mükerrer fatura"],
         MaxConcurrentSends = 20,
-        PollMilliseconds = 200
+        PollMilliseconds = 200,
+        Problems = new WebhookProblems { ReplayAgeSeconds = 600 } // every problem off unless a test turns it on
     };
+
+    private static WebhookOptions WithProblems(Action<WebhookProblems> set)
+    {
+        var options = Defaults();
+        set(options.Problems);
+        return options;
+    }
 
     private static WebhookPlanner Planner(WebhookOptions? options = null, int seed = 42) =>
         new(Options.Create(options ?? Defaults()), Options.Create(new SimulatorOptions { Seed = seed }));
@@ -117,6 +126,7 @@ public class WebhookPlannerTests
     {
         var values = new Dictionary<string, string?>
         {
+            ["Webhooks:Enabled"] = "true",
             ["Webhooks:TargetUrl"] = "http://localhost:5090/api/v1/erp-webhooks",
             ["Webhooks:Secret"] = "dev-only-erp-webhook-secret-do-not-use-in-production",
             ["Webhooks:TimeoutSeconds"] = "5",
@@ -129,7 +139,13 @@ public class WebhookPlannerTests
             ["Webhooks:ApprovalRate"] = "80",
             ["Webhooks:RejectReasons:0"] = "Vergi numarası geçersiz",
             ["Webhooks:MaxConcurrentSends"] = "20",
-            ["Webhooks:PollMilliseconds"] = "200"
+            ["Webhooks:PollMilliseconds"] = "200",
+            ["Webhooks:Problems:DuplicateRate"] = "10",
+            ["Webhooks:Problems:OrderMixRate"] = "15",
+            ["Webhooks:Problems:LostDecisionRate"] = "5",
+            ["Webhooks:Problems:FakeRate"] = "5",
+            ["Webhooks:Problems:ReplayRate"] = "5",
+            ["Webhooks:Problems:ReplayAgeSeconds"] = "600"
         };
         change(values);
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
@@ -148,6 +164,100 @@ public class WebhookPlannerTests
     [InlineData("Webhooks:FirstEventMaxSeconds", "1")]
     [InlineData("Webhooks:ApprovalRate", "101")]
     [InlineData("Webhooks:MaxConcurrentSends", null)]
+    [InlineData("Webhooks:Problems:FakeRate", "-1")]
+    [InlineData("Webhooks:Problems:ReplayRate", "NaN")]
+    [InlineData("Webhooks:Problems:ReplayAgeSeconds", "0")]
+    [InlineData("Webhooks:Problems:DuplicateRate", null)]
     public void Invalid_settings_stop_the_app(string key, string? value) =>
         Assert.False(Validates(v => v[key] = value));
+
+    [Fact]
+    public void Disabled_plans_nothing()
+    {
+        var options = Defaults();
+        options.Enabled = false;
+        Assert.Empty(Planner(options).Plan(Invoice(), SavedAt));
+    }
+
+    // --- Problems ---------------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Order_mix_sends_the_decision_first()
+    {
+        var events = Planner(WithProblems(p => p.OrderMixRate = 100)).Plan(Invoice(), SavedAt);
+        Assert.Equal(2, events.Count);
+        Assert.True(events[1].DueAt < events[0].DueAt);
+        Assert.Equal(ErpEventType.Received, events[0].EventType);
+    }
+
+    [Fact]
+    public void Lost_decision_is_written_but_never_due_to_be_sent()
+    {
+        var events = Planner(WithProblems(p => { p.LostDecisionRate = 100; p.DuplicateRate = 100; })).Plan(Invoice(), SavedAt);
+        var decision = Assert.Single(events, e => e.EventType != ErpEventType.Received);
+        Assert.Equal(DeliveryKind.LostDecision, decision.Kind);
+        Assert.Equal(DeliveryStatus.Skipped, decision.Status);
+        // Only invoice.received is duplicated; a lost decision has nothing to duplicate.
+        Assert.Equal(2, events.Count(e => e.EventType == ErpEventType.Received));
+    }
+
+    [Fact]
+    public void Duplicate_repeats_the_same_event_id_and_body_within_two_seconds()
+    {
+        var events = Planner(WithProblems(p => p.DuplicateRate = 100)).Plan(Invoice(), SavedAt);
+        Assert.Equal(4, events.Count);
+        foreach (var copy in events.Where(e => e.Kind == DeliveryKind.Duplicate))
+        {
+            var original = Assert.Single(events, e => e.Kind == DeliveryKind.Normal && e.EventId == copy.EventId);
+            Assert.Equal(original.Payload, copy.Payload);
+            Assert.InRange((copy.DueAt - original.DueAt).TotalSeconds, 0, 2);
+        }
+    }
+
+    [Fact]
+    public void Fake_is_a_decision_with_its_own_event_id()
+    {
+        var events = Planner(WithProblems(p => p.FakeRate = 100)).Plan(Invoice(), SavedAt);
+        var fake = Assert.Single(events, e => e.Kind == DeliveryKind.Fake);
+        Assert.NotEqual(ErpEventType.Received, fake.EventType);
+        Assert.DoesNotContain(events, e => e != fake && e.EventId == fake.EventId);
+        Assert.InRange((fake.DueAt - SavedAt).TotalSeconds, 2, 30);
+    }
+
+    [Fact]
+    public void Replay_repeats_an_event_one_to_five_seconds_after_it()
+    {
+        var events = Planner(WithProblems(p => p.ReplayRate = 100)).Plan(Invoice(), SavedAt);
+        var replay = Assert.Single(events, e => e.Kind == DeliveryKind.Replay);
+        var original = Assert.Single(events, e => e.Kind == DeliveryKind.Normal && e.EventId == replay.EventId);
+        Assert.Equal(original.Payload, replay.Payload);
+        Assert.InRange((replay.DueAt - original.DueAt).TotalSeconds, 1, 5);
+    }
+
+    [Fact]
+    public void Default_rates_come_out_independently()
+    {
+        var options = WithProblems(p =>
+        {
+            p.DuplicateRate = 10; p.OrderMixRate = 15; p.LostDecisionRate = 5; p.FakeRate = 5; p.ReplayRate = 5;
+        });
+        var planner = Planner(options);
+        var plans = Enumerable.Range(0, 10_000).Select(i => planner.Plan(Invoice(i), SavedAt)).ToList();
+
+        var lost = plans.Count(p => p.Any(e => e.Kind == DeliveryKind.LostDecision));
+        var fake = plans.Count(p => p.Any(e => e.Kind == DeliveryKind.Fake));
+        var replay = plans.Count(p => p.Any(e => e.Kind == DeliveryKind.Replay));
+        var mixed = plans.Count(p => p[1].DueAt < p[0].DueAt);
+        var duplicates = plans.Sum(p => p.Count(e => e.Kind == DeliveryKind.Duplicate));
+        var sentEvents = plans.Sum(p => p.Count(e => e.Kind == DeliveryKind.Normal));
+
+        Assert.InRange(lost, 400, 600);
+        Assert.InRange(fake, 400, 600);
+        Assert.InRange(replay, 400, 600);
+        Assert.InRange(mixed, 1350, 1650);
+        Assert.InRange(duplicates * 100.0 / sentEvents, 9, 11);
+        // Independent: about 5 % of the order-mixed invoices also lost their decision.
+        var both = plans.Count(p => p[1].DueAt < p[0].DueAt && p.Any(e => e.Kind == DeliveryKind.LostDecision));
+        Assert.InRange(both, 40, 115);
+    }
 }

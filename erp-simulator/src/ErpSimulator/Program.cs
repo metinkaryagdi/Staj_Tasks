@@ -122,9 +122,9 @@ static void LogSimulatorSettings(WebApplication app)
     // The secret itself is never logged.
     var w = app.Services.GetRequiredService<IOptions<WebhookOptions>>().Value;
     app.Logger.LogInformation(
-        "Webhook settings: target={Target} timeout={Timeout}s retries={Retries}s first={FirstMin}-{FirstMax}s " +
+        "Webhook settings: enabled={Enabled} target={Target} timeout={Timeout}s retries={Retries}s first={FirstMin}-{FirstMax}s " +
         "second={SecondMin}-{SecondMax}s approval={Approval}% maxConcurrent={Max}",
-        w.TargetUrl, w.TimeoutSeconds, string.Join(",", w.RetryDelaysSeconds), w.FirstEventMinSeconds, w.FirstEventMaxSeconds,
+        w.Enabled, w.TargetUrl, w.TimeoutSeconds, string.Join(",", w.RetryDelaysSeconds), w.FirstEventMinSeconds, w.FirstEventMaxSeconds,
         w.SecondEventMinSeconds, w.SecondEventMaxSeconds, Pct(w.ApprovalRate), w.MaxConcurrentSends);
 }
 
