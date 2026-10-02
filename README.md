@@ -144,12 +144,12 @@ $env:Simulator__Rates__Success=0; $env:Simulator__Rates__Busy=100; $env:Simulato
 
 Fatura isteğin içinde ERP'ye gönderilmez: fatura ve Outbox kaydı (`erp_outbox`) aynı transaction'da
 yazılır, istek hemen `202` döner. Arka plandaki `OutboxWorker` kuyruktan sırası gelenleri ERP Simulator'a gönderir,
-hataya göre bekleyip tekrar dener ve sonucu yazar (Outbox Pattern). Böylece faturanın kaydedilip gönderim işinin unutulması
-önlenir: iki kayıt birlikte yazılır ya da ikisi de geri alınır. Bu yerel transaction, ERP'deki kaydı kapsamaz;
+hataya göre bekleyip tekrar dener ve sonucu yazar (Outbox Pattern). Amaç, faturanın kaydedilip gönderim işinin unutulmasını
+önlemek: iki kayıt birlikte yazılır ya da ikisi de geri alınır. Bu yerel transaction, ERP'deki kaydı kapsamaz;
 uzaktaki çift kayıt sorunu ayrıca ele alınır.
 
 ERP'nin gönderdiği webhook event'leri (`invoice.received`, `invoice.approved`, `invoice.rejected`) `POST /api/v1/erp-webhooks` ile
-gelir; imza doğrulanır, event `erp_webhook_events` tablosuna bir kez yazılır ve faturanın durumu yalnızca ileri götürülür.
+gelir; imza doğrulanır, event `erp_webhook_events` tablosuna bir kez yazılır ve faturanın durumunun yalnızca ileri götürülmesi amaçlanır.
 
 ### Veri
 
@@ -214,25 +214,25 @@ gelir; imza doğrulanır, event `erp_webhook_events` tablosuna bir kez yazılır
 - Her deneme loglanır:
   `ERP send invoice=FTR-000042 attempt=3/10 worker=… claim=1a2b3c4d check=notFound outcome=Retry http=500 … wait=8.412s reason=…`
 - **Bilinen sınır (Gün 3):** ilk POST ERP'de henüz kaydedilmeden timeout olursa sonraki GET `404` dönebilir ve ikinci POST
-  çift kayıt oluşturabilir; ERP Simulator'da `IdempotentInvoices=true` bunu alıcı tarafta önler.
+  çift kayıt oluşturabilir; ERP Simulator'da `IdempotentInvoices=true` bunu alıcı tarafta önlemek için eklendi.
 
 ### ERP webhook'ları
 
 - **İmza:** `X-Erp-Timestamp` ve `X-Erp-Signature` body JSON'a çevrilmeden raw byte'lar üzerinden doğrulanır; imza sabit
   zamanlı karşılaştırılır (`CryptographicOperations.FixedTimeEquals`). 401'in nedeni yalnızca loga yazılır.
-- **Tekrar (duplicate):** event `INSERT … ON CONFLICT (event_id)` ile yazılır; aynı event (paralel gelse de) yalnızca bir kez işlenir,
-  sonrakiler `200` alır ve `delivery_count`'u artırır.
+- **Tekrar (duplicate):** event `INSERT … ON CONFLICT (event_id)` ile yazılır; aynı event'in (paralel gelse de) yalnızca bir kez işlenmesi
+  amaçlanır; sonrakiler `200` alır ve `delivery_count`'u artırır (kontrol listesi 8'de 10 paralel istekte event bir kez işlendi).
 - **Uygulama:** fatura satırına `SELECT … FOR UPDATE` ile lock alınır. İleri götüren event uygulanır; `erp_reference` farklıysa
   (uyarı logu) ya da durumu ilerletmiyorsa event `Yok Sayıldı`, fatura değişmez.
 - **Faturadan önce gelen event:** fatura henüz `Gönderildi` değilse event `Bekliyor` saklanır. Outbox faturayı `Gönderildi`
-  yaptığı transaction'da bekleyen event'leri geliş sırasıyla işler; aynı row lock sayesinde ikisi iç içe geçemez.
+  yaptığı transaction'da bekleyen event'leri geliş sırasıyla işler; aynı row lock ile ikisinin iç içe geçmemesi amaçlanır.
 - Loglar: `ERP webhook stored|repeat|applied-after-send event=… invoiceStatus=Gönderildi->İşleme Alındı …`,
   `ERP webhook rejected http=401 reason=bad-signature …`
 
 ### Ayarlar
 
 [`invoice-service/src/InvoiceService/appsettings.json`](invoice-service/src/InvoiceService/appsettings.json) — her
-değerin yanında ne işe yaradığı ve görevden mi geldiği, bizim seçimimiz mi olduğu yorum olarak yazılı. Hepsi zorunludur;
+değerin yanında ne işe yaradığı ve görevden mi geldiği, uygulama tercihi mi olduğu yorum olarak yazılı. Hepsi zorunludur;
 eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar. Değişiklikten sonra `docker compose up -d --build invoice-service`.
 
 | Ayar | Değer | Kaynak |
@@ -242,13 +242,13 @@ eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar. Değişiklikt
 | `Outbox:MaxConcurrentSends` | `10` | Görev; servis instance'ı başına |
 | `Outbox:MaxAttempts` | `10` | Görev |
 | `Outbox:MaxBackoffSeconds` | `60` | Görev; jitter dahil tavan |
-| `Outbox:MaxJitterMilliseconds` | `1000` | Bizim seçimimiz |
-| `Outbox:BackoffMarginMilliseconds` | `0` | Bizim seçimimiz; tavanın altında bırakılan pay |
-| `Outbox:LockSeconds` | `60` | Bizim seçimimiz; `3 × TimeoutSeconds`'tan uzun olmak zorunda |
-| `Outbox:IdleDelayMilliseconds` | `250` | Bizim seçimimiz; kuyrukta iş yokken bekleme |
+| `Outbox:MaxJitterMilliseconds` | `1000` | Uygulama tercihi |
+| `Outbox:BackoffMarginMilliseconds` | `0` | Uygulama tercihi; tavanın altında bırakılan pay |
+| `Outbox:LockSeconds` | `60` | Uygulama tercihi; `3 × TimeoutSeconds`'tan uzun olmak zorunda |
+| `Outbox:IdleDelayMilliseconds` | `250` | Uygulama tercihi; kuyrukta iş yokken bekleme |
 | `ErpWebhooks:Secret` | yerel geliştirme değeri | Görev: ayar dosyasından; ERP Simulator'daki `Webhooks:Secret` ile aynı olmalı, en az 32 bayt |
-| `ErpWebhooks:ToleranceSeconds` | `300` | Görev: 5 dk'dan eski timestamp `401`; aynı sınır ileri tarihli timestamp'e da uygulanır (bizim eklememiz) |
-| `ErpWebhooks:MaxBodyBytes` | `65536` | Bizim seçimimiz; büyük body imza hesaplanmadan `413` |
+| `ErpWebhooks:ToleranceSeconds` | `300` | Görev: 5 dk'dan eski timestamp `401`; aynı sınır ileri tarihli timestamp'e de uygulanır (ek kural) |
+| `ErpWebhooks:MaxBodyBytes` | `65536` | Uygulama tercihi; büyük body imza hesaplanmadan `413` |
 
 Açılışta ayarlar loglanır: `ERP settings: …`.
 
@@ -299,7 +299,7 @@ Kontrol listesi ve ek testler: [`manual-tests/gun4/`](manual-tests/gun4/) (`.\ma
 
 ### Son doğrulama — 2 Ekim 2026
 
-Sekiz test **8,9 dakikada geçti**. Bunlar bu çalıştırmanın sonuçlarıdır; bütün olası arıza koşulları için garanti değildir.
+Sekiz test tek seferde çalıştırıldı ve **8,9 dakikada geçti**. Bunlar bu koşunun sonuçlarıdır; başka koşullarda ya da başka bir koşuda farklı sonuç çıkmayacağını göstermez.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
@@ -307,9 +307,9 @@ Sekiz test **8,9 dakikada geçti**. Bunlar bu çalıştırmanın sonuçlarıdır
 | 2 | Bütün oranlar 0, 100 fatura | Hepsi Onaylandı/Reddedildi; Reddedildi'lerin `reject_reason`'ı dolu; 200 event tabloda tam bir kez |
 | 3 | Varsayılan oranlar, 500 fatura | Aşağıda |
 | 4 | Sıra karışması %100, 20 fatura | 20 kesin durumda; sonradan gelen 20 `invoice.received` Yok Sayıldı |
-| 5 | Invoice Service 124 sn kapalı | Kapalıyken teslim 0; açılınca 40 event retry ile geldi; 20 fatura kesin durumda |
+| 5 | Invoice Service 124 sn kapalı | Kapalıyken teslim edilen event görülmedi; açılınca 40 event retry ile geldi; 20 fatura kesin durumda |
 | 6 | Geç cevap %100, 10 fatura | 10'unda ilk event fatura Gönderildi olmadan geldi (log ve veritabanı); hepsi kesin durumda |
-| 7 | Yanlış imza, header yok, 10 dk eski timestamp | Üçü `401`; tabloda yok |
+| 7 | Yanlış imza, header yok, 10 dk eski timestamp | Üçü `401`; tabloda bulunmadı |
 | 8 | Aynı event 10 kez paralel | Biri işledi, 9'u tekrar (`delivery_count` 10); fatura bir kez ilerledi |
 
 **500 fatura testi** (`FTR-019788 .. FTR-020287`):
@@ -326,14 +326,14 @@ Sekiz test **8,9 dakikada geçti**. Bunlar bu çalıştırmanın sonuçlarıdır
 | Durumu geri götürdüğü için Yok Sayıldı olan event | 68 |
 | Durumu geri giden fatura | 0 |
 
-Kalan 30 fatura, kararı gönderilmeyen 30 faturayla numara numara aynı. Yerel ham çıktı:
+Kalan 30 fatura, kararı gönderilmeyen 30 faturayla numara numara karşılaştırıldı; listeler aynı çıktı. Yerel ham çıktı:
 `manual-tests/output/gun4-kontrol-listesi-20261002-175120.log` (Git'e dahil değildir).
 
 ### Bilinen sınırlar
 
 - **Servis kesintisi:** bu koşuda 124 sn'lik kesintiden sonra event'ler son denemede ulaştı. Deneme hakları tükenmeden
   Invoice Service erişilebilir olmazsa event `Failed` olur ve fatura kesin duruma geçmez.
-- **Tutar:** sondaki sıfırlar ret sebebi sayılmaz (`1.230` kabul edilir, `1.23` kaydedilir); bu bizim yorumumuz.
+- **Tutar:** sondaki sıfırlar ret sebebi sayılmaz (`1.230` kabul edilir, `1.23` kaydedilir); bu bir yorumdur, görev bu konuda açık bir istisna belirtmiyor.
 - **Kaydedilmeyen istekler:** `401`'e ek olarak `400` (geçersiz body) ve `413` (64 KB üstü) alan event'ler de tabloya yazılmaz;
   nedenleri servis loguna yazılır.
 
