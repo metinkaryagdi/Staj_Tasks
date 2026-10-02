@@ -112,13 +112,13 @@ function Wait-InvoicesIn([string[]]$Numbers, [string[]]$Statuses, [int]$TimeoutS
     }
 }
 
-# Simülatörde bu faturaların gönderilmeyi bekleyen (Pending) haberi kalmayana kadar bekler.
+# Simülatörde bu faturaların gönderilmeyi bekleyen (Pending / Waiting) haberi kalmayana kadar bekler.
 function Wait-EventsDone([string[]]$Numbers, [int]$TimeoutSeconds = 300) {
     $list = InList $Numbers
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $last = -1
     while ($true) {
-        $pending = [int]@(Get-ErpRows "SELECT count(*) FROM webhook_deliveries WHERE invoice_number IN ($list) AND status = 'Pending';")[0]
+        $pending = [int]@(Get-ErpRows "SELECT count(*) FROM webhook_deliveries WHERE invoice_number IN ($list) AND status IN ('Pending', 'Waiting');")[0]
         if ($pending -eq 0) { Start-Sleep -Milliseconds 500; return [math]::Round($watch.Elapsed.TotalSeconds, 1) }
         if ($pending -ne $last) { Write-Host ('  {0,5:N0} sn: simülatörde {1} haber gönderilmeyi bekliyor' -f $watch.Elapsed.TotalSeconds, $pending) -ForegroundColor DarkGray }
         $last = $pending

@@ -153,9 +153,8 @@ public sealed class WebhookDispatcher(
 
             var now = time.GetUtcNow();
             var delivered = error is null;
-            // A fake or replayed event that got an answer other than 2xx was rejected: it is not sent again (task rule).
-            // Without an answer (timeout, service down) it was not rejected yet, so it is retried like any other.
-            var rejected = !delivered && httpStatus is not null && DeliveryKind.NotRetriedWhenRejected(row.Kind);
+            // Only HTTP 4xx rejects a fake or replayed event permanently. HTTP 5xx and no answer use normal retries.
+            var rejected = httpStatus is >= 400 and <= 499 && DeliveryKind.NotRetriedWhenRejected(row.Kind);
             var retry = !delivered && !rejected && attempt < maxAttempts;
             var status = delivered ? DeliveryStatus.Delivered
                 : rejected ? DeliveryStatus.Rejected
@@ -169,7 +168,8 @@ public sealed class WebhookDispatcher(
             await using (var scope = scopes.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<ErpDbContext>();
-                await db.WebhookDeliveries
+                await using var transaction = await db.Database.BeginTransactionAsync(CancellationToken.None);
+                var updated = await db.WebhookDeliveries
                     .Where(d => d.Id == row.Id && d.Status == DeliveryStatus.Pending)
                     .ExecuteUpdateAsync(s => s
                         .SetProperty(d => d.Status, status)
@@ -179,6 +179,26 @@ public sealed class WebhookDispatcher(
                         .SetProperty(d => d.LastError, error)
                         .SetProperty(d => d.CompletedAt, completedAt)
                         .SetProperty(d => d.FirstSentAt, d => d.FirstSentAt ?? sentAt), CancellationToken.None);
+
+                // The normal result and its waiting replays commit together, including across a restart.
+                if (updated != 0 && row.Kind == DeliveryKind.Normal)
+                {
+                    var replays = db.WebhookDeliveries.Where(d => d.EventId == row.EventId
+                        && d.Kind == DeliveryKind.Replay && d.Status == DeliveryStatus.Waiting);
+                    if (delivered)
+                    {
+                        var earliest = now.AddSeconds(1);
+                        await replays.ExecuteUpdateAsync(s => s
+                            .SetProperty(d => d.Status, DeliveryStatus.Pending)
+                            .SetProperty(d => d.DueAt, d => d.DueAt > earliest ? d.DueAt : earliest), CancellationToken.None);
+                    }
+                    else if (status == DeliveryStatus.Failed)
+                    {
+                        await replays.ExecuteUpdateAsync(s => s
+                            .SetProperty(d => d.Status, DeliveryStatus.Skipped), CancellationToken.None);
+                    }
+                }
+                await transaction.CommitAsync(CancellationToken.None);
             }
 
             logger.LogInformation(

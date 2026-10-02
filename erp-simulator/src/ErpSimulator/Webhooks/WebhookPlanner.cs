@@ -20,12 +20,12 @@ public sealed record ErpEventBody(
 /// (approved / rejected by ApprovalRate) after SecondEvent seconds more; then the deliberate problems
 /// (Webhooks:Problems), each drawn on its own:
 /// <list type="bullet">
-/// <item>order mix (per invoice): the two events swap times, so the decision is sent first (not when the decision is
+/// <item>order mix (per invoice): send times swap, but invoice.received still occurs before the decision (not when the decision is
 /// lost: with no decision to send there is nothing to reorder, and invoice.received keeps its 2-10 s time);</item>
 /// <item>lost decision (per invoice): the decision is written as Skipped and never sent;</item>
 /// <item>duplicate (per sent event): a second row with the same event_id and body, 0-2 s later;</item>
 /// <item>fake (per invoice): a decision with its own event_id, signed with a wrong key at send time;</item>
-/// <item>replay (per invoice): one of its events again, 1-5 s after it, with an old timestamp (signed for it).</item>
+/// <item>replay (per invoice): one of its delivered events again, planned 1-5 s after it, with an old timestamp (signed for it).</item>
 /// </list>
 /// Uses its own RNG seeded from Simulator:Seed, so it does not shift the behavior sequence of POST /api/v1/invoices.
 /// Every invoice consumes the same number of draws, whatever was picked.
@@ -68,14 +68,19 @@ public sealed class WebhookPlanner
             var replay = Chance(p.ReplayRate);
             var replayDecision = Chance(50);
             var replayDelay = Seconds(1, 5);
+            var receivedFraction = _random.NextDouble();
 
-            // Order mix: the decision takes invoice.received's time and the other way round. Still drawn for every invoice
-            // (independent of the other problems), but it has nothing to reorder when the decision is never sent.
+            // Only send times swap: invoice.received occurred earlier but was delayed in transit.
+            // The fraction is drawn for every invoice, even when there is nothing to reorder.
+            var receivedOccurredAt = receivedAt;
             if (orderMix && !lost)
+            {
                 (receivedAt, decidedAt) = (decidedAt, receivedAt);
+                receivedOccurredAt = savedAt.AddTicks((long)((decidedAt - savedAt).Ticks * receivedFraction));
+            }
 
-            var received = New(invoice, ErpEventType.Received, receivedAt, null, DeliveryKind.Normal, savedAt);
-            var decision = New(invoice, approved ? ErpEventType.Approved : ErpEventType.Rejected, decidedAt,
+            var received = New(invoice, ErpEventType.Received, receivedAt, receivedOccurredAt, null, DeliveryKind.Normal, savedAt);
+            var decision = New(invoice, approved ? ErpEventType.Approved : ErpEventType.Rejected, decidedAt, decidedAt,
                 approved ? null : reason, lost ? DeliveryKind.LostDecision : DeliveryKind.Normal, savedAt);
             if (lost)
                 decision.Status = DeliveryStatus.Skipped;
@@ -89,7 +94,7 @@ public sealed class WebhookPlanner
 
             if (fake)
             {
-                rows.Add(New(invoice, fakeApproved ? ErpEventType.Approved : ErpEventType.Rejected, fakeAt,
+                rows.Add(New(invoice, fakeApproved ? ErpEventType.Approved : ErpEventType.Rejected, fakeAt, fakeAt,
                     fakeApproved ? null : reason, DeliveryKind.Fake, savedAt));
             }
 
@@ -97,7 +102,9 @@ public sealed class WebhookPlanner
             {
                 // A lost decision was never sent, so it cannot be "sent again": the received event is replayed instead.
                 var original = replayDecision && !lost ? decision : received;
-                rows.Add(Copy(original, DeliveryKind.Replay, original.DueAt + replayDelay));
+                var replayRow = Copy(original, DeliveryKind.Replay, original.DueAt + replayDelay);
+                replayRow.Status = DeliveryStatus.Waiting;
+                rows.Add(replayRow);
             }
 
             return rows;
@@ -111,10 +118,10 @@ public sealed class WebhookPlanner
         TimeSpan.FromMilliseconds(_random.NextInt64(min * 1000L, max * 1000L + 1));
 
     private static WebhookDelivery New(
-        ErpInvoice invoice, string type, DateTimeOffset at, string? reason, string kind, DateTimeOffset now)
+        ErpInvoice invoice, string type, DateTimeOffset dueAt, DateTimeOffset occurredAt, string? reason, string kind, DateTimeOffset now)
     {
         var eventId = $"evt-{Guid.NewGuid():N}";
-        var body = new ErpEventBody(eventId, type, invoice.InvoiceNumber, invoice.ErpReference, at, reason);
+        var body = new ErpEventBody(eventId, type, invoice.InvoiceNumber, invoice.ErpReference, occurredAt, reason);
         return new WebhookDelivery
         {
             EventId = eventId,
@@ -123,8 +130,8 @@ public sealed class WebhookPlanner
             InvoiceNumber = invoice.InvoiceNumber,
             Kind = kind,
             Payload = JsonSerializer.Serialize(body),
-            OccurredAt = at,
-            DueAt = at,
+            OccurredAt = occurredAt,
+            DueAt = dueAt,
             Status = DeliveryStatus.Pending,
             CreatedAt = now
         };

@@ -59,19 +59,22 @@ public static class DeliveryStatus
 {
     public const string Pending = "Pending";
 
+    /// <summary>A replay waiting for its normal event to be delivered; never eligible for sending yet.</summary>
+    public const string Waiting = "Waiting";
+
     /// <summary>The invoice service answered 2xx.</summary>
     public const string Delivered = "Delivered";
 
     /// <summary>No 2xx after the first send and every retry.</summary>
     public const string Failed = "Failed";
 
-    /// <summary>A fake or replayed event the invoice service rejected: not sent again (task rule).</summary>
+    /// <summary>A fake or replayed event rejected with HTTP 4xx: not sent again; 5xx and no answer are retried.</summary>
     public const string Rejected = "Rejected";
 
-    /// <summary>Never sent on purpose (a lost decision): kept so the simulator can tell which invoices lost theirs.</summary>
+    /// <summary>Never sent: a lost decision or a replay whose normal event exhausted its retries.</summary>
     public const string Skipped = "Skipped";
 
-    public static readonly string[] All = [Pending, Delivered, Failed, Rejected, Skipped];
+    public static readonly string[] All = [Pending, Waiting, Delivered, Failed, Rejected, Skipped];
 }
 
 /// <summary>A normal event or one of the deliberate problems (Webhooks:Problems).</summary>
@@ -88,13 +91,13 @@ public static class DeliveryKind
     /// <summary>A decision with its own event_id, signed with a wrong key.</summary>
     public const string Fake = "Fake";
 
-    /// <summary>An already planned event sent again later with a timestamp Webhooks:Problems:ReplayAgeSeconds old,
+    /// <summary>A delivered normal event sent again later with a timestamp Webhooks:Problems:ReplayAgeSeconds old,
     /// validly signed for that timestamp.</summary>
     public const string Replay = "Replay";
 
     public static readonly string[] All = [Normal, Duplicate, LostDecision, Fake, Replay];
 
-    /// <summary>Kinds the invoice service is expected to reject; once rejected they are not sent again.</summary>
+    /// <summary>Kinds not retried after HTTP 4xx rejection; 5xx and no answer still use normal retries.</summary>
     public static bool NotRetriedWhenRejected(string kind) => kind is Fake or Replay;
 }
 

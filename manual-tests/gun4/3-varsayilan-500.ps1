@@ -51,6 +51,8 @@ $stuckNumbers = @(Get-ServiceRows "SELECT invoice_number FROM invoices WHERE inv
 
 $fake = @(Get-ErpRows "SELECT count(*) || '|' || count(*) FILTER (WHERE status = 'Rejected' AND last_http_status = 401) || '|' || coalesce(max(attempt_count), 0) FROM webhook_deliveries WHERE invoice_number IN ($list) AND kind = 'Fake';")[0] -split '\|'
 $replay = @(Get-ErpRows "SELECT count(*) || '|' || count(*) FILTER (WHERE status = 'Rejected' AND last_http_status = 401) || '|' || coalesce(max(attempt_count), 0) FROM webhook_deliveries WHERE invoice_number IN ($list) AND kind = 'Replay';")[0] -split '\|'
+$replaySkipped = Count-Erp "SELECT count(*) FROM webhook_deliveries WHERE invoice_number IN ($list) AND kind = 'Replay' AND status = 'Skipped';"
+$replayWaiting = Count-Erp "SELECT count(*) FROM webhook_deliveries WHERE invoice_number IN ($list) AND kind = 'Replay' AND status = 'Waiting';"
 $log = @(Get-WebhookLog $since)
 $logFake = @($log | Where-Object { $_ -match 'http=401 reason=bad-signature' }).Count
 $logReplay = @($log | Where-Object { $_ -match 'http=401 reason=expired' }).Count
@@ -89,6 +91,7 @@ Write-Host '  Ek bilgiler:' -ForegroundColor DarkGray
 Write-Host ('    Başarısız (ERP''ye gönderilemedi): {0}, Bekliyor: {1}; toplam fatura {2}' -f $failed, $pending, ($approved + $rejected + $stuck + $failed + $pending)) -ForegroundColor DarkGray
 Write-Host ('    Sahte haber: simülatör {0} gönderdi, {1} tanesi 401 aldı, en çok {2} deneme; servis logunda bad-signature {3}' -f $fake[0], $fake[1], $fake[2], $logFake) -ForegroundColor DarkGray
 Write-Host ('    Eski haber: simülatör {0} gönderdi, {1} tanesi 401 aldı, en çok {2} deneme; servis logunda expired {3}' -f $replay[0], $replay[1], $replay[2], $logReplay) -ForegroundColor DarkGray
+Write-Host ("    Eski haber: Skipped $replaySkipped, Waiting $replayWaiting (servis açıkken ikisi de 0 olmalı)") -ForegroundColor DarkGray
 Write-Host ('    Tekrar: simülatörün bilerek çift gönderdiği ve ulaşan {0}; servisin saydığı tekrar {1}' -f $simDuplicates, $repeats) -ForegroundColor DarkGray
 Write-Host ('    Yok Sayıldı nedenleri: Geri Götürüyor {0}, Kesin Durumda {1}, İlerletmiyor {2}, Referans Farklı {3}' -f `
     [int]$ignored['Geri Götürüyor'], [int]$ignored['Kesin Durumda'], [int]$ignored['İlerletmiyor'], [int]$ignored['Referans Farklı']) -ForegroundColor DarkGray
@@ -107,5 +110,6 @@ Check (Write-DbVerdict 'eski haberlerin hepsi 401 aldı ve tekrar gönderilmedi;
 Check (Write-DbVerdict 'tekrar gelen haber en az simülatörün çift gönderdiği kadar' "$repeats >= $simDuplicates" ($repeats -ge $simDuplicates))
 Check (Write-DbVerdict 'durumu geri giden fatura 0' "$backwardInvoices" ($backwardInvoices -eq 0))
 Check (Write-DbVerdict 'Bekliyor fatura kalmadı' "$pending" ($pending -eq 0))
+Check (Write-DbVerdict 'servis açıkken Skipped / Waiting eski haber 0 / 0' "$replaySkipped / $replayWaiting" ($replaySkipped -eq 0 -and $replayWaiting -eq 0))
 
 Write-Result $allPassed 'tablo yukarıda; kalan fatura = kararı gönderilmeyen fatura, sahte/eski haberler 401, geri giden fatura 0'

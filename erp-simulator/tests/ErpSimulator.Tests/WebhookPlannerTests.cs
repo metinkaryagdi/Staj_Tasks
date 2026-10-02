@@ -184,10 +184,26 @@ public class WebhookPlannerTests
     [Fact]
     public void Order_mix_sends_the_decision_first()
     {
-        var events = Planner(WithProblems(p => p.OrderMixRate = 100)).Plan(Invoice(), SavedAt);
-        Assert.Equal(2, events.Count);
-        Assert.True(events[1].DueAt < events[0].DueAt);
-        Assert.Equal(ErpEventType.Received, events[0].EventType);
+        var planner = Planner(WithProblems(p => p.OrderMixRate = 100));
+        for (var i = 0; i < 2000; i++)
+        {
+            var events = planner.Plan(Invoice(i), SavedAt);
+            Assert.Equal(2, events.Count);
+            var received = events[0];
+            var decision = events[1];
+            Assert.Equal(ErpEventType.Received, received.EventType);
+            Assert.True(decision.DueAt < received.DueAt);
+            Assert.True(received.OccurredAt < decision.OccurredAt);
+            Assert.True(received.OccurredAt >= SavedAt);
+            Assert.Equal(decision.DueAt, decision.OccurredAt);
+            Assert.InRange((decision.DueAt - SavedAt).TotalSeconds, 2, 10);
+            Assert.InRange((received.DueAt - decision.DueAt).TotalSeconds, 2, 20);
+            foreach (var row in events)
+            {
+                using var body = JsonDocument.Parse(row.Payload);
+                Assert.Equal(row.OccurredAt, body.RootElement.GetProperty("occurred_at").GetDateTimeOffset());
+            }
+        }
     }
 
     [Fact]
@@ -243,7 +259,39 @@ public class WebhookPlannerTests
         var replay = Assert.Single(events, e => e.Kind == DeliveryKind.Replay);
         var original = Assert.Single(events, e => e.Kind == DeliveryKind.Normal && e.EventId == replay.EventId);
         Assert.Equal(original.Payload, replay.Payload);
+        Assert.Equal(original.OccurredAt, replay.OccurredAt);
+        Assert.Equal(DeliveryStatus.Waiting, replay.Status);
         Assert.InRange((replay.DueAt - original.DueAt).TotalSeconds, 1, 5);
+    }
+
+    [Fact]
+    public void Only_replays_wait_and_lost_decisions_are_skipped()
+    {
+        var planner = Planner(WithProblems(p =>
+        {
+            p.ReplayRate = 100; p.LostDecisionRate = 100; p.DuplicateRate = 100; p.FakeRate = 100;
+        }));
+        Assert.All(planner.Plan(Invoice(), SavedAt), row => Assert.Equal(
+            row.Kind == DeliveryKind.Replay ? DeliveryStatus.Waiting
+                : row.Kind == DeliveryKind.LostDecision ? DeliveryStatus.Skipped : DeliveryStatus.Pending, row.Status));
+    }
+
+    [Fact]
+    public void Problem_choices_do_not_shift_the_random_draws_for_later_invoices()
+    {
+        var normal = Planner();
+        var problems = Planner(WithProblems(p =>
+        {
+            p.OrderMixRate = 100; p.ReplayRate = 100; p.DuplicateRate = 100; p.FakeRate = 100;
+        }));
+        for (var i = 0; i < 500; i++)
+        {
+            var a = normal.Plan(Invoice(i), SavedAt);
+            var b = problems.Plan(Invoice(i), SavedAt);
+            Assert.Equal(a[0].DueAt, b[1].DueAt);
+            Assert.Equal(a[1].DueAt, b[0].DueAt);
+            Assert.Equal(a[1].EventType, b[1].EventType);
+        }
     }
 
     [Fact]
