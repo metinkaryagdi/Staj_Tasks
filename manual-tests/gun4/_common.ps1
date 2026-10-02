@@ -67,3 +67,81 @@ function Get-WebhookLog($Since) {
         -not $Since -or [datetime]::ParseExact(($_ -split ' ')[0..1] -join ' ', 'yyyy-MM-dd HH:mm:ss.fff', $inv) -ge $Since
     }
 }
+
+# --- Kontrol listesi yardımcıları -------------------------------------------------------------------------------------
+
+function InList([string[]]$Values) { ($Values | ForEach-Object { "'$_'" }) -join ',' }
+
+# Simülatör ayarları: POST davranışı Success %100 (ya da $Behavior %100), haber sorunlarının hepsi 0; $Problems ile tek tek açılır.
+function Get-SimSettings([string]$Behavior = 'Success', [hashtable]$Problems = @{}, [switch]$NoEvents) {
+    $s = @{ Simulator__Rates__Success = 0; Simulator__Rates__Busy = 0; Simulator__Rates__ServerError = 0
+            Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0
+            Webhooks__Problems__DuplicateRate = 0; Webhooks__Problems__OrderMixRate = 0; Webhooks__Problems__LostDecisionRate = 0
+            Webhooks__Problems__FakeRate = 0; Webhooks__Problems__ReplayRate = 0 }
+    $s["Simulator__Rates__$Behavior"] = 100
+    foreach ($k in $Problems.Keys) { $s["Webhooks__Problems__$k"] = $Problems[$k] }
+    if ($NoEvents) { $s['Webhooks__Enabled'] = 'false' }
+    $s
+}
+
+# $Count fatura oluşturur (hepsi 202), numaralarını döner.
+function New-Invoices([int]$Count) {
+    $numbers = @()
+    for ($i = 0; $i -lt $Count; $i++) {
+        $r = New-ServiceInvoice
+        if ($r.HttpStatus -ne 202) { throw "Fatura 202 almadı: $($r.HttpStatus) $($r.Body)" }
+        $numbers += $r.InvoiceNumber
+    }
+    Write-Host "  $Count fatura oluşturuldu: $($numbers[0]) .. $($numbers[-1])"
+    $numbers
+}
+
+# Faturaların hepsi en az $Statuses'tan birinde olana kadar bekler; geçen saniyeyi döner.
+function Wait-InvoicesIn([string[]]$Numbers, [string[]]$Statuses, [int]$TimeoutSeconds = 300, [string]$What = 'istenen durumda') {
+    $list = InList $Numbers
+    $in = InList $Statuses
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $last = -1
+    while ($true) {
+        $open = [int]@(Get-ServiceRows "SELECT count(*) FROM invoices WHERE invoice_number IN ($list) AND status NOT IN ($in);")[0]
+        if ($open -eq 0) { return [math]::Round($watch.Elapsed.TotalSeconds, 1) }
+        if ($open -ne $last) { Write-Host ('  {0,5:N0} sn: {1} fatura henüz {2} değil' -f $watch.Elapsed.TotalSeconds, $open, $What) -ForegroundColor DarkGray }
+        $last = $open
+        if ($watch.Elapsed.TotalSeconds -gt $TimeoutSeconds) { throw "$TimeoutSeconds sn içinde $open fatura $What olmadı." }
+        Start-Sleep -Seconds 1
+    }
+}
+
+# Simülatörde bu faturaların gönderilmeyi bekleyen (Pending) haberi kalmayana kadar bekler.
+function Wait-EventsDone([string[]]$Numbers, [int]$TimeoutSeconds = 300) {
+    $list = InList $Numbers
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $last = -1
+    while ($true) {
+        $pending = [int]@(Get-ErpRows "SELECT count(*) FROM webhook_deliveries WHERE invoice_number IN ($list) AND status = 'Pending';")[0]
+        if ($pending -eq 0) { Start-Sleep -Milliseconds 500; return [math]::Round($watch.Elapsed.TotalSeconds, 1) }
+        if ($pending -ne $last) { Write-Host ('  {0,5:N0} sn: simülatörde {1} haber gönderilmeyi bekliyor' -f $watch.Elapsed.TotalSeconds, $pending) -ForegroundColor DarkGray }
+        $last = $pending
+        if ($watch.Elapsed.TotalSeconds -gt $TimeoutSeconds) { throw "$TimeoutSeconds sn içinde $pending haber gönderilmedi." }
+        Start-Sleep -Seconds 1
+    }
+}
+
+function Count-Service([string]$Sql) { [int]@(Get-ServiceRows $Sql)[0] }
+function Count-Erp([string]$Sql) { [int]@(Get-ErpRows $Sql)[0] }
+
+# Servis logundaki durum değişimlerinden geriye gidenleri bulur (invoiceStatus=A->B, B A'dan geride ya da kesin durum değişmiş).
+function Get-BackwardTransitions([string[]]$Numbers, $Since) {
+    $rank = @{ 'Bekliyor' = 0; 'Başarısız' = 0; 'Gönderildi' = 1; 'İşleme Alındı' = 2; 'Onaylandı' = 3; 'Reddedildi' = 3 }
+    $set = @{}; foreach ($n in $Numbers) { $set[$n] = $true }
+    $checked = 0
+    $backward = @()
+    foreach ($line in Get-WebhookLog $Since) {
+        if ($line -notmatch ' invoice=(\S+) .*invoiceStatus=(.+?)->(.+?) ignoreReason=') { continue }
+        if (-not $set.ContainsKey($Matches[1])) { continue }
+        $checked++
+        $a = $Matches[2]; $b = $Matches[3]
+        if ($rank[$b] -lt $rank[$a] -or ($rank[$a] -eq 3 -and $a -ne $b)) { $backward += $line }
+    }
+    [pscustomobject]@{ Checked = $checked; Backward = $backward }
+}
