@@ -32,7 +32,9 @@ public class InvoiceTransitionsTests
     [Theory]
     [InlineData(InvoiceStatus.Pending, WebhookEventType.Received)]
     [InlineData(InvoiceStatus.Pending, WebhookEventType.Approved)]
+    [InlineData(InvoiceStatus.Pending, WebhookEventType.Rejected)]
     [InlineData(InvoiceStatus.Failed, WebhookEventType.Received)]
+    [InlineData(InvoiceStatus.Failed, WebhookEventType.Approved)]
     [InlineData(InvoiceStatus.Failed, WebhookEventType.Rejected)]
     public void Events_before_the_invoice_is_sent_wait(string status, string eventType)
     {

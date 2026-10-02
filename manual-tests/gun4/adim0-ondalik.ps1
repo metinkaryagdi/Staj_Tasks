@@ -46,8 +46,10 @@ $dbOk = Write-DbVerdict '3 satır, hepsinde amount = 1.23' "$($amounts.Count) sa
 if (-not $dbOk) { $allPassed = $false }
 
 # --- B) ERP Simülatörü ---------------------------------------------------------------------------------------------
+# Haberler kapalı: bu faturalar simülatöre doğrudan gönderiliyor, Fatura Servisi onları tanımıyor; açık olsaydı simülatörün
+# haberleri serviste sahipsiz "Bekliyor" haber olarak birikirdi.
 Restart-Simulator @{ Simulator__Rates__Success = 100; Simulator__Rates__Busy = 0; Simulator__Rates__ServerError = 0
-                     Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0 }
+                     Simulator__Rates__SaveThenError = 0; Simulator__Rates__LateResponse = 0; Webhooks__Enabled = 'false' }
 $prefix = New-Prefix 'ONDALIK'
 Write-Step 'B) ERP Simülatörü: POST /api/v1/invoices (doğrudan)'
 $i = 0

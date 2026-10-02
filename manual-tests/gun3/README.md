@@ -8,6 +8,11 @@ docker compose up -d --build
 
 Script'ler engellenirse: `Set-ExecutionPolicy -Scope Process Bypass`.
 
+Gün 4'ten beri bu script'ler simülatörü haber göndermeden çalıştırır (`Webhooks__Enabled=false`).
+Ortak yardımcı ilk faturadan önce ve her yeniden oluşturmada haberleri kapatır; Gün 4 script'leri bu varsayılanı kullanmaz.
+Bir Gün 3 script'i bittiğinde simülatör de haber göndermeden açık kalır; Gün 4 akışı için `docker compose up -d --force-recreate erp-simulator`
+ya da herhangi bir Gün 4 script'i (simülatörü kendi ayarlarıyla yeniden başlatır).
+
 Kontrol listesinin 7 maddesini sırayla çalıştırıp sonunda özet tablosu veren script (~26 dk; çıktı
 `manual-tests\output\gun3-kontrol-listesi-*.log`'a da yazılır):
 

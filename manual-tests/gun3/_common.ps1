@@ -1,6 +1,23 @@
 ﻿# Gün 3 (Güvenli Gönderim) script'lerinin ortak yardımcıları. Gün 2'nin gun2\_common.ps1'ini de yükler
 # (Wait-Service, Get-ServiceRows, Show-ServiceQuery, Write-DbVerdict ...). Doğrudan çalıştırılmaz.
+param([switch]$WithWebhooks)
+
 . "$PSScriptRoot\..\gun2\_common.ps1"
+
+# Gün 3 yalnızca fatura gönderimini sınar; Gün 4 haberleri durumları ilerletmesin.
+# Gün 4 bu dosyayı -WithWebhooks ile yükler ve Gün 1'in özgün yardımcısını kullanır.
+if (-not $WithWebhooks) {
+    $script:BaseRestartSimulator = (Get-Command Restart-Simulator).ScriptBlock
+    function Restart-Simulator([hashtable]$Settings = @{}) {
+        $quietSettings = @{}
+        foreach ($key in $Settings.Keys) { $quietSettings[$key] = $Settings[$key] }
+        $quietSettings['Webhooks__Enabled'] = 'false'
+        & $script:BaseRestartSimulator $quietSettings
+    }
+
+    # stop/start kullanan script'ler de son up ayarını devralır; ilk fatura öncesinde kapat.
+    Restart-Simulator
+}
 
 # Gün 1'deki Write-Result ile aynı çıktı; ek olarak sonucu adimlar.ps1'in özet tablosu için saklar.
 function Write-Result([bool]$Passed, [string]$Text) {
