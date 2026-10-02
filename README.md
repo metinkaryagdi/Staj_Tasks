@@ -331,12 +331,11 @@ Kalan 30 fatura, kararı gönderilmeyen 30 faturayla numara numara aynı. Yerel 
 
 ### Bilinen sınırlar
 
-- **Servis kesintisi:** ERP Simulator bir event'i ilk gönderimden sonraki 155 sn boyunca dener. 124 sn'lik kesintide event'ler
-  son denemede ulaştı; daha uzun kesintide event `Failed` kalır ve fatura kesin duruma geçmez.
-- **Tutar:** sondaki sıfırlar ret sebebi sayılmaz (`1.230` kabul edilir, `1.23` kaydedilir).
+- **Servis kesintisi:** bu koşuda 124 sn'lik kesintiden sonra event'ler son denemede ulaştı. Deneme hakları tükenmeden
+  Invoice Service erişilebilir olmazsa event `Failed` olur ve fatura kesin duruma geçmez.
+- **Tutar:** sondaki sıfırlar ret sebebi sayılmaz (`1.230` kabul edilir, `1.23` kaydedilir); bu bizim yorumumuz.
 - **Kaydedilmeyen istekler:** `401`'e ek olarak `400` (geçersiz body) ve `413` (64 KB üstü) alan event'ler de tabloya yazılmaz;
   nedenleri servis loguna yazılır.
-- **Seed:** ERP Simulator her açılışta aynı rastgele diziyle başlar; aynı testler aynı sayıları üretir.
 
 ---
 
