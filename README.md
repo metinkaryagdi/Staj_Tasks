@@ -299,7 +299,7 @@ Kontrol listesi ve ek testler: [`manual-tests/gun4/`](manual-tests/gun4/) (`.\ma
 
 ### Son doğrulama — 2 Ekim 2026
 
-Sekiz test **9,5 dakikada geçti**. Bunlar bu çalıştırmanın sonuçlarıdır; bütün olası arıza koşulları için garanti değildir.
+Sekiz test **8,9 dakikada geçti**. Bunlar bu çalıştırmanın sonuçlarıdır; bütün olası arıza koşulları için garanti değildir.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
@@ -307,12 +307,12 @@ Sekiz test **9,5 dakikada geçti**. Bunlar bu çalıştırmanın sonuçlarıdır
 | 2 | Bütün oranlar 0, 100 fatura | Hepsi Onaylandı/Reddedildi; Reddedildi'lerin `reject_reason`'ı dolu; 200 haber tabloda tam bir kez |
 | 3 | Varsayılan oranlar, 500 fatura | Aşağıda |
 | 4 | Sıra karışması %100, 20 fatura | 20 kesin durumda; sonradan gelen 20 `invoice.received` Yok Sayıldı |
-| 5 | Invoice Service 125 sn kapalı | Kapalıyken teslim 0; açılınca 40 haber tekrar gönderimle geldi; 20 fatura kesin durumda |
+| 5 | Invoice Service 124 sn kapalı | Kapalıyken teslim 0; açılınca 40 haber tekrar gönderimle geldi; 20 fatura kesin durumda |
 | 6 | Geç cevap %100, 10 fatura | 10'unda ilk haber fatura Gönderildi olmadan geldi (log ve veritabanı); hepsi kesin durumda |
 | 7 | Yanlış imza, başlık yok, 10 dk eski damga | Üçü `401`; tabloda yok |
 | 8 | Aynı haber 10 kez paralel | Biri işledi, 9'u tekrar (`delivery_count` 10); fatura bir kez ilerledi |
 
-**500 fatura testi** (`FTR-019115 .. FTR-019614`):
+**500 fatura testi** (`FTR-019788 .. FTR-020287`):
 
 | Durum | Sayı |
 |---|---|
@@ -327,11 +327,11 @@ Sekiz test **9,5 dakikada geçti**. Bunlar bu çalıştırmanın sonuçlarıdır
 | Durumu geri giden fatura | 0 |
 
 Kalan 30 fatura, kararı gönderilmeyen 30 faturayla numara numara aynı. Yerel ham çıktı:
-`manual-tests/output/gun4-kontrol-listesi-20261002-163046.log` (Git'e dahil değildir).
+`manual-tests/output/gun4-kontrol-listesi-20261002-175120.log` (Git'e dahil değildir).
 
 ### Bilinen sınırlar
 
-- **Servis kesintisi:** ERP Simulator bir haberi ilk gönderimden sonraki 155 sn boyunca dener. 125 sn'lik kesintide haberler
+- **Servis kesintisi:** ERP Simulator bir haberi ilk gönderimden sonraki 155 sn boyunca dener. 124 sn'lik kesintide haberler
   son denemede ulaştı; daha uzun kesintide haber `Failed` kalır ve fatura kesin duruma geçmez.
 - **Tutar:** sondaki sıfırlar ret sebebi sayılmaz (`1.230` kabul edilir, `1.23` kaydedilir).
 - **Kaydedilmeyen istekler:** `401`'e ek olarak `400` (geçersiz gövde) ve `413` (64 KB üstü) alan haberler de tabloya yazılmaz;
