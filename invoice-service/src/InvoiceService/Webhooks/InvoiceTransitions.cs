@@ -14,7 +14,26 @@ public enum TransitionOutcome
     Wait
 }
 
-public readonly record struct Transition(TransitionOutcome Outcome, string? NewStatus = null);
+/// <param name="IgnoreReason">One of <see cref="IgnoreReason"/> when the outcome is <see cref="TransitionOutcome.Ignore"/>.</param>
+public readonly record struct Transition(TransitionOutcome Outcome, string? NewStatus = null, string? IgnoreReason = null);
+
+/// <summary>Why an event was Yok Sayıldı (erp_webhook_events.ignore_reason).</summary>
+public static class IgnoreReason
+{
+    /// <summary>invoice.received after the decision (Onaylandı / Reddedildi): it would move the invoice back.</summary>
+    public const string Backward = "Geri Götürüyor";
+
+    /// <summary>A decision for an invoice that already has one: Onaylandı and Reddedildi are final.</summary>
+    public const string Final = "Kesin Durumda";
+
+    /// <summary>A second invoice.received while İşleme Alındı: not backwards, but not forward either.</summary>
+    public const string NotForward = "İlerletmiyor";
+
+    /// <summary>The event's erp_reference is not the invoice's: it is not about the record the service sent.</summary>
+    public const string ReferenceMismatch = "Referans Farklı";
+
+    public static readonly string[] All = [Backward, Final, NotForward, ReferenceMismatch];
+}
 
 /// <summary>
 /// What an ERP event does to an invoice. Status only moves forward:
@@ -38,10 +57,11 @@ public static class InvoiceTransitions
             // Not at the ERP yet as far as the service knows (or a resend may still get it there).
             InvoiceStatus.Pending or InvoiceStatus.Failed => new(TransitionOutcome.Wait),
             InvoiceStatus.Sent => new(TransitionOutcome.Apply, target),
-            // A second invoice.received is not a step forward either.
             InvoiceStatus.Processing when target != InvoiceStatus.Processing => new(TransitionOutcome.Apply, target),
-            InvoiceStatus.Processing => new(TransitionOutcome.Ignore),
-            InvoiceStatus.Approved or InvoiceStatus.Rejected => new(TransitionOutcome.Ignore),
+            InvoiceStatus.Processing => new(TransitionOutcome.Ignore, IgnoreReason: IgnoreReason.NotForward),
+            InvoiceStatus.Approved or InvoiceStatus.Rejected when target == InvoiceStatus.Processing =>
+                new(TransitionOutcome.Ignore, IgnoreReason: IgnoreReason.Backward),
+            InvoiceStatus.Approved or InvoiceStatus.Rejected => new(TransitionOutcome.Ignore, IgnoreReason: IgnoreReason.Final),
             _ => throw new ArgumentOutOfRangeException(nameof(invoiceStatus), invoiceStatus, "Unknown invoice status.")
         };
     }

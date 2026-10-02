@@ -1,6 +1,7 @@
 ﻿# Gün 4 - Adım 1: Fatura Servisi şeması. Uygulamaya yeni davranış eklenmedi; yalnızca tablolar. ~1 dk.
 #
-#   A) Migration uygulandı: invoices.reject_reason var, erp_webhook_events tablosu görevin 9 kolonu + delivery_count ile var.
+#   A) Migration uygulandı: invoices.reject_reason var, erp_webhook_events tablosu görevin 9 kolonu + delivery_count ve
+#      ignore_reason (Adım 3'te eklendi) ile var.
 #   B) invoices.status yeni değerleri kabul ediyor (İşleme Alındı, Onaylandı, Reddedildi), bilinmeyen değeri reddediyor.
 #   C) erp_webhook_events kısıtları: aynı event_id ikinci kez eklenemiyor; bilinmeyen event_type, bilinmeyen status ve
 #      delivery_count = 0 reddediliyor.
@@ -19,12 +20,12 @@ function Check([bool]$Passed) { if (-not $Passed) { $script:allPassed = $false }
 # --- A) Migration ---------------------------------------------------------------------------------------------------
 Write-DbHeader 'A) Migration' 'Son migration ve yeni kolonlar'
 $last = @(Invoke-ServiceSqlStdin 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1;' -Rows)[0]
-Check (Write-DbVerdict 'son migration *_AddErpWebhookEvents' $last ($last -like '*_AddErpWebhookEvents'))
+Check (Write-DbVerdict 'son migration *_AddWebhookIgnoreReason (Adım 3)' $last ($last -like '*_AddWebhookIgnoreReason'))
 
 $sql = "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = 'erp_webhook_events' ORDER BY ordinal_position;"
 Show-ServiceQuery $sql
 $columns = @(Get-ServiceRows "SELECT column_name FROM information_schema.columns WHERE table_name = 'erp_webhook_events' ORDER BY ordinal_position;")
-$expected = 'event_id,event_type,invoice_number,erp_reference,occurred_at,received_at,processed_at,status,payload,delivery_count'
+$expected = 'event_id,event_type,invoice_number,erp_reference,occurred_at,received_at,processed_at,status,payload,delivery_count,ignore_reason'
 Check (Write-DbVerdict $expected ($columns -join ',') (($columns -join ',') -eq $expected))
 
 $reject = @(Get-ServiceRows "SELECT data_type || ' ' || is_nullable FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'reject_reason';")
@@ -74,7 +75,7 @@ Write-Host "  1. istek eklendi mi: $($rows[0])   2. istek eklendi mi: $($rows[1]
 Check (Write-DbVerdict '1. istek t, 2. istek f; satır=1 delivery_count=2' "$($rows[0]), $($rows[1]); satır=$(($rows[2] -split '\|')[0]) delivery_count=$(($rows[2] -split '\|')[1])" `
     ($rows[0] -eq 't' -and $rows[1] -eq 'f' -and $rows[2] -eq '1|2'))
 
-$left = @(Get-ServiceRows "SELECT count(*) FROM erp_webhook_events;")[0]
-Check (Write-DbVerdict 'erp_webhook_events satır sayısı 0 (hepsi geri alındı)' $left ($left -eq '0'))
+$left = @(Get-ServiceRows "SELECT count(*) FROM erp_webhook_events WHERE event_id LIKE 'evt-%';")[0]
+Check (Write-DbVerdict 'bu script''in deneme satırları (evt-*) tabloda yok (hepsi geri alındı)' $left ($left -eq '0'))
 
 Write-Result $allPassed 'şema görevdeki gibi; kısıtlar yanlış veriyi reddediyor, tekrar gelen haber satır eklemeden sayılıyor'

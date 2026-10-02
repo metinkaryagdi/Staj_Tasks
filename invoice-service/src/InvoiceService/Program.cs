@@ -43,6 +43,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(sp => new RetryPolicy(sp.GetRequiredService<IOptions<OutboxOptions>>().Value));
 builder.Services.AddScoped<OutboxProcessor>();
 builder.Services.AddHostedService<OutboxWorker>();
+builder.Services.AddScoped<WebhookEventProcessor>();
 
 builder.Services.AddDbContext<InvoiceDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("InvoiceDb")));

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 
@@ -14,17 +15,19 @@ public static class WebhookEndpoints
             .WithDescription(
                 "Signed with HMAC-SHA256 over \"{X-Erp-Timestamp}.{raw body}\" (timestamp in Unix seconds, signature as hex). " +
                 "Missing headers, a wrong signature or a timestamp more than ErpWebhooks:ToleranceSeconds away from now: 401, " +
-                "nothing is stored. A valid signature with an invalid body: 400.")
+                "nothing is stored. A valid signature with an invalid body: 400. Otherwise 200: the event is stored once " +
+                "(a repeated event_id is not applied again) and applied to the invoice, ignored, or kept until the " +
+                "invoice is Gönderildi.")
             .Accepts<ErpWebhookRequest>("application/json")
-            .Produces(StatusCodes.Status200OK)
+            .Produces<EventResult>(StatusCodes.Status200OK)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
     }
 
     private static async Task<IResult> ReceiveEvent(
-        HttpRequest request, IOptions<WebhookOptions> options, TimeProvider clock, ILoggerFactory loggerFactory,
-        CancellationToken ct)
+        HttpRequest request, IOptions<WebhookOptions> options, TimeProvider clock, WebhookEventProcessor processor,
+        ILoggerFactory loggerFactory, CancellationToken ct)
     {
         var settings = options.Value;
         var logger = loggerFactory.CreateLogger("InvoiceService.Webhooks");
@@ -70,9 +73,9 @@ public static class WebhookEndpoints
             return Results.ValidationProblem(errors);
         }
 
-        logger.LogInformation("ERP webhook verified event={EventId} type={EventType} invoice={InvoiceNumber} erpReference={ErpReference}",
-            payload.EventId, payload.EventType, payload.InvoiceNumber, payload.ErpReference);
-        return Results.Ok();
+        // The body is valid JSON here, so it is valid UTF-8: stored exactly as received.
+        var result = await processor.ReceiveAsync(payload, Encoding.UTF8.GetString(body), ct);
+        return Results.Ok(result);
     }
 
     /// <summary>The raw body, or null if it is larger than <paramref name="maxBytes"/> (read no further than that).</summary>

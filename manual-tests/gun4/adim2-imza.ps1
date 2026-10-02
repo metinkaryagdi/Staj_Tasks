@@ -3,7 +3,7 @@
 #   Kontrol listesi 7 (görev): elle üç istek -> üçü de 401, erp_webhook_events'e hiçbiri yazılmıyor.
 #     K1) yanlış imzalı   K2) imza başlıkları yok   K3) 10 dakika önceki zaman damgasıyla, o damgaya göre geçerli imza
 #   Ek durumlar (bizim kurallarımız):
-#     E1) doğru imzalı, geçerli haber -> 200
+#     E1) doğru imzalı, geçerli haber -> 200 ve kaydedilir (FTR-000001'in referansı ERP-TEST değil: Yok Sayıldı)
 #     E2) yalnızca X-Erp-Timestamp var, X-Erp-Signature yok -> 401
 #     E3) 10 dakika ileri tarihli damga, geçerli imza -> 401
 #     E4) zaman damgası sayı değil ("abc") -> 401
@@ -13,8 +13,7 @@
 #     E8) 70 KB gövde -> 413 (imza hesaplanmadan)
 #   Her cevap 5 sn'den kısa; 401 gövdesi nedeni söylemiyor; nedenler yalnızca servis logunda.
 #
-# Not (Adım 2): haberin kaydedilmesi ve işlenmesi Adım 3'te. Şu an geçerli haber (E1) de tabloya yazılmıyor; bu yüzden
-# "hiçbiri yazılmıyor" kontrolü asıl anlamını Adım 3'ten sonra kazanır. Script Adım 3'ten sonra yeniden çalıştırılacak.
+# Adım 3'ten beri geçerli haber kaydediliyor: tabloda bu script'ten yalnızca E1 olmalı (401/400/413 alanlar yok).
 #
 # Önce servisin yeni kodla derlenmiş olması gerekir: docker compose up -d --build invoice-service
 . "$PSScriptRoot\_common.ps1"
@@ -95,15 +94,15 @@ foreach ($c in $cases | Where-Object LogReason) {
     $count = @($log | Where-Object { $_ -match "http=$($c.Expected) reason=$([regex]::Escape($c.LogReason))" }).Count
     if ($count -lt 1) { $allPassed = $false; Write-Host "  $($c.Id): logda 'http=$($c.Expected) reason=$($c.LogReason)' yok" -ForegroundColor Red }
 }
-$verified = @($log | Where-Object { $_ -match "ERP webhook verified event=${prefix}E1 " }).Count
-if ($verified -ne 1) { $allPassed = $false; Write-Host "  E1: logda 'verified' satırı yok" -ForegroundColor Red }
+$stored1 = @($log | Where-Object { $_ -match "ERP webhook stored event=${prefix}E1 " }).Count
+if ($stored1 -ne 1) { $allPassed = $false; Write-Host "  E1: logda 'stored' satırı yok" -ForegroundColor Red }
 
-Write-DbHeader 'erp_webhook_events' 'Bu script''in gönderdiği haberlerden hiçbiri tabloda olmamalı'
-$sql = "SELECT count(*) FROM erp_webhook_events WHERE event_id LIKE '$prefix%';"
+Write-DbHeader 'erp_webhook_events' 'Bu script''in haberlerinden yalnızca E1 tabloda olmalı; 401/400/413 alanlar yazılmamalı'
+$sql = "SELECT event_id, status, ignore_reason FROM erp_webhook_events WHERE event_id LIKE '$prefix%' ORDER BY event_id;"
 Show-ServiceQuery $sql
-$stored = @(Get-ServiceRows $sql)[0]
-$ok = $stored -eq '0'
+$ids = @(Get-ServiceRows "SELECT event_id FROM erp_webhook_events WHERE event_id LIKE '$prefix%' ORDER BY event_id;")
+$ok = ($ids -join ',') -eq "${prefix}E1"
 if (-not $ok) { $allPassed = $false }
-Write-DbVerdict "0 satır (K1, K2, K3 401 aldı; Adım 2'de geçerli haber de henüz yazılmıyor)" "$stored satır" $ok | Out-Null
+Write-DbVerdict "yalnızca ${prefix}E1 (K1, K2, K3 ve diğer reddedilenler yok)" "$($ids.Count) satır: $($ids -join ', ')" $ok | Out-Null
 
-Write-Result $allPassed 'yanlış imza, eksik başlık, eski/ileri tarihli damga 401; bozuk içerik 400; büyük gövde 413; hiçbiri kaydedilmedi'
+Write-Result $allPassed 'yanlış imza, eksik başlık, eski/ileri tarihli damga 401 ve kaydedilmedi; bozuk içerik 400; büyük gövde 413'

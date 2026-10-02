@@ -29,6 +29,12 @@ public sealed class ErpWebhookEvent
     /// <summary>One of <see cref="WebhookEventStatus"/>, enforced by a check constraint.</summary>
     public required string Status { get; set; }
 
+    /// <summary>
+    /// Added column: why the event was Yok Sayıldı (one of <see cref="Webhooks.IgnoreReason"/>); null otherwise.
+    /// Checklist 3 counts "ignored because it would move the status back" separately from other ignored events.
+    /// </summary>
+    public string? IgnoreReason { get; set; }
+
     /// <summary>The request body exactly as received (text, not jsonb: jsonb would reorder and reformat it).</summary>
     public required string Payload { get; set; }
 

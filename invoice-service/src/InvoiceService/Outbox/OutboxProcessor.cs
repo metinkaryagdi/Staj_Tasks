@@ -1,6 +1,7 @@
 using System.Globalization;
 using InvoiceService.Data;
 using InvoiceService.Erp;
+using InvoiceService.Webhooks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -23,7 +24,7 @@ public sealed record ClaimedEntry(long Id, string InvoiceNumber, int Attempt, bo
 /// </summary>
 public sealed class OutboxProcessor(
     InvoiceDbContext db, ErpClient erp, RetryPolicy policy, IOptions<OutboxOptions> options, TimeProvider time,
-    ILogger<OutboxProcessor> logger)
+    WebhookEventProcessor events, ILogger<OutboxProcessor> logger)
 {
     /// <summary>
     /// How long a taken entry belongs to the worker that took it (Outbox:LockSeconds). Longer than the longest attempt,
@@ -175,6 +176,13 @@ public sealed class OutboxProcessor(
                     .SetProperty(i => i.ErpReference, result.ErpReference)
                     .SetProperty(i => i.LastError, result.Error)
                     .SetProperty(i => i.UpdatedAt, now), CancellationToken.None);
+
+            // ERP events that arrived before the invoice was Gönderildi are applied now, in the same transaction.
+            // The UPDATE above holds the invoice's row lock, so an event arriving right now either committed before it
+            // (and is found here) or waits for this commit and then sees Gönderildi.
+            if (invoiceStatus == InvoiceStatus.Sent)
+                await events.ApplyWaitingAsync(entry.InvoiceNumber, CancellationToken.None);
+
             await transaction.CommitAsync(CancellationToken.None);
         }
 

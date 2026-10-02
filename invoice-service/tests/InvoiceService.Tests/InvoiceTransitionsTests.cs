@@ -17,16 +17,16 @@ public class InvoiceTransitionsTests
     }
 
     [Theory]
-    [InlineData(InvoiceStatus.Processing, WebhookEventType.Received)]
-    [InlineData(InvoiceStatus.Approved, WebhookEventType.Received)]
-    [InlineData(InvoiceStatus.Approved, WebhookEventType.Approved)]
-    [InlineData(InvoiceStatus.Approved, WebhookEventType.Rejected)]
-    [InlineData(InvoiceStatus.Rejected, WebhookEventType.Received)]
-    [InlineData(InvoiceStatus.Rejected, WebhookEventType.Approved)]
-    [InlineData(InvoiceStatus.Rejected, WebhookEventType.Rejected)]
-    public void Events_that_do_not_move_forward_are_ignored(string status, string eventType)
+    [InlineData(InvoiceStatus.Processing, WebhookEventType.Received, IgnoreReason.NotForward)]
+    [InlineData(InvoiceStatus.Approved, WebhookEventType.Received, IgnoreReason.Backward)]
+    [InlineData(InvoiceStatus.Rejected, WebhookEventType.Received, IgnoreReason.Backward)]
+    [InlineData(InvoiceStatus.Approved, WebhookEventType.Approved, IgnoreReason.Final)]
+    [InlineData(InvoiceStatus.Approved, WebhookEventType.Rejected, IgnoreReason.Final)]
+    [InlineData(InvoiceStatus.Rejected, WebhookEventType.Approved, IgnoreReason.Final)]
+    [InlineData(InvoiceStatus.Rejected, WebhookEventType.Rejected, IgnoreReason.Final)]
+    public void Events_that_do_not_move_forward_are_ignored(string status, string eventType, string reason)
     {
-        Assert.Equal(new Transition(TransitionOutcome.Ignore), InvoiceTransitions.For(status, eventType));
+        Assert.Equal(new Transition(TransitionOutcome.Ignore, IgnoreReason: reason), InvoiceTransitions.For(status, eventType));
     }
 
     [Theory]

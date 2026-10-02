@@ -82,6 +82,9 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
                 t.HasCheckConstraint("ck_erp_webhook_events_status", InList("status", WebhookEventStatus.All));
                 t.HasCheckConstraint("ck_erp_webhook_events_event_type", InList("event_type", WebhookEventType.All));
                 t.HasCheckConstraint("ck_erp_webhook_events_delivery_count", "delivery_count >= 1");
+                t.HasCheckConstraint("ck_erp_webhook_events_ignore_reason",
+                    $"(status = '{WebhookEventStatus.Ignored}') = (ignore_reason IS NOT NULL) " +
+                    $"AND (ignore_reason IS NULL OR {InList("ignore_reason", Webhooks.IgnoreReason.All)})");
             });
 
             // The primary key is what makes a repeated event_id impossible to store twice.
@@ -96,6 +99,7 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.Property(e => e.ReceivedAt).HasColumnName("received_at");
             entity.Property(e => e.ProcessedAt).HasColumnName("processed_at");
             entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(16);
+            entity.Property(e => e.IgnoreReason).HasColumnName("ignore_reason").HasMaxLength(16);
             entity.Property(e => e.Payload).HasColumnName("payload");
             entity.Property(e => e.DeliveryCount).HasColumnName("delivery_count").HasDefaultValue(1);
 
