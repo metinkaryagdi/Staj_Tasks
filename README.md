@@ -1,11 +1,12 @@
 # Staj_Tasks
 
-Fatura entegrasyonu üzerine staj projesi: Invoice Service ve ona hata üreterek cevap veren ERP Simulator.
+Fatura entegrasyonu üzerine staj projesi: Invoice Service ve ona hata üreterek cevap veren, sonra faturanın sonucunu
+imzalı haberlerle bildiren ERP Simulator.
 
 | Uygulama | Klasör | Ne yapar |
 |---|---|---|
-| ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; her isteğe seed'li rastgele bir hata davranışı uygular |
-| Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir ve sonucu yazar |
+| ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; her isteğe seed'li rastgele bir hata davranışı uygular; kaydettiği faturalar için Invoice Service'e imzalı haber gönderir (bilerek sorunlu) |
+| Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir; ERP'den gelen haberleri doğrulayıp faturaya işler |
 
 Her günün teslim edilen hali bir git tag'idir; README yalnızca uygulamaları ve **bugünün** işini anlatır.
 Önceki günlerin anlatımı ve sonuçları kendi tag'inde durur (bkz. [Günler](#günler)).
@@ -28,7 +29,9 @@ bağlantı bilgisi ve şifresi vardır; iki uygulama birbirine yalnızca `apps` 
 Veritabanları ayrıca ayrı docker ağlarındadır, bu yüzden karşı uygulama veritabanının adını çözemez. Ancak ayrı ağlar
 IP ile erişimi her ortamda engellemez (Docker Desktop'ta engellemiyor); ayrılığı sağlayan, bağlantı bilgileridir.
 
-Her iki uygulamada da şema EF Core migration ile açılışta otomatik oluşur.
+Her iki uygulamada da şema EF Core migration ile açılışta otomatik oluşur. Docker içinde her uygulama
+`appsettings.json`'ın üzerine `appsettings.Docker.json`'ı okur (`ASPNETCORE_ENVIRONMENT=Docker`): veritabanı bağlantısı
+ve karşı uygulamanın adresi oradadır.
 
 ---
 
@@ -40,7 +43,7 @@ Her iki uygulamada da şema EF Core migration ile açılışta otomatik oluşur.
 
 | Endpoint | Davranış |
 |---|---|
-| `POST /api/v1/invoices` | Gövde: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Seçilen davranışa göre cevap verir (aşağıda). Eksik/geçersiz alan `400`. |
+| `POST /api/v1/invoices` | Gövde: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Seçilen davranışa göre cevap verir (aşağıda). Eksik/geçersiz alan `400`; tutar en fazla iki ondalık (`1.234` → `400`, sondaki sıfırlar sayılmaz: `1.230` = `1.23`). |
 | `GET /api/v1/invoices/{invoiceNumber}` | `200` + `registered`, `erpReference` (ilk kayıt), `recordCount`, `records[]`. Kayıt yoksa `404`. Hata üretmez. |
 
 ```json
@@ -71,9 +74,27 @@ bulunursa yeni davranış seçilmez. Oranlar gerçek yüzdedir:
 - **Seed:** aynı seed + aynı istek sırası = aynı davranış dizisi. ERP Simulator yeniden başlayınca dizi baştan başlar.
 - **Log:** her istek seçilen davranışla loglanır: `ERP request #12 invoice=INV-2026-0001 behavior=Busy status=429 retryAfter=17s`
 
+### Haberler (webhook)
+
+Kaydedilen her fatura (`Success`, `SaveThenError`, `LateResponse`) için iki haber planlanır ve faturayla aynı transaction'da
+`webhook_deliveries` tablosuna yazılır: önce `invoice.received` (kayıttan 2–10 sn sonra), sonra `invoice.approved` (%80) ya da
+`invoice.rejected` (%20, `reason` ile; `invoice.received`'dan 2–20 sn sonra). Arka plandaki gönderici, zamanı gelen haberi
+Invoice Service'in `POST /api/v1/erp-webhooks` adresine gönderir.
+
+- Gövde: `event_id`, `event_type`, `invoice_number`, `erp_reference`, `occurred_at`, red haberinde `reason`.
+- İmza: `X-Erp-Signature` = `HMAC-SHA256(gizli anahtar, "{X-Erp-Timestamp}.{ham gövde}")`, küçük harfli hex; zaman damgası Unix saniye.
+- 5 sn içinde 2xx gelmezse aynı haber, bir önceki gönderimin başlangıcından 5, 10, 20, 40 ve 80 sn sonra en fazla 5 kez
+  daha gönderilir; sonra `Failed`.
+- Bilerek çıkarılan sorunlar (oranlar birbirinden bağımsız): çift gönderim (haber başına %10, aynı `event_id`), sıra
+  karışması (%15, karar önce gönderilir; oluşma zamanları gerçek sırada kalır), kayıp karar (%5, hiç gönderilmez),
+  sahte haber (%5, yanlış anahtarla imzalı karar), eski haber (%5, asıl haber teslim edildikten sonra 10 dk önceki zaman
+  damgasıyla ve ona göre geçerli imzayla). Sahte ve eski haber 4xx ile reddedilince tekrar gönderilmez.
+- Her gönderim loglanır: `Webhook send event=… type=invoice.received invoice=FTR-000042 kind=Normal attempt=1/6 http=200 outcome=Delivered …`
+
 ### Ayarlar
 
-[`erp-simulator/src/ErpSimulator/appsettings.json`](erp-simulator/src/ErpSimulator/appsettings.json) — container'a mount edilir, değişiklikten sonra `docker compose restart erp-simulator`.
+[`erp-simulator/src/ErpSimulator/appsettings.json`](erp-simulator/src/ErpSimulator/appsettings.json) ve
+[`appsettings.Docker.json`](erp-simulator/src/ErpSimulator/appsettings.Docker.json) — container'a mount edilir, değişiklikten sonra `docker compose restart erp-simulator`.
 
 ```json
 "Simulator": {
@@ -101,6 +122,13 @@ bulunursa yeni davranış seçilmez. Oranlar gerçek yüzdedir:
   eklenmedi: eski çift kayıtlar silinmez ve ayar geri kapatılabilir. Koruma, aynı veritabanını kullanan bütün
   gönderim yollarının bu kilide uymasını gerektirir; devam eden istekler bitmeden mod değiştirilmemelidir.
 - Açılışta ayarlar loglanır: `Simulator settings: seed=42 success=60% busy=15% ... (total=100) ...`
+- **`Webhooks`** bölümü (hepsi zorunlu, her birinin yanında Türkçe açıklama): `Enabled` (varsayılan `true`; `false` iken
+  haber planlanmaz, yalnızca kendi haberini gönderen testler için), `TargetUrl` (Docker'da `appsettings.Docker.json`'da),
+  `Secret` (Invoice Service'teki `ErpWebhooks:Secret` ile aynı; yalnızca yerel geliştirme değeri), `TimeoutSeconds` (5),
+  `RetryDelaysSeconds` (5, 10, 20, 40, 80), `FirstEvent…`/`SecondEvent…` (2–10 / 2–20 sn), `ApprovalRate` (80),
+  `RejectReasons`, `MaxConcurrentSends`, `PollMilliseconds` ve `Problems` (`DuplicateRate` 10, `OrderMixRate` 15,
+  `LostDecisionRate` 5, `FakeRate` 5, `ReplayRate` 5, `ReplayAgeSeconds` 600). Açılışta `Webhook settings: …` ve
+  `Webhook problems: …` loglanır.
 
 Tek seferlik değişiklik ortam değişkeniyle de yapılabilir (toplam yine 100 olmalı):
 
@@ -120,13 +148,19 @@ hataya göre bekleyip tekrar dener ve sonucu yazar (Outbox Pattern). Böylece fa
 önlenir: iki kayıt birlikte yazılır ya da ikisi de geri alınır. Bu yerel transaction, ERP'deki kaydı kapsamaz;
 uzaktaki çift kayıt sorunu ayrıca ele alınır.
 
+ERP'nin gönderdiği haberler (`invoice.received`, `invoice.approved`, `invoice.rejected`) `POST /api/v1/erp-webhooks` ile
+gelir; imza doğrulanır, haber `erp_webhook_events` tablosuna bir kez yazılır ve faturanın durumu yalnızca ileri götürülür.
+
 ### Veri
 
 - **`invoices`**: `invoice_number`, `customer_code`, `amount`, `currency`, `invoice_date`, `status`, `erp_reference`,
-  `last_error`, `send_attempt_count`, `created_at`, `updated_at`.
+  `reject_reason`, `last_error`, `send_attempt_count`, `created_at`, `updated_at`.
   - Fatura numarasını servis üretir: PostgreSQL sequence → `FTR-000001`. Gövdede gönderilen `invoiceNumber` yok sayılır.
-  - `status`: `Bekliyor` → `Gönderildi` ya da `Başarısız` (veritabanında check constraint). `Başarısız` kalıcıdır:
-    bütün denemeler tükendiğinde ya da ERP Simulator 429 dışında bir 4xx döndüğünde. Yalnızca resend onu yeniden kuyruğa alır.
+  - `status`: `Bekliyor` → `Gönderildi` ya da `Başarısız`; ERP haberleriyle `Gönderildi` → `İşleme Alındı` →
+    `Onaylandı` / `Reddedildi` (Gönderildi'den doğrudan karar da olur). Altı değer veritabanında check constraint ile
+    sınırlı. `Onaylandı` ve `Reddedildi` kesin durumdur. `Başarısız`: bütün denemeler tükendiğinde ya da ERP Simulator 429
+    dışında bir 4xx döndüğünde; yalnızca resend onu yeniden kuyruğa alır.
+  - `reject_reason`: `invoice.rejected` haberindeki `reason`; yalnızca `Reddedildi` faturada dolu.
   - `send_attempt_count`: faturanın ömrü boyunca yapılan deneme sayısı; resend'de sıfırlanmaz.
 - **`erp_outbox`**: faturanın Outbox kaydı, fatura başına bir satır (`invoice_number` unique).
   `id`, `invoice_number`, `status` (`Bekliyor` / `Tamamlandı` / `Başarısız`), `attempt_count`, `next_attempt_at`,
@@ -134,15 +168,21 @@ uzaktaki çift kayıt sorunu ayrıca ele alınır.
   - `locked_until`: sahipliğin bitiş zamanı; worker ölürse kayıt süre dolunca yeniden alınabilir.
   - `locked_by`: kaydı alan servis kopyası; hangi worker'ın çalıştığını izlemek için.
   - `claim_token`: her alımda yeni kimlik; eski alımın sonucunun yeni alımın sonucunu ezmesini önlemek için.
+- **`erp_webhook_events`**: gelen her geçerli haber bir satır (`event_id` birincil anahtar). `event_type`, `invoice_number`,
+  `erp_reference`, `occurred_at`, `received_at` (ilk geliş), `processed_at`, `status` (`İşlendi` / `Bekliyor` / `Yok Sayıldı`),
+  `payload` (ham gövde). Eklenen kolonlar:
+  - `delivery_count`: aynı haberin kaç kez geldiği; tekrar gelen haber yeniden işlenmez, yalnızca sayılır.
+  - `ignore_reason`: Yok Sayıldı'nın nedeni (`Geri Götürüyor`, `Kesin Durumda`, `İlerletmiyor`, `Referans Farklı`).
 
 ### Endpoint'ler
 
 | Endpoint | Davranış |
 |---|---|
-| `POST /api/v1/invoices` | Gövde: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura `Bekliyor` durumunda ve `erp_outbox` kaydıyla aynı transaction'da yazılır, `202`. ERP Simulator bu istekte çağrılmaz. Geçersiz gövde `400`, hiçbir şey kaydedilmez. |
+| `POST /api/v1/invoices` | Gövde: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura `Bekliyor` durumunda ve `erp_outbox` kaydıyla aynı transaction'da yazılır, `202`. ERP Simulator bu istekte çağrılmaz. Geçersiz gövde `400` (tutar en fazla iki ondalık; sondaki sıfırlar sayılmaz), hiçbir şey kaydedilmez. |
 | `POST /api/v1/invoices/{invoiceNumber}/resend` | Yalnızca `Başarısız` fatura için. ERP Simulator'a gitmez: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen) ve faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409`, yoksa `404`. Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
-| `GET /api/v1/invoices?status=Bekliyor` | O durumdaki faturalar (`Bekliyor`, `Gönderildi`, `Başarısız`); `status` verilmezse hepsi, geçersizse `400`. Testlerde kuyruğun boşalmasını beklemek için. |
-| `GET /api/v1/invoices/{invoiceNumber}` | Faturanın servisteki hali (`200`) ya da `404`. |
+| `GET /api/v1/invoices?status=Bekliyor` | O durumdaki faturalar (altı durumdan biri); `status` verilmezse hepsi, geçersizse `400`. Testlerde kuyruğun boşalmasını beklemek için. |
+| `GET /api/v1/invoices/{invoiceNumber}` | Faturanın servisteki hali (`200`, `rejectReason` dahil) ya da `404`. |
+| `POST /api/v1/erp-webhooks` | ERP haberi (aşağıda). İmza başlıkları yok/yanlış ya da zaman damgası 5 dk'dan eski veya ileri: `401`, kaydedilmez. İmza doğru ama gövde geçersiz: `400`; 64 KB'tan büyük gövde: `413`. Aksi halde `200` + `{eventId, status, repeat}`. |
 
 ### Outbox Worker
 
@@ -173,6 +213,21 @@ uzaktaki çift kayıt sorunu ayrıca ele alınır.
   resend ile yeni bir tur başlatılabilir; fatura üzerindeki ömür boyu sayaç sıfırlanmaz.
 - Her deneme loglanır:
   `ERP send invoice=FTR-000042 attempt=3/10 worker=… claim=1a2b3c4d check=notFound outcome=Retry http=500 … wait=8.412s reason=…`
+- **Bilinen sınır (Gün 3):** ilk POST ERP'de henüz kaydedilmeden timeout olursa sonraki GET `404` dönebilir ve ikinci POST
+  çift kayıt oluşturabilir; ERP Simulator'da `IdempotentInvoices=true` bunu alıcı tarafta önler.
+
+### ERP haberleri
+
+- **İmza:** `X-Erp-Timestamp` ve `X-Erp-Signature` gövde JSON'a çevrilmeden ham baytlar üzerinden doğrulanır; imza sabit
+  zamanlı karşılaştırılır (`CryptographicOperations.FixedTimeEquals`). 401'in nedeni yalnızca loga yazılır.
+- **Tekrar:** haber `INSERT … ON CONFLICT (event_id)` ile yazılır; aynı haber (paralel gelse de) yalnızca bir kez işlenir,
+  sonrakiler `200` alır ve `delivery_count`'u artırır.
+- **Uygulama:** fatura satırı `SELECT … FOR UPDATE` ile kilitlenir. İleri götüren haber uygulanır; `erp_reference` farklıysa
+  (uyarı logu) ya da durumu ilerletmiyorsa haber `Yok Sayıldı`, fatura değişmez.
+- **Faturadan önce gelen haber:** fatura henüz `Gönderildi` değilse haber `Bekliyor` saklanır. Outbox faturayı `Gönderildi`
+  yaptığı transaction'da bekleyen haberleri geliş sırasıyla işler; aynı satır kilidi sayesinde ikisi iç içe geçemez.
+- Loglar: `ERP webhook stored|repeat|applied-after-send event=… invoiceStatus=Gönderildi->İşleme Alındı …`,
+  `ERP webhook rejected http=401 reason=bad-signature …`
 
 ### Ayarlar
 
@@ -182,7 +237,7 @@ eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar. Değişiklikt
 
 | Ayar | Değer | Kaynak |
 |---|---|---|
-| `Erp:BaseUrl` | `http://localhost:5080` | compose içinde `http://erp-simulator:8080` |
+| `Erp:BaseUrl` | `http://localhost:5080` | Docker'da `appsettings.Docker.json`: `http://erp-simulator:8080` |
 | `Erp:TimeoutSeconds` | `10` | Görev (`HttpClient`'ın varsayılanı 100 sn; ERP Simulator'da `LateResponse` süresi 30 sn) |
 | `Outbox:MaxConcurrentSends` | `10` | Görev; servis kopyası başına |
 | `Outbox:MaxAttempts` | `10` | Görev |
@@ -191,6 +246,9 @@ eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar. Değişiklikt
 | `Outbox:BackoffMarginMilliseconds` | `0` | Bizim seçimimiz; tavanın altında bırakılan pay |
 | `Outbox:LockSeconds` | `60` | Bizim seçimimiz; `3 × TimeoutSeconds`'tan uzun olmak zorunda |
 | `Outbox:IdleDelayMilliseconds` | `250` | Bizim seçimimiz; kuyrukta iş yokken bekleme |
+| `ErpWebhooks:Secret` | yerel geliştirme değeri | Görev: ayar dosyasından; ERP Simulator'daki `Webhooks:Secret` ile aynı olmalı, en az 32 bayt |
+| `ErpWebhooks:ToleranceSeconds` | `300` | Görev: 5 dk'dan eski damga `401`; aynı sınır ileri tarihli damgaya da uygulanır (bizim eklememiz) |
+| `ErpWebhooks:MaxBodyBytes` | `65536` | Bizim seçimimiz; büyük gövde imza hesaplanmadan `413` |
 
 Açılışta ayarlar loglanır: `ERP settings: …`.
 
@@ -210,7 +268,8 @@ docker compose --profile iki-kopya up -d invoice-service-2
 | Ne | Komut |
 |---|---|
 | Unit testler | `dotnet test erp-simulator` ve `dotnet test invoice-service` |
-| Elle testler — Gün 3 kontrol listesi, adım ve ek testleri | [`manual-tests/gun3/`](manual-tests/gun3/README.md) |
+| Elle testler — Gün 4 kontrol listesi, adım ve ek testleri | [`manual-tests/gun4/`](manual-tests/gun4/) |
+| Elle testler — Gün 3 kontrol listesi (Gün 4'ten beri simülatörü haber göndermeden çalıştırır) | [`manual-tests/gun3/`](manual-tests/gun3/README.md) |
 | Elle testler — ERP Simulator | [`manual-tests/gun1/`](manual-tests/gun1/README.md) |
 | ERP Simulator veritabanı / logları | `.\manual-tests\gun1\db.ps1`, `.\manual-tests\gun1\loglar.ps1` |
 | Invoice Service veritabanı | `.\manual-tests\gun2\db.ps1` |
@@ -228,70 +287,56 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 3 — Güvenli Gönderim
+## Gün 4 — ERP'den Gelen Haberler
 
-Bugünün işi: fatura artık istek içinde gönderilmiyor; `erp_outbox`'a yazılıyor ve arka plandaki worker gönderiyor
-(retry, çift kayıt kontrolü, yarıda kalan gönderimin kurtarılması; yukarıda [Invoice Service](#invoice-service)
-bölümünde). Resend artık yalnızca kuyruğa alıyor, durum filtreli listeleme eklendi. ERP Simulator'a varsayılanı kapalı
-`IdempotentInvoices` ayarı eklendi.
+Bugünün işi: ERP Simulator kaydettiği her fatura için imzalı haberler gönderiyor ve bilerek sorun çıkarıyor (yukarıda
+[Haberler](#haberler-webhook)); Invoice Service bu haberleri doğrulayıp faturaya işliyor (yukarıda [ERP haberleri](#erp-haberleri)).
+Fatura durumları altıya çıktı, `reject_reason` ve `erp_webhook_events` eklendi. Önce Gün 3'teki yuvarlama bulgusu kapatıldı:
+iki uygulama da ikiden fazla ondalıklı tutarı `400` ile reddediyor. Docker ayarları `appsettings.Docker.json`'a taşındı.
 
-Kontrol listesi, adım testleri ve ek testler: [`manual-tests/gun3/`](manual-tests/gun3/README.md)
-(`.\manual-tests\gun3\kontrol-listesi.ps1` 7 maddeyi sırayla çalıştırır).
+Kontrol listesi ve ek testler: [`manual-tests/gun4/`](manual-tests/gun4/) (`.\manual-tests\gun4\kontrol-listesi.ps1`
+8 maddeyi sırayla çalıştırır; `ek-kabul-kurallari.ps1`, `ek-fatura-servisi.ps1`, `ek-simulator-kararlari.ps1` ek kanıtlar).
 
-### Son doğrulama — 1 Ekim 2026
+### Son doğrulama — 2 Ekim 2026
 
-Yedi görev testi, `IdempotentInvoices=false` ile **21,2 dakikada geçti**. Test edilen aralık
-`FTR-011552 .. FTR-013412`: 1.861 fatura Gönderildi, Outbox kayıtları Tamamlandı; ERP'de her faturadan bir kayıt
-ve referanslar iki tarafta aynı. Son durumda bekleyen ve kilitli kayıt yok. Bunlar bu çalıştırmanın sonuçlarıdır;
-bütün olası arıza koşulları için garanti değildir.
+Sekiz test **9,5 dakikada geçti**. Bunlar bu çalıştırmanın sonuçlarıdır; bütün olası arıza koşulları için garanti değildir.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
-| 1 | Hata yok, 100 fatura | 100 Gönderildi; tek kayıt; referanslar 100/100 aynı |
-| 2 | Varsayılan oranlar, 1000 fatura | 1000 Gönderildi; ayrıntılar aşağıda |
-| 3 | Busy %100, sonra Success %100 | Retry-After saniye ve tarih biçimlerinde 23'er bekleme kontrolü; tolerans dışında uyumsuzluk yok; 10 fatura Gönderildi |
-| 4 | ServerError %100, ardından resend | 10. denemede fatura ve Outbox Başarısız; resend sonrası Gönderildi. En uzun plan 59,998 sn; ölçülen aralık 60,010 sn |
-| 5 | ERP kapalı, 50 fatura; 2 dk sonra açılış | 50/50 POST 202; sonunda 50 Gönderildi; çift kayıt yok |
-| 6 | 200 fatura, 3 kez kill | 14 gönderim yarıda kaldı; sonunda 200 Gönderildi; kayıp ve çift kayıt yok |
-| 7 | İki kopya, 500 fatura | 500 Gönderildi; 751 deneme (422 + 329); aynı faturada gözlenen çakışma yok; kopya başına en fazla 10, toplam 20 gönderim |
+| 1 | Üç ondalıklı tutar | İki uygulamada da `400`, kayıt yok |
+| 2 | Bütün oranlar 0, 100 fatura | Hepsi Onaylandı/Reddedildi; Reddedildi'lerin `reject_reason`'ı dolu; 200 haber tabloda tam bir kez |
+| 3 | Varsayılan oranlar, 500 fatura | Aşağıda |
+| 4 | Sıra karışması %100, 20 fatura | 20 kesin durumda; sonradan gelen 20 `invoice.received` Yok Sayıldı |
+| 5 | Invoice Service 125 sn kapalı | Kapalıyken teslim 0; açılınca 40 haber tekrar gönderimle geldi; 20 fatura kesin durumda |
+| 6 | Geç cevap %100, 10 fatura | 10'unda ilk haber fatura Gönderildi olmadan geldi (log ve veritabanı); hepsi kesin durumda |
+| 7 | Yanlış imza, başlık yok, 10 dk eski damga | Üçü `401`; tabloda yok |
+| 8 | Aynı haber 10 kez paralel | Biri işledi, 9'u tekrar (`delivery_count` 10); fatura bir kez ilerledi |
 
-**1000 fatura testi** (`FTR-011652 .. FTR-012651`):
+**500 fatura testi** (`FTR-019115 .. FTR-019614`):
 
-| Durum | Fatura sayısı |
+| Durum | Sayı |
 |---|---|
-| Invoice Service'te Gönderildi | 1000 |
-| Invoice Service'te Başarısız | 0 |
-| ERP Simulator'da birden fazla kaydı olan | 0 |
-| Invoice Service'te Gönderildi ama ERP Simulator'da olmayan | 0 |
-| ERP referansı iki tarafta farklı olan | 0 |
+| Onaylandı | 367 |
+| Reddedildi | 103 |
+| Gönderildi ya da İşleme Alındı'da kalan fatura | 30 |
+| ERP Simulator'ın karar haberini hiç göndermediği fatura | 30 |
+| 401 ile reddedilen sahte haber | 20 |
+| 401 ile reddedilen eski haber | 31 |
+| Tekrar geldiği için yeniden işlenmeyen haber | 109 |
+| Durumu geri götürdüğü için Yok Sayıldı olan haber | 68 |
+| Durumu geri giden fatura | 0 |
 
-Kuyruk ilk POST'tan **196,2 sn** sonra boşaldı. Fatura başına ortalama **1,516 (yuvarlanmış 1,52) deneme**.
-Yerel ham çıktı: `manual-tests/output/gun3-kontrol-listesi-20261001-181408.log`.
-Bu çıktı Git'e dahil değildir; teslim kanıtı olarak ayrıca paylaşılmalıdır.
-
-**Ek 2 — Idempotency:** `ek2-idempotency.ps1` tek referansı da dizi olarak değerlendirecek şekilde düzeltildi ve
-yeniden çalıştırıldı; dört bölümün tamamı geçti. Kapalı modda aynı fatura iki kayıt, açık modda aynı içerik tek kayıt
-ve aynı referans, farklı tutar `409` üretti. Kayıt geciktirilerek kurulan F1 senaryosunda:
-
-| Ayar | Fatura | ERP sonucu |
-|---|---|---|
-| `false` | `FTR-011550` | 2 kayıt: `ERP-00013845`, `ERP-00013846` |
-| `true` | `FTR-011551` | 1 kayıt: `ERP-00013847`; servisteki referansla aynı |
-
-Ek testin ham çıktıları repo dışındaki yerel `qa-ek2-duzeltme-20261001-181117` kanıt klasöründedir;
-`ek2-transcript.log` ve `verification.log` teslimle ayrıca paylaşılmalıdır. Test sonunda ayar `false` değerine döndü.
+Kalan 30 fatura, kararı gönderilmeyen 30 faturayla numara numara aynı. Yerel ham çıktı:
+`manual-tests/output/gun4-kontrol-listesi-20261002-163046.log` (Git'e dahil değildir).
 
 ### Bilinen sınırlar
 
-- **F1:** ilk POST ERP'de henüz kaydedilmeden timeout olursa, sonraki GET `404` dönebilir ve ikinci POST çift kayıt
-  oluşturabilir. Varsayılan modda görevin “hangi durum olursa olsun tek kayıt” şartı kesin olarak sağlanmıyor.
-  `IdempotentInvoices=true`, ERP Simulator'a eklenen alıcı tarafı korumasıdır; Invoice Service'in tek başına garantisi değildir.
-- **Bekleme süreleri:** 60 sn sınırı jitter dahil planlanan beklemeye uygulanır. Kuyruk taraması, kapasite ve veritabanı
-  gecikmesi gerçek aralığı uzatabilir. Son testte 60,010 sn ölçüldü; gerçek sürenin kesinlikle 60 sn altında kaldığı
-  söylenemez. Retry-After testi de mutlak eşitlik yerine ölçüm toleransı kullanır.
-- **Tutar hassasiyeti:** doğrudan ERP Simulator'a ikiden fazla ondalıklı tutar gönderimi kabul ediliyor, veritabanı ise iki
-  ondalık saklıyor. Aynı ham isteğin tekrarında içerik karşılaştırması `409` üretebilir. Kod incelemesinde bulunan bu
-  durum henüz düzeltilmedi veya ayrı bir çalışma zamanı testiyle doğrulanmadı; geçen ek test iki ondalıklı tutar kullandı.
+- **Servis kesintisi:** ERP Simulator bir haberi ilk gönderimden sonraki 155 sn boyunca dener. 125 sn'lik kesintide haberler
+  son denemede ulaştı; daha uzun kesintide haber `Failed` kalır ve fatura kesin duruma geçmez.
+- **Tutar:** sondaki sıfırlar ret sebebi sayılmaz (`1.230` kabul edilir, `1.23` kaydedilir).
+- **Kaydedilmeyen istekler:** `401`'e ek olarak `400` (geçersiz gövde) ve `413` (64 KB üstü) alan haberler de tabloya yazılmaz;
+  nedenleri servis loguna yazılır.
+- **Seed:** ERP Simulator her açılışta aynı rastgele diziyle başlar; aynı testler aynı sayıları üretir.
 
 ---
 
@@ -302,3 +347,4 @@ Ek testin ham çıktıları repo dışındaki yerel `qa-ek2-duzeltme-20261001-18
 | `gun-1` | ERP Simulator | [tree/gun-1](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-1) |
 | `gun-2` | Invoice Service'in ilk sürümü | [tree/gun-2](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-2) |
 | `gun-3` | Güvenli Gönderim | [tree/gun-3](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-3) |
+| `gun-4` | ERP'den Gelen Haberler | [tree/gun-4](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-4) |
