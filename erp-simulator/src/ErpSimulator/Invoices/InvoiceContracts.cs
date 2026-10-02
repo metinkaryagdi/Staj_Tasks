@@ -20,9 +20,10 @@ public sealed partial record CreateInvoiceRequest(
             errors[nameof(CustomerCode)] = ["Required, max 64 characters."];
 
         // Same rule as the invoice service. amount is numeric(18,2): a third decimal would be rounded away silently.
-        // Trailing zeros are not extra decimals: 1.230 is the same value as 1.23 and is accepted.
-        if (Amount is null or <= 0 || decimal.Round(Amount.Value, 2) != Amount.Value)
-            errors[nameof(Amount)] = ["Required, must be greater than 0 with at most 2 decimals."];
+        // The task: more than two digits after the decimal point gets 400. decimal keeps the digits as written
+        // (1.230 has scale 3), so trailing zeros count too: 1.230 is rejected like 1.234.
+        if (Amount is null or <= 0 || Amount.Value.Scale > 2)
+            errors[nameof(Amount)] = ["Required, must be greater than 0 with at most 2 digits after the decimal point."];
 
         if (Currency is null || !CurrencyPattern().IsMatch(Currency))
             errors[nameof(Currency)] = ["Required, 3-letter ISO 4217 code (e.g. TRY, EUR)."];

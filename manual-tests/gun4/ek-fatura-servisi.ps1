@@ -189,8 +189,13 @@ Show-CodeEvidence 'invoice-service/src/InvoiceService/Outbox/OutboxProcessor.cs'
 Write-Step 'Fatura status yazma yollarının kaynak taraması'
 Push-Location $RepoRoot
 try {
-    Write-Host "KOMUT: rg -n 'SetProperty\(i => i.Status|invoice.Status =|Status = InvoiceStatus|UPDATE invoices|SET status' invoice-service/src/InvoiceService -g '*.cs' -g '!**/Migrations/**'"
-    & rg -n 'SetProperty\(i => i.Status|invoice.Status =|Status = InvoiceStatus|UPDATE invoices|SET status' invoice-service/src/InvoiceService -g '*.cs' -g '!**/Migrations/**'
+    # Ek araç gerektirmesin diye Select-String (rg kurulu olmayabilir); Migrations, bin ve obj taranmaz.
+    $pattern = 'SetProperty\(i => i.Status|invoice.Status =|Status = InvoiceStatus|UPDATE invoices|SET status'
+    Write-Host "KOMUT: Select-String -Pattern '$pattern' invoice-service/src/InvoiceService/**/*.cs (Migrations, bin, obj hariç)"
+    Get-ChildItem 'invoice-service/src/InvoiceService' -Recurse -Filter '*.cs' |
+        Where-Object { $_.FullName -notmatch '[\\/](Migrations|bin|obj)[\\/]' } |
+        Select-String -Pattern $pattern |
+        ForEach-Object { '{0}:{1}:{2}' -f (Resolve-Path -Relative $_.Path), $_.LineNumber, $_.Line.Trim() }
 } finally { Pop-Location }
 Write-Host 'YORUM - koddan çıkarılan 6 x 3 geçiş tablosu:'
 Write-Host '  Durum            received                 approved               rejected'
@@ -310,16 +315,16 @@ payload::jsonb->>'occurred_at' IS NULL OR abs(extract(epoch FROM occurred_at-(pa
 "@
 Show-ServiceQuery "SELECT status,count(*) AS satir,min(delivery_count),max(delivery_count) FROM erp_webhook_events GROUP BY status ORDER BY status;"
 Check-Zero 'bütün tabloda üç değer dışındaki haber status''u' "SELECT count(*) FROM erp_webhook_events WHERE status NOT IN ('İşlendi','Bekliyor','Yok Sayıldı');"
-Check-Zero 'bütün tabloda processed_at doluluğu kurala aykırı' "SELECT count(*) FROM erp_webhook_events WHERE (status='Bekliyor' AND processed_at IS NOT NULL) OR (status IN ('İşlendi','Yok Sayıldı') AND processed_at IS NULL);"
+Check-Zero 'bütün tabloda processed_at doluluğu kurala aykırı' "SELECT count(*) FROM erp_webhook_events WHERE (status IN ('Bekliyor','Yok Sayıldı') AND processed_at IS NOT NULL) OR (status='İşlendi' AND processed_at IS NULL);"
 
 Write-Step 'Canlı tekrar: received_at ve ham gövde aynı, delivery_count artıyor'
 $repeat = New-ProofEvent $processingNumber 'invoice.received'
 $repeat.Body = '  ' + $repeat.Body + '  '
 $r1 = Send-ProofEvent $repeat
-$first = [string]@(Get-ServiceRows "SELECT received_at || '|' || processed_at || '|' || delivery_count FROM erp_webhook_events WHERE event_id='$($repeat.Id)';")[0]
+$first = [string]@(Get-ServiceRows "SELECT received_at || '|' || coalesce(processed_at::text, '-') || '|' || delivery_count FROM erp_webhook_events WHERE event_id='$($repeat.Id)';")[0]
 Start-Sleep -Seconds 1
 $r2 = Send-ProofEvent $repeat
-$second = [string]@(Get-ServiceRows "SELECT received_at || '|' || processed_at || '|' || delivery_count FROM erp_webhook_events WHERE event_id='$($repeat.Id)';")[0]
+$second = [string]@(Get-ServiceRows "SELECT received_at || '|' || coalesce(processed_at::text, '-') || '|' || delivery_count FROM erp_webhook_events WHERE event_id='$($repeat.Id)';")[0]
 Show-ServiceQuery "SELECT event_id,received_at,processed_at,delivery_count,octet_length(payload) AS govde_bayti FROM erp_webhook_events WHERE event_id='$($repeat.Id)';"
 $parts1 = $first -split '\|'; $parts2 = $second -split '\|'
 Check 'iki geliş 200; received_at/processed_at aynı; delivery_count 1 -> 2' "$first -> $second" ($r1.Status -eq 200 -and $r2.Status -eq 200 -and $parts1[0] -eq $parts2[0] -and $parts1[1] -eq $parts2[1] -and $parts1[2] -eq '1' -and $parts2[2] -eq '2')
@@ -367,8 +372,8 @@ $timeSql = "SELECT e.event_id,e.received_at,e.processed_at AS haber_islendi,o.pr
 Show-ServiceQuery $timeSql
 $equal = Count-Service "SELECT count(*) FROM erp_webhook_events e JOIN erp_outbox o USING(invoice_number) WHERE e.event_id='$($early.Id)' AND e.processed_at=o.processed_at;"
 Check 'erken haberin processed_at''i outbox.processed_at ile birebir aynı' "$equal / 1; fark_ms yukarıdaki SQL'de" ($equal -eq 1) $timeSql
-Write-Host 'YORUM: OutboxProcessor.cs:144 ve WebhookEventProcessor.cs:96 ayrı GetUtcNow çağırır. Fark çıkarsa uygulama değiştirilmez; asıl tanım olan işlenme zamanı ile birebir Gönderildi zamanının seçimi kullanıcıya raporlanır.'
-Check-Zero 'erken örnek dahil bütün tabloda processed_at doluluğu' "SELECT count(*) FROM erp_webhook_events WHERE (status='Bekliyor' AND processed_at IS NOT NULL) OR (status IN ('İşlendi','Yok Sayıldı') AND processed_at IS NULL);"
+Write-Host 'YORUM: outbox, bekleyen haberleri faturayı Gönderildi yaptığı transaction''da ve aynı zamanla işler (OutboxProcessor ApplyWaitingAsync(..., now, ...)); bu yüzden iki zaman birebir aynı olmalı.'
+Check-Zero 'erken örnek dahil bütün tabloda processed_at doluluğu' "SELECT count(*) FROM erp_webhook_events WHERE (status IN ('Bekliyor','Yok Sayıldı') AND processed_at IS NOT NULL) OR (status='İşlendi' AND processed_at IS NULL);"
 Restart-Simulator (Get-SimSettings -NoEvents)
 
 Write-Step '401 / 400 / 413: HTTP ve 0 kayıt kanıtı'

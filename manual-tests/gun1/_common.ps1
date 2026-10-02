@@ -23,6 +23,8 @@ $SimulatorEnvKeys = @(
     # Gün 4: haber sorunlarının oranları
     'Webhooks__Enabled',
     'Webhooks__ApprovalRate',
+    'Webhooks__FirstEventMinSeconds',
+    'Webhooks__FirstEventMaxSeconds',
     'Webhooks__RetryDelaysSeconds__0',
     'Webhooks__RetryDelaysSeconds__1',
     'Webhooks__RetryDelaysSeconds__2',

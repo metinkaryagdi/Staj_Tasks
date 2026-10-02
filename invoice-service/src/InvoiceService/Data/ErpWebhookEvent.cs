@@ -23,7 +23,10 @@ public sealed class ErpWebhookEvent
     /// <summary>When the event first reached the service; repeats do not change it.</summary>
     public DateTimeOffset ReceivedAt { get; set; }
 
-    /// <summary>When the event was applied to the invoice or ignored; null while Bekliyor.</summary>
+    /// <summary>
+    /// When the event was applied to the invoice (İşlendi); null while Bekliyor and for Yok Sayıldı (never applied). An
+    /// event that waited for the invoice gets the moment the outbox made the invoice Gönderildi.
+    /// </summary>
     public DateTimeOffset? ProcessedAt { get; set; }
 
     /// <summary>One of <see cref="WebhookEventStatus"/>, enforced by a check constraint.</summary>

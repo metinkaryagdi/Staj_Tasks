@@ -181,7 +181,7 @@ public sealed class OutboxProcessor(
             // The UPDATE above holds the invoice's row lock, so an event arriving right now either committed before it
             // (and is found here) or waits for this commit and then sees Gönderildi.
             if (invoiceStatus == InvoiceStatus.Sent)
-                await events.ApplyWaitingAsync(entry.InvoiceNumber, CancellationToken.None);
+                await events.ApplyWaitingAsync(entry.InvoiceNumber, now, CancellationToken.None);
 
             await transaction.CommitAsync(CancellationToken.None);
         }

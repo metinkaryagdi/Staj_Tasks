@@ -119,12 +119,16 @@ public class WebhookSignatureTests
         Assert.Equal(SignatureCheck.BadSignature, Verify(Ts(0), new string('z', 64)));
     }
 
-    private static IConfiguration Settings(string? secret = Secret, string? tolerance = "300", string? maxBody = "65536") =>
+    private static IConfiguration Settings(
+        string? secret = Secret, string? tolerance = "300", string? maxBody = "65536", string? budget = "4000",
+        string? lockTimeout = "2000") =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ErpWebhooks:Secret"] = secret,
             ["ErpWebhooks:ToleranceSeconds"] = tolerance,
-            ["ErpWebhooks:MaxBodyBytes"] = maxBody
+            ["ErpWebhooks:MaxBodyBytes"] = maxBody,
+            ["ErpWebhooks:ResponseBudgetMilliseconds"] = budget,
+            ["ErpWebhooks:LockTimeoutMilliseconds"] = lockTimeout
         }).Build();
 
     private static bool Validates(IConfiguration configuration)
@@ -145,4 +149,24 @@ public class WebhookSignatureTests
     [InlineData(Secret, "300", "0")]
     public void Invalid_settings_stop_the_app(string? secret, string? tolerance, string? maxBody) =>
         Assert.False(Validates(Settings(secret, tolerance, maxBody)));
+
+    [Theory]
+    [InlineData(null, "2000")]   // missing
+    [InlineData("0", "2000")]
+    [InlineData("5000", "2000")] // the task's limit itself leaves no time for the answer
+    [InlineData("6000", "2000")]
+    [InlineData("4000", null)]   // missing
+    [InlineData("4000", "0")]
+    [InlineData("4000", "4000")] // the lock wait must end before the budget
+    public void Response_limits_must_fit_in_five_seconds(string? budget, string? lockTimeout) =>
+        Assert.False(Validates(Settings(budget: budget, lockTimeout: lockTimeout)));
+
+    [Fact]
+    public void Settings_file_response_limits_are_valid()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
+        Assert.True(Validates(configuration));
+        Assert.True(configuration.GetValue<int>("ErpWebhooks:ResponseBudgetMilliseconds") < WebhookOptionsValidator.TaskResponseLimitMilliseconds);
+    }
 }

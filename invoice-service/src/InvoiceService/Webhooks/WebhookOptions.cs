@@ -18,12 +18,26 @@ public sealed class WebhookOptions
 
     /// <summary>A larger body gets 413 before its signature is computed.</summary>
     public int MaxBodyBytes { get; set; }
+
+    /// <summary>
+    /// The service answers every event within this time: if storing / applying it is not done by then, it gets 503 and
+    /// the ERP sends the event again (if the work still committed late, the next delivery is a repeat and is not applied
+    /// twice).
+    /// </summary>
+    public int ResponseBudgetMilliseconds { get; set; }
+
+    /// <summary>How long the event waits for its invoice's row lock (PostgreSQL lock_timeout) before it gets 503.</summary>
+    public int LockTimeoutMilliseconds { get; set; }
 }
 
 public sealed class WebhookOptionsValidator(IConfiguration configuration) : IValidateOptions<WebhookOptions>
 {
     public static readonly string[] RequiredKeys =
-        [nameof(WebhookOptions.Secret), nameof(WebhookOptions.ToleranceSeconds), nameof(WebhookOptions.MaxBodyBytes)];
+        [nameof(WebhookOptions.Secret), nameof(WebhookOptions.ToleranceSeconds), nameof(WebhookOptions.MaxBodyBytes),
+         nameof(WebhookOptions.ResponseBudgetMilliseconds), nameof(WebhookOptions.LockTimeoutMilliseconds)];
+
+    /// <summary>The task: the service answers every event within 5 seconds.</summary>
+    public const int TaskResponseLimitMilliseconds = 5000;
 
     /// <summary>HMAC-SHA256's own output size; a shorter key is easier to guess.</summary>
     public const int MinSecretBytes = 32;
@@ -48,6 +62,12 @@ public sealed class WebhookOptionsValidator(IConfiguration configuration) : IVal
             errors.Add($"ErpWebhooks:ToleranceSeconds must be greater than 0 (was {options.ToleranceSeconds}).");
         if (options.MaxBodyBytes <= 0)
             errors.Add($"ErpWebhooks:MaxBodyBytes must be greater than 0 (was {options.MaxBodyBytes}).");
+        if (options.ResponseBudgetMilliseconds <= 0 || options.ResponseBudgetMilliseconds >= TaskResponseLimitMilliseconds)
+            errors.Add($"ErpWebhooks:ResponseBudgetMilliseconds must be greater than 0 and less than {TaskResponseLimitMilliseconds} " +
+                $"(was {options.ResponseBudgetMilliseconds}).");
+        if (options.LockTimeoutMilliseconds <= 0 || options.LockTimeoutMilliseconds >= options.ResponseBudgetMilliseconds)
+            errors.Add("ErpWebhooks:LockTimeoutMilliseconds must be greater than 0 and less than ResponseBudgetMilliseconds " +
+                $"(was {options.LockTimeoutMilliseconds}).");
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }

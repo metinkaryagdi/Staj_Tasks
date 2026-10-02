@@ -131,8 +131,9 @@ static void LogErpSettings(WebApplication app)
 
     // The secret itself is never logged.
     var webhooks = app.Services.GetRequiredService<IOptions<WebhookOptions>>().Value;
-    app.Logger.LogInformation("ERP webhook settings: tolerance={Tolerance}s maxBody={MaxBody} bytes",
-        webhooks.ToleranceSeconds, webhooks.MaxBodyBytes);
+    app.Logger.LogInformation(
+        "ERP webhook settings: tolerance={Tolerance}s maxBody={MaxBody} bytes responseBudget={Budget}ms lockTimeout={LockTimeout}ms",
+        webhooks.ToleranceSeconds, webhooks.MaxBodyBytes, webhooks.ResponseBudgetMilliseconds, webhooks.LockTimeoutMilliseconds);
 }
 
 public partial class Program;

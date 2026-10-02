@@ -43,7 +43,7 @@ ve karşı uygulamanın adresi oradadır.
 
 | Endpoint | Davranış |
 |---|---|
-| `POST /api/v1/invoices` | Body: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Seçilen davranışa göre cevap verir (aşağıda). Eksik/geçersiz alan `400`; tutar en fazla iki ondalık (`1.234` → `400`, sondaki sıfırlar sayılmaz: `1.230` = `1.23`). |
+| `POST /api/v1/invoices` | Body: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Seçilen davranışa göre cevap verir (aşağıda). Eksik/geçersiz alan `400`; tutarda virgülden sonra en fazla iki basamak (`1.234` ve `1.230` → `400`; `1.23`, `1.20` kabul). |
 | `GET /api/v1/invoices/{invoiceNumber}` | `200` + `registered`, `erpReference` (ilk kayıt), `recordCount`, `records[]`. Kayıt yoksa `404`. Hata üretmez. |
 
 ```json
@@ -169,7 +169,7 @@ gelir; imza doğrulanır, event `erp_webhook_events` tablosuna bir kez yazılır
   - `locked_by`: kaydı alan servis instance'ı; hangi worker'ın çalıştığını izlemek için.
   - `claim_token`: her alımda yeni kimlik; eski alımın sonucunun yeni alımın sonucunu ezmesini önlemek için.
 - **`erp_webhook_events`**: gelen her geçerli event bir satır (`event_id` birincil anahtar). `event_type`, `invoice_number`,
-  `erp_reference`, `occurred_at`, `received_at` (ilk geliş), `processed_at`, `status` (`İşlendi` / `Bekliyor` / `Yok Sayıldı`),
+  `erp_reference`, `occurred_at`, `received_at` (ilk geliş), `processed_at` (faturaya işlendiği an; yalnızca `İşlendi`'de dolu), `status` (`İşlendi` / `Bekliyor` / `Yok Sayıldı`),
   `payload` (raw body). Eklenen kolonlar:
   - `delivery_count`: aynı event'in kaç kez geldiği; tekrar gelen event yeniden işlenmez, yalnızca sayılır.
   - `ignore_reason`: Yok Sayıldı'nın nedeni (`Geri Götürüyor`, `Kesin Durumda`, `İlerletmiyor`, `Referans Farklı`).
@@ -178,11 +178,11 @@ gelir; imza doğrulanır, event `erp_webhook_events` tablosuna bir kez yazılır
 
 | Endpoint | Davranış |
 |---|---|
-| `POST /api/v1/invoices` | Body: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura `Bekliyor` durumunda ve `erp_outbox` kaydıyla aynı transaction'da yazılır, `202`. ERP Simulator bu istekte çağrılmaz. Geçersiz body `400` (tutar en fazla iki ondalık; sondaki sıfırlar sayılmaz), hiçbir şey kaydedilmez. |
+| `POST /api/v1/invoices` | Body: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura `Bekliyor` durumunda ve `erp_outbox` kaydıyla aynı transaction'da yazılır, `202`. ERP Simulator bu istekte çağrılmaz. Geçersiz body `400` (tutarda virgülden sonra en fazla iki basamak; sondaki sıfırlar da sayılır), hiçbir şey kaydedilmez. |
 | `POST /api/v1/invoices/{invoiceNumber}/resend` | Yalnızca `Başarısız` fatura için. ERP Simulator'a gitmez: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen) ve faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409`, yoksa `404`. Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
 | `GET /api/v1/invoices?status=Bekliyor` | O durumdaki faturalar (altı durumdan biri); `status` verilmezse hepsi, geçersizse `400`. Testlerde kuyruğun boşalmasını beklemek için. |
 | `GET /api/v1/invoices/{invoiceNumber}` | Faturanın servisteki hali (`200`, `rejectReason` dahil) ya da `404`. |
-| `POST /api/v1/erp-webhooks` | ERP webhook event'i (aşağıda). İmza header'ları yok/yanlış ya da timestamp 5 dk'dan eski veya ileri: `401`, kaydedilmez. İmza doğru ama body geçersiz: `400`; 64 KB'tan büyük body: `413`. Aksi halde `200` + `{eventId, status, repeat}`. |
+| `POST /api/v1/erp-webhooks` | ERP webhook event'i (aşağıda). İmza header'ları yok/yanlış ya da timestamp 5 dk'dan eski veya ileri: `401`, kaydedilmez. İmza doğru ama body geçersiz: `400`; 64 KB'tan büyük body: `413`. Event 4 sn içinde işlenemezse `503` (ERP tekrar gönderir). Aksi halde `200` + `{eventId, status, repeat}`. |
 
 ### Outbox Worker
 
@@ -226,8 +226,12 @@ gelir; imza doğrulanır, event `erp_webhook_events` tablosuna bir kez yazılır
   (uyarı logu) ya da durumu ilerletmiyorsa event `Yok Sayıldı`, fatura değişmez.
 - **Faturadan önce gelen event:** fatura henüz `Gönderildi` değilse event `Bekliyor` saklanır. Outbox faturayı `Gönderildi`
   yaptığı transaction'da bekleyen event'leri geliş sırasıyla işler; aynı row lock ile ikisinin iç içe geçmemesi amaçlanır.
+- **Cevap süresi (görev: 5 sn):** event kendi DI scope'unda işlenir; cevap en geç `ResponseBudgetMilliseconds` (4000 ms)
+  sonra döner. Bu sürede işlenemezse ya da fatura satırının lock'u `LockTimeoutMilliseconds` (2000 ms) içinde alınamazsa
+  `503` dönülür ve ERP event'i tekrar gönderir. PostgreSQL tarafında da `lock_timeout` ve `statement_timeout` açıktır.
+  `503`'ten sonra iş yine de commit olabilir; o durumda tekrar gelen event tekrar sayılır, iki kez işlenmez.
 - Loglar: `ERP webhook stored|repeat|applied-after-send event=… invoiceStatus=Gönderildi->İşleme Alındı …`,
-  `ERP webhook rejected http=401 reason=bad-signature …`
+  `ERP webhook rejected http=401 reason=bad-signature …`, `ERP webhook rejected http=503 reason=lock-timeout|timeout …`
 
 ### Ayarlar
 
@@ -249,6 +253,8 @@ eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar. Değişiklikt
 | `ErpWebhooks:Secret` | yerel geliştirme değeri | Görev: ayar dosyasından; ERP Simulator'daki `Webhooks:Secret` ile aynı olmalı, en az 32 bayt |
 | `ErpWebhooks:ToleranceSeconds` | `300` | Görev: 5 dk'dan eski timestamp `401`; aynı sınır ileri tarihli timestamp'e de uygulanır (ek kural) |
 | `ErpWebhooks:MaxBodyBytes` | `65536` | Uygulama tercihi; büyük body imza hesaplanmadan `413` |
+| `ErpWebhooks:ResponseBudgetMilliseconds` | `4000` | Görev: her event'e 5 sn içinde cevap; 5000'den küçük olmak zorunda |
+| `ErpWebhooks:LockTimeoutMilliseconds` | `2000` | Uygulama tercihi; fatura satırının lock'unu bekleme sınırı, `ResponseBudgetMilliseconds`'tan küçük |
 
 Açılışta ayarlar loglanır: `ERP settings: …`.
 
@@ -292,27 +298,29 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 Bugünün işi: ERP Simulator kaydettiği her fatura için imzalı webhook'lar gönderiyor ve bilerek sorun çıkarıyor (yukarıda
 [Webhook'lar](#webhooklar)); Invoice Service bu event'leri doğrulayıp faturaya işliyor (yukarıda [ERP webhook'ları](#erp-webhookları)).
 Fatura durumları altıya çıktı, `reject_reason` ve `erp_webhook_events` eklendi. Önce Gün 3'teki yuvarlama bulgusu kapatıldı:
-iki uygulama da ikiden fazla ondalıklı tutarı `400` ile reddediyor. Docker ayarları `appsettings.Docker.json`'a taşındı.
+iki uygulama da virgülden sonra ikiden fazla basamağı olan tutarı (sondaki sıfırlar dahil) `400` ile reddediyor.
+Invoice Service her event'e 5 sn içinde cevap veriyor (gerekirse `503`). Docker ayarları `appsettings.Docker.json`'a taşındı.
 
 Kontrol listesi ve ek testler: [`manual-tests/gun4/`](manual-tests/gun4/) (`.\manual-tests\gun4\kontrol-listesi.ps1`
-8 maddeyi sırayla çalıştırır; `ek-kabul-kurallari.ps1`, `ek-fatura-servisi.ps1`, `ek-simulator-kararlari.ps1` ek kanıtlar).
+8 maddeyi sırayla çalıştırır; `ek-kabul-kurallari.ps1`, `ek-cevap-suresi.ps1`, `ek-fatura-servisi.ps1`,
+`ek-simulator-kararlari.ps1` ek kanıtlar).
 
 ### Son doğrulama — 2 Ekim 2026
 
-Sekiz test tek seferde çalıştırıldı ve **8,9 dakikada geçti**. Bunlar bu koşunun sonuçlarıdır; başka koşullarda ya da başka bir koşuda farklı sonuç çıkmayacağını göstermez.
+Sekiz test tek seferde çalıştırıldı ve **9,3 dakikada geçti**. Bunlar bu koşunun sonuçlarıdır; başka koşullarda ya da başka bir koşuda farklı sonuç çıkmayacağını göstermez.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
-| 1 | Üç ondalıklı tutar | İki uygulamada da `400`, kayıt yok |
+| 1 | Üç ondalıklı tutar | `1.234`, `1.230`, `1.2300` iki uygulamada da `400`, kayıt yok; `1.23`, `1.20` kabul |
 | 2 | Bütün oranlar 0, 100 fatura | Hepsi Onaylandı/Reddedildi; Reddedildi'lerin `reject_reason`'ı dolu; 200 event tabloda tam bir kez |
 | 3 | Varsayılan oranlar, 500 fatura | Aşağıda |
 | 4 | Sıra karışması %100, 20 fatura | 20 kesin durumda; sonradan gelen 20 `invoice.received` Yok Sayıldı |
-| 5 | Invoice Service 124 sn kapalı | Kapalıyken teslim edilen event görülmedi; açılınca 40 event retry ile geldi; 20 fatura kesin durumda |
+| 5 | Invoice Service 125 sn kapalı | Kapalıyken teslim edilen event görülmedi; 1 event kapanmadan önce, 39 event açılınca retry ile geldi; 20 fatura kesin durumda |
 | 6 | Geç cevap %100, 10 fatura | 10'unda ilk event fatura Gönderildi olmadan geldi (log ve veritabanı); hepsi kesin durumda |
 | 7 | Yanlış imza, header yok, 10 dk eski timestamp | Üçü `401`; tabloda bulunmadı |
 | 8 | Aynı event 10 kez paralel | Biri işledi, 9'u tekrar (`delivery_count` 10); fatura bir kez ilerledi |
 
-**500 fatura testi** (`FTR-019788 .. FTR-020287`):
+**500 fatura testi** (`FTR-021047 .. FTR-021546`):
 
 | Durum | Sayı |
 |---|---|
@@ -327,13 +335,14 @@ Sekiz test tek seferde çalıştırıldı ve **8,9 dakikada geçti**. Bunlar bu 
 | Durumu geri giden fatura | 0 |
 
 Kalan 30 fatura, kararı gönderilmeyen 30 faturayla numara numara karşılaştırıldı; listeler aynı çıktı. Yerel ham çıktı:
-`manual-tests/output/gun4-kontrol-listesi-20261002-175120.log` (Git'e dahil değildir).
+`manual-tests/output/gun4-kontrol-listesi-20261002-191117.log` (Git'e dahil değildir).
 
 ### Bilinen sınırlar
 
-- **Servis kesintisi:** bu koşuda 124 sn'lik kesintiden sonra event'ler son denemede ulaştı. Deneme hakları tükenmeden
+- **Servis kesintisi:** bu koşuda 125 sn'lik kesintiden sonra event'ler son denemede ulaştı. Deneme hakları tükenmeden
   Invoice Service erişilebilir olmazsa event `Failed` olur ve fatura kesin duruma geçmez.
-- **Tutar:** sondaki sıfırlar ret sebebi sayılmaz (`1.230` kabul edilir, `1.23` kaydedilir); bu bir yorumdur, görev bu konuda açık bir istisna belirtmiyor.
+- **Cevap süresi:** 5 sn sınırı servisin kendi işini kapsar; servis hiç çalışmıyorsa ya da donmuşsa cevap gelmez, bu durumda
+  ERP'nin tekrar gönderimi devreye girer.
 - **Kaydedilmeyen istekler:** `401`'e ek olarak `400` (geçersiz body) ve `413` (64 KB üstü) alan event'ler de tabloya yazılmaz;
   nedenleri servis loguna yazılır.
 

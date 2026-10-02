@@ -13,18 +13,20 @@ public class InvoiceRequestTests
     [InlineData("10.005")]
     [InlineData("1.234")]
     [InlineData("1.2301")]
+    // Trailing zeros are digits after the decimal point too (decimal keeps them: 1.230m has scale 3).
+    [InlineData("1.230")]
+    [InlineData("1.2300")]
     public void Amount_with_more_than_two_decimals_is_rejected(string amount)
     {
         Assert.Contains("Amount", Validate(amount).Keys);
     }
 
-    // decimal keeps trailing zeros (1.230m has scale 3), but they do not change the value.
     [Theory]
     [InlineData("1.23")]
-    [InlineData("1.230")]
-    [InlineData("1.2300")]
+    [InlineData("1.20")]
+    [InlineData("1.2")]
     [InlineData("5")]
-    public void Amount_with_trailing_zeros_is_accepted(string amount)
+    public void Amount_with_at_most_two_decimals_is_accepted(string amount)
     {
         Assert.Empty(Validate(amount));
     }

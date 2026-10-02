@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using Npgsql;
 
 namespace InvoiceService.Webhooks;
 
@@ -17,22 +18,38 @@ public static class WebhookEndpoints
                 "Missing headers, a wrong signature or a timestamp more than ErpWebhooks:ToleranceSeconds away from now: 401, " +
                 "nothing is stored. A valid signature with an invalid body: 400. Otherwise 200: the event is stored once " +
                 "(a repeated event_id is not applied again) and applied to the invoice, ignored, or kept until the " +
-                "invoice is Gönderildi.")
+                "invoice is Gönderildi. Not done within ErpWebhooks:ResponseBudgetMilliseconds (or the invoice's row " +
+                "lock not free within LockTimeoutMilliseconds): 503, and the ERP sends the event again.")
             .Accepts<ErpWebhookRequest>("application/json")
             .Produces<EventResult>(StatusCodes.Status200OK)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
     }
 
+    /// <summary>
+    /// The task: the service answers every event within 5 seconds. The answer is due ResponseBudgetMilliseconds after
+    /// the request reaches this handler, whatever the database does: the event is stored in its own scope and the
+    /// response only waits for it until the budget runs out (then 503). The same budget cancels the work, and
+    /// PostgreSQL's lock_timeout / statement_timeout stop it on the server side too.
+    /// </summary>
     private static async Task<IResult> ReceiveEvent(
-        HttpRequest request, IOptions<WebhookOptions> options, TimeProvider clock, WebhookEventProcessor processor,
+        HttpRequest request, IOptions<WebhookOptions> options, TimeProvider clock, IServiceScopeFactory scopes,
         ILoggerFactory loggerFactory, CancellationToken ct)
     {
         var settings = options.Value;
         var logger = loggerFactory.CreateLogger("InvoiceService.Webhooks");
+        var started = clock.GetTimestamp();
+        using var budget = new CancellationTokenSource(TimeSpan.FromMilliseconds(settings.ResponseBudgetMilliseconds), clock);
+        using var work = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
 
-        var body = await ReadBody(request, settings.MaxBodyBytes, ct);
+        byte[]? body;
+        try { body = await ReadBody(request, settings.MaxBodyBytes, work.Token); }
+        catch (OperationCanceledException) when (budget.IsCancellationRequested)
+        {
+            return Unavailable(logger, "timeout-reading-body", "-", clock.GetElapsedTime(started));
+        }
         if (body is null)
         {
             logger.LogWarning("ERP webhook rejected http=413 reason=too-large maxBytes={Max}", settings.MaxBodyBytes);
@@ -74,8 +91,72 @@ public static class WebhookEndpoints
         }
 
         // The body is valid JSON here, so it is valid UTF-8: stored exactly as received.
-        var result = await processor.ReceiveAsync(payload, Encoding.UTF8.GetString(body), ct);
-        return Results.Ok(result);
+        var processing = ProcessInOwnScope(scopes, payload, Encoding.UTF8.GetString(body), work.Token);
+        try
+        {
+            var result = await processing.WaitAsync(budget.Token);
+            return Results.Ok(result);
+        }
+        catch (OperationCanceledException) when (budget.IsCancellationRequested)
+        {
+            LogLateOutcome(processing, logger, payload.EventId!);
+            return Unavailable(logger, "timeout", payload.EventId!, clock.GetElapsedTime(started));
+        }
+        catch (Exception ex) when (DatabaseTimeout(ex) is { } reason)
+        {
+            return Unavailable(logger, reason, payload.EventId!, clock.GetElapsedTime(started));
+        }
+    }
+
+    /// <summary>
+    /// Its own DI scope (and DbContext), not the request's: when the budget runs out the response is sent while this
+    /// may still be finishing, and the request's scope is disposed with the response.
+    /// </summary>
+    private static async Task<EventResult> ProcessInOwnScope(
+        IServiceScopeFactory scopes, ErpWebhookRequest payload, string body, CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        var processor = scope.ServiceProvider.GetRequiredService<WebhookEventProcessor>();
+        return await processor.ReceiveAsync(payload, body, ct);
+    }
+
+    /// <summary>
+    /// 503: the event was not stored and applied in time. The transaction is rolled back, so the ERP's next delivery
+    /// stores it; if it still committed just after the budget ran out, the next delivery is a repeat (200, not applied
+    /// again).
+    /// </summary>
+    private static IResult Unavailable(ILogger logger, string reason, string eventId, TimeSpan elapsed)
+    {
+        logger.LogWarning("ERP webhook rejected http=503 reason={Reason} event={EventId} elapsed={ElapsedMs}ms",
+            reason, eventId, (long)elapsed.TotalMilliseconds);
+        return Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Not processed in time");
+    }
+
+    /// <summary>After a 503 on timeout: logs whether the work still committed (then a redelivery is a repeat) or not.</summary>
+    private static void LogLateOutcome(Task<EventResult> processing, ILogger logger, string eventId) =>
+        _ = processing.ContinueWith(t =>
+        {
+            if (t.IsCompletedSuccessfully)
+                logger.LogWarning("ERP webhook event={EventId} committed after its 503; a redelivery is a repeat", eventId);
+            else
+                logger.LogInformation("ERP webhook event={EventId} rolled back after its 503: {Error}",
+                    eventId, t.Exception?.GetBaseException().Message ?? "cancelled");
+        }, TaskScheduler.Default);
+
+    /// <summary>"lock-timeout" / "statement-timeout" when PostgreSQL stopped the transaction on its limits, else null.</summary>
+    private static string? DatabaseTimeout(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            if (e is PostgresException pg)
+                return pg.SqlState switch
+                {
+                    PostgresErrorCodes.LockNotAvailable => "lock-timeout",
+                    PostgresErrorCodes.QueryCanceled => "statement-timeout",
+                    _ => null
+                };
+        }
+        return null;
     }
 
     /// <summary>The raw body, or null if it is larger than <paramref name="maxBytes"/> (read no further than that).</summary>

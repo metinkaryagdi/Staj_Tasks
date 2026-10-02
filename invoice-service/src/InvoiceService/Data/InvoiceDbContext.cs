@@ -85,6 +85,9 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
                 t.HasCheckConstraint("ck_erp_webhook_events_ignore_reason",
                     $"(status = '{WebhookEventStatus.Ignored}') = (ignore_reason IS NOT NULL) " +
                     $"AND (ignore_reason IS NULL OR {InList("ignore_reason", Webhooks.IgnoreReason.All)})");
+                // processed_at is "when the event was applied to the invoice": set only on İşlendi.
+                t.HasCheckConstraint("ck_erp_webhook_events_processed_at",
+                    $"(status = '{WebhookEventStatus.Processed}') = (processed_at IS NOT NULL)");
             });
 
             // The primary key is what makes a repeated event_id impossible to store twice.

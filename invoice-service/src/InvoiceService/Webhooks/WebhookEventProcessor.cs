@@ -1,5 +1,7 @@
+using System.Globalization;
 using InvoiceService.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace InvoiceService.Webhooks;
 
@@ -15,7 +17,8 @@ public sealed record EventResult(string EventId, string Status, bool Repeat);
 /// sees what the first committed.
 /// </para>
 /// </summary>
-public sealed class WebhookEventProcessor(InvoiceDbContext db, TimeProvider time, ILogger<WebhookEventProcessor> logger)
+public sealed class WebhookEventProcessor(
+    InvoiceDbContext db, TimeProvider time, IOptions<WebhookOptions> options, ILogger<WebhookEventProcessor> logger)
 {
     /// <summary>
     /// Stores the event once and applies it, in one transaction. A repeated event_id only increments delivery_count.
@@ -29,6 +32,7 @@ public sealed class WebhookEventProcessor(InvoiceDbContext db, TimeProvider time
     {
         var now = time.GetUtcNow();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await LimitWaitsAsync(ct);
 
         var inserted = (await db.Database.SqlQuery<bool>($"""
             INSERT INTO erp_webhook_events
@@ -76,7 +80,7 @@ public sealed class WebhookEventProcessor(InvoiceDbContext db, TimeProvider time
     /// already Gönderildi when it arrived or not (e.g. a decision that arrived before invoice.received still makes the
     /// later invoice.received Yok Sayıldı).
     /// </summary>
-    public async Task ApplyWaitingAsync(string invoiceNumber, CancellationToken ct)
+    public async Task ApplyWaitingAsync(string invoiceNumber, DateTimeOffset sentAt, CancellationToken ct)
     {
         var invoice = await LockInvoiceAsync(invoiceNumber, ct);
         if (invoice is null)
@@ -93,10 +97,25 @@ public sealed class WebhookEventProcessor(InvoiceDbContext db, TimeProvider time
         if (waiting.Count == 0)
             return;
 
-        var now = time.GetUtcNow();
+        // The waiting events are applied in the transaction that made the invoice Gönderildi: same moment.
         foreach (var ev in waiting)
-            Apply(invoice, ev, now, afterSend: true);
+            Apply(invoice, ev, sentAt, afterSend: true);
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// PostgreSQL's own limits for this transaction only (SET LOCAL): waiting longer than LockTimeoutMilliseconds for a
+    /// row lock, or running a statement longer than ResponseBudgetMilliseconds, fails it on the server, so the event
+    /// gets 503 in time even if cancelling from the client side would be slow.
+    /// </summary>
+    private async Task LimitWaitsAsync(CancellationToken ct)
+    {
+        var settings = options.Value;
+        var lockTimeout = settings.LockTimeoutMilliseconds.ToString(CultureInfo.InvariantCulture);
+        var statementTimeout = settings.ResponseBudgetMilliseconds.ToString(CultureInfo.InvariantCulture);
+        // SET takes no parameters; both values are validated integers (milliseconds).
+        var sql = "SET LOCAL lock_timeout = " + lockTimeout + "; SET LOCAL statement_timeout = " + statementTimeout;
+        await db.Database.ExecuteSqlRawAsync(sql, ct);
     }
 
     /// <summary>Tracked and locked until the transaction ends; null if there is no such invoice.</summary>
@@ -126,9 +145,9 @@ public sealed class WebhookEventProcessor(InvoiceDbContext db, TimeProvider time
                 ev.ProcessedAt = now;
                 break;
             case TransitionOutcome.Ignore:
+                // Not applied to the invoice, so no processed_at; the decision's time is in the log.
                 ev.Status = WebhookEventStatus.Ignored;
                 ev.IgnoreReason = transition.IgnoreReason;
-                ev.ProcessedAt = now;
                 break;
             case TransitionOutcome.Wait:
                 ev.Status = WebhookEventStatus.Pending;
