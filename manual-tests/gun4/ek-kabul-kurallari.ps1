@@ -49,7 +49,7 @@ $a, $b, $c = $inv
 # --- K1 ---------------------------------------------------------------------------------------------------------------
 Write-Step 'K1) 401 ve kayıt yok; imza sabit zamanlı karşılaştırılıyor'
 Write-Host '  Kod:' -ForegroundColor DarkGray
-Select-String -Path (Join-Path $RepoRoot 'invoice-service\src\InvoiceService\Webhooks\WebhookSignature.cs') -Pattern 'FixedTimeEquals|age > toleranceSeconds|age < -toleranceSeconds|MissingHeaders;' |
+Select-String -Path (Join-Path $RepoRoot 'invoice-service\src\InvoiceService.Application\Webhooks\WebhookSignature.cs') -Pattern 'FixedTimeEquals|age > toleranceSeconds|age < -toleranceSeconds|MissingHeaders;' |
     ForEach-Object { Write-Host ("    WebhookSignature.cs:{0}: {1}" -f $_.LineNumber, $_.Line.Trim()) -ForegroundColor DarkGray }
 $k1 = @(
     @{ Id = 'K1a'; Mode = 'badsig'; Off = 0; Exp = 401 }, @{ Id = 'K1b'; Mode = 'noheader'; Off = 0; Exp = 401 },

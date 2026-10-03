@@ -23,7 +23,7 @@ $allPassed = $true
 function Check([bool]$Passed) { if (-not $Passed) { $script:allPassed = $false } }
 
 # Ayar dosyasındaki süreler (appsettings.json yorum içerdiği için regex).
-$settingsText = Get-Content (Join-Path $RepoRoot 'invoice-service\src\InvoiceService\appsettings.json') -Raw -Encoding UTF8
+$settingsText = Get-Content (Join-Path $RepoRoot 'invoice-service\src\InvoiceService.Api\appsettings.json') -Raw -Encoding UTF8
 $budgetMs = [int]([regex]::Match($settingsText, '"ResponseBudgetMilliseconds"\s*:\s*(\d+)').Groups[1].Value)
 $lockMs = [int]([regex]::Match($settingsText, '"LockTimeoutMilliseconds"\s*:\s*(\d+)').Groups[1].Value)
 if ($budgetMs -le 0 -or $lockMs -le 0) { throw 'ResponseBudgetMilliseconds / LockTimeoutMilliseconds ayar dosyasında bulunamadı.' }

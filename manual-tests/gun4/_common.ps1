@@ -16,7 +16,7 @@ function Send-Json([string]$Url, [string]$Json) {
 
 # Servisin ayar dosyasındaki gizli anahtar (appsettings.json yorum içerdiği için ConvertFrom-Json yerine regex).
 function Get-WebhookSecret {
-    $text = Get-Content (Join-Path $RepoRoot 'invoice-service\src\InvoiceService\appsettings.json') -Raw -Encoding UTF8
+    $text = Get-Content (Join-Path $RepoRoot 'invoice-service\src\InvoiceService.Api\appsettings.json') -Raw -Encoding UTF8
     if ($text -notmatch '"ErpWebhooks"[\s\S]*?"Secret"\s*:\s*"([^"]+)"') { throw 'ErpWebhooks:Secret ayar dosyasında bulunamadı.' }
     $Matches[1]
 }

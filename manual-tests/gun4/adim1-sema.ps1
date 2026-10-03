@@ -19,8 +19,10 @@ function Check([bool]$Passed) { if (-not $Passed) { $script:allPassed = $false }
 
 # --- A) Migration ---------------------------------------------------------------------------------------------------
 Write-DbHeader 'A) Migration' 'Son migration ve yeni kolonlar'
-$last = @(Invoke-ServiceSqlStdin 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1;' -Rows)[0]
-Check (Write-DbVerdict 'son migration *_AddWebhookIgnoreReason (Adım 3)' $last ($last -like '*_AddWebhookIgnoreReason'))
+# Adım 3'ün migration'ı uygulanmış olmalı; ondan sonra eklenenler (ör. ProcessedAtOnlyWhenApplied) de olabilir.
+$applied = @(Invoke-ServiceSqlStdin 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId";' -Rows)
+$step3 = @($applied | Where-Object { $_ -like '*_AddWebhookIgnoreReason' })
+Check (Write-DbVerdict '*_AddWebhookIgnoreReason (Adım 3) uygulanmış' ($applied -join ', ') ($step3.Count -eq 1))
 
 $sql = "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = 'erp_webhook_events' ORDER BY ordinal_position;"
 Show-ServiceQuery $sql
