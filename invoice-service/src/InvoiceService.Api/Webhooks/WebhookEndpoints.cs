@@ -29,10 +29,8 @@ public static class WebhookEndpoints
     }
 
     /// <summary>
-    /// The task: the service answers every event within 5 seconds. The answer is due ResponseBudgetMilliseconds after
-    /// the request reaches this handler, whatever the database does: the event is stored in its own scope and the
-    /// response only waits for it until the budget runs out (then 503). The same budget cancels the work, and
-    /// PostgreSQL's lock_timeout / statement_timeout stop it on the server side too.
+    /// Verifies and stores an ERP event. Answers within ResponseBudgetMilliseconds whatever the database does: if the work
+    /// is not done by then, the answer is 503 and the ERP sends the event again.
     /// </summary>
     private static async Task<IResult> ReceiveEvent(
         HttpRequest request, IOptions<WebhookOptions> options, TimeProvider clock, IServiceScopeFactory scopes,
@@ -120,11 +118,7 @@ public static class WebhookEndpoints
         return await processor.ReceiveAsync(payload, body, ct);
     }
 
-    /// <summary>
-    /// 503: the event was not stored and applied in time. The transaction is rolled back, so the ERP's next delivery
-    /// stores it; if it still committed just after the budget ran out, the next delivery is a repeat (200, not applied
-    /// again).
-    /// </summary>
+    /// <summary>503: not done in time; the ERP's next delivery stores it (or is counted as a repeat if it committed late).</summary>
     private static IResult Unavailable(ILogger logger, string reason, string eventId, TimeSpan elapsed)
     {
         logger.LogWarning("ERP webhook rejected http=503 reason={Reason} event={EventId} elapsed={ElapsedMs}ms",

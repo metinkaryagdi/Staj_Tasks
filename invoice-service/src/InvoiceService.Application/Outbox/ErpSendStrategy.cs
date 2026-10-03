@@ -4,9 +4,8 @@ using InvoiceService.Domain.Invoices;
 namespace InvoiceService.Application.Outbox;
 
 /// <summary>
-/// How one attempt reaches the ERP: POST directly the first time, otherwise ask the ERP first and POST only if it
-/// clearly does not have the invoice (see <see cref="OutboxProcessor.SendAsync"/> for why). Does no retrying and writes
-/// nothing: the caller decides what the result means.
+/// Makes one attempt to get an invoice to the ERP: the first time it POSTs; later it asks the ERP first and POSTs only if
+/// the ERP clearly does not have the invoice. Does not retry and writes nothing.
 /// </summary>
 public sealed class ErpSendStrategy(IErpGateway erp, IOutboxStore outbox, TimeProvider time)
 {
@@ -29,16 +28,12 @@ public sealed class ErpSendStrategy(IErpGateway erp, IOutboxStore outbox, TimePr
     }
 
     /// <summary>
-    /// One attempt: POST directly the first time; otherwise ask the ERP first.
-    /// Right before a POST the entry must still be held with this claim and its lock must not have run out; otherwise
-    /// nothing is sent (<see cref="NotHeld"/>): a worker that stalled past its lock must not send what another worker
-    /// may be sending already.
-    /// <c>Check</c> says which path was taken, for the log: first, found, notFound, unknown or notHeld.
+    /// One attempt. Nothing is POSTed if the entry is no longer held with this claim (<see cref="NotHeld"/>).
+    /// <c>Check</c> names the path taken, for the log: first, found, notFound, unknown or notHeld.
     /// </summary>
     public async Task<(ErpSendResult Result, string Check)> SendOnceAsync(Invoice invoice, ClaimedEntry entry)
     {
-        // send_attempt_count is counted per invoice for its whole life (a resend does not reset it) and already
-        // includes this attempt, so 1 means nothing was ever sent before and the ERP cannot have the invoice.
+        // send_attempt_count already includes this attempt and is never reset: 1 means the ERP cannot have the invoice yet.
         if (invoice.SendAttemptCount <= 1)
         {
             return await StillHeldAsync(entry)

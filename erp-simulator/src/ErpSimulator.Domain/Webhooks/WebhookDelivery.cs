@@ -1,10 +1,8 @@
 namespace ErpSimulator.Domain.Webhooks;
 
 /// <summary>
-/// One event the simulator sends to the invoice service (webhook_deliveries). Written in the same transaction as the
-/// invoice record, then sent by the webhook dispatcher when <see cref="DueAt"/> comes, and sent again
-/// after a failure until it is delivered or its retries are used up. Kept in the database, so a simulator restart
-/// does not lose events that are still to be sent.
+/// One event the simulator sends to the invoice service (webhook_deliveries), written together with the invoice record
+/// and sent when <see cref="DueAt"/> comes.
 /// </summary>
 public sealed class WebhookDelivery
 {
@@ -23,10 +21,7 @@ public sealed class WebhookDelivery
     /// <summary>One of <see cref="DeliveryKind"/>: a normal event or one of the deliberate problems.</summary>
     public required string Kind { get; set; }
 
-    /// <summary>
-    /// The JSON body, built once when the row is written: every send of this row (and a duplicate of it) carries
-    /// exactly the same bytes. Only the timestamp and the signature are made at send time.
-    /// </summary>
+    /// <summary>The JSON body, the same bytes on every send; only the timestamp and signature are made at send time.</summary>
     public required string Payload { get; set; }
 
     /// <summary>When the event happened in the ERP (occurred_at in the body).</summary>

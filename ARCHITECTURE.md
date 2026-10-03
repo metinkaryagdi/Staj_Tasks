@@ -130,6 +130,66 @@ kaydı ve `WebhookPlanner`'ın planladığı event'leri tek transaction'da yazar
 `MaxConcurrentSends` gönderir. Her satır için `WebhookSender` imzalar (fake: yanlış anahtar, replay: eski timestamp),
 `IWebhookTransport` ile gönderir, sonucu ve bekleyen replay'leri tek transaction'da yazar.
 
+## Tasarım kararları
+
+Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu burada.
+
+### Gönderim (Invoice Service, outbox)
+
+- **Önce sor, sonra gönder.** ERP bir faturayı kaydedip bunu bize söylemeyebilir (kaydettikten sonra 500, zaman
+  aşımından sonra gelen cevap, gönderim sırasında öldürülen servis). Bu yüzden daha önce denenmiş bir fatura için
+  `ErpSendStrategy` önce ERP'ye sorar; yalnızca ERP açıkça "yok" (404) derse yeniden POST eder. Cevap belirsizse hiçbir
+  şey göndermez, deneme sonra tekrarlanır.
+- **Bu korumanın sınırı.** ERP'nin, aldığı bir isteği sorulduğu anda göstermesine dayanır. Simülatör cevap vermeden
+  önce kaydettiği için hep gösterir; ama kaydı daha da geciktiren bir ERP 404 dönebilir ve fatura iki kez kaydedilebilir.
+  Bunu yalnızca ERP'nin aynı fatura numarasına ikinci kaydı reddetmesi kesin önler (`Simulator:IdempotentInvoices`,
+  varsayılanı kapalı).
+- **Vazgeçmeden önce son kez sorma.** Son deneme ERP'de kaydedilmiş olabilir. Bu yüzden Başarısız yazmadan önce ERP'ye
+  bir kez daha sorulur; kayıt varsa fatura Gönderildi olur. Son denemesi yarıda kalan kayıt (sayaç zaten sınırda) bir
+  daha POST edilmez, yalnızca sorulur.
+- **Deneme, gönderimden önce sayılır.** Kayıt alınırken (`OutboxStore.ClaimAsync`) sayılır; cevap hiç gelmese de deneme
+  kayıtlı kalır. Bu yüzden `send_attempt_count` ERP'nin aldığı POST sayısından büyük olabilir.
+- **İki kopya aynı kaydı almaz.** Kayıt alma tek SQL ifadesidir: `FOR UPDATE SKIP LOCKED` ile her kopya diğerinin
+  aldığı satırları atlar; `locked_until` satırın kime ait olduğunu ifade bittikten sonra da gösterir.
+- **Claim token.** Her alımda yeni bir kimlik yazılır. Kilidi süresi dolmuş (örneğin takılıp kalmış) bir worker'ın
+  kimliği artık eşleşmez; ne POST edebilir ne de sonucu, kaydı ondan sonra alanın sonucunun üzerine yazabilir.
+- **Kilit süresi.** `Outbox:LockSeconds`, bir denemenin en uzun süresinden (sor + gönder + son kez sor =
+  3 × `Erp:TimeoutSeconds`) uzun olmak zorunda; değilse ikinci bir worker hâlâ gönderilmekte olan kaydı alabilir.
+- **Jitter.** Birlikte hata alan faturalar (örneğin ERP kapalıyken) aynı anda yeniden denenip toparlanan ERP'ye tek
+  dalga hâlinde yüklenmesin diye bekleme süresine rastgele bir sapma eklenir. 429'da eklenmez; ERP ne zaman
+  denenebileceğini zaten söylemiştir.
+- **HTTP istemcisinde retry yok.** Her çağrı tam bir HTTP isteğidir; tekrar deneme kararı yalnızca `RetryPolicy`'dedir.
+
+### ERP haberleri (Invoice Service)
+
+- **Faturadan önce gelen haber.** Bekliyor olarak saklanır. Haberle ilgili her karar faturanın satır kilidi
+  (`SELECT ... FOR UPDATE`) tutularak verilir; outbox da faturayı Gönderildi yaparken aynı satırı kilitler. Böylece
+  "fatura henüz Gönderildi değil, haber beklesin" ile "fatura artık Gönderildi, bekleyenleri işle" iç içe geçemez.
+- **Bekleyen haberler geliş sırasıyla işlenir** (`received_at`), oluşma zamanına göre değil. Böylece bir haber, fatura
+  geldiği anda Gönderildi olsa da olmasa da aynı sonucu verir.
+- **Aynı haberin aynı anda gelmesi.** `INSERT ... ON CONFLICT (event_id)`: satırı yalnızca bir istek ekler, diğerleri
+  onun kilidini bekleyip yalnızca `delivery_count`'u artırır (`RETURNING xmax = 0` hangisinin eklediğini söyler).
+  Faturaya yalnızca ekleyen istek işler.
+- **5 saniye kuralı.** Haber, isteğin kendisinden ayrı bir DI scope'unda işlenir ve cevap en fazla
+  `ResponseBudgetMilliseconds` bekler; süre dolarsa 503 döner ve ERP haberi yeniden gönderir. PostgreSQL'in
+  `lock_timeout` ve `statement_timeout` değerleri de (`SET LOCAL`) işi sunucu tarafında durdurur. İş 503'ten hemen sonra
+  yine de tamamlanırsa, bir sonraki teslim yalnızca tekrar sayılır.
+- **İmza sabit zamanlı karşılaştırılır**, böylece cevap süresi bir saldırgana tahmin ettiği imzanın ne kadarının doğru
+  olduğunu söylemez.
+
+### ERP Simulator
+
+- **Her POST aynı sayıda çekiliş yapar** (davranış + Retry-After); dizi yalnızca seed'e ve istek sırasına bağlıdır.
+- **Webhook planlaması kendi RNG'sini kullanır**, böylece POST'ların davranış dizisini kaydırmaz; her fatura da seçilen
+  sorunlardan bağımsız olarak aynı sayıda çekiliş yapar.
+- **Sıra karışmasında yalnızca gönderim zamanları değişir**; haberlerin oluşma zamanları gerçek sırada kalır.
+- **Gövde bir kez oluşturulur**: her gönderim ve çift gönderim aynı baytları taşır, gönderim anında yalnızca zaman
+  damgası ve imza üretilir.
+- **Tekrar gönderim aralıkları bir önceki gönderimin başlangıcından sayılır**; cevapsız kalan ve tam zaman aşımını
+  bekleyen bir gönderim aralıkları uzatmaz.
+- **Idempotent modda benzersiz indeks yerine kilit** (fatura numarasından üretilen PostgreSQL advisory lock): mevcut
+  çift kayıtlar geçerli kalır ve ayar yeniden kapatılabilir.
+
 ## Hangi dosya nereye gitti
 
 ### Invoice Service
@@ -139,7 +199,7 @@ kaydı ve `WebhookPlanner`'ın planladığı event'leri tek transaction'da yazar
 | `Program.cs` (139 satır) | `Api/Program.cs` (41) + `Api/Startup/*` + `Application/DependencyInjection.cs` + `Infrastructure/DependencyInjection.cs` |
 | `Data/Invoice.cs`, `ErpOutboxEntry.cs`, `ErpWebhookEvent.cs` | `Domain/Invoices/`, `Domain/Outbox/`, `Domain/Webhooks/` |
 | `Data/InvoiceDbContext.cs`, `Data/Migrations/` | `Infrastructure/Persistence/` (numara üretimi `InvoiceStore`'a geçti) |
-| `Outbox/OutboxProcessor.cs` (257) | `Application/Outbox/OutboxProcessor.cs` (129, yalnızca akış) + `ErpSendStrategy.cs` (sor/gönder kararı) + `OutboxOutcomeWriter.cs` (sonuç transaction'ı) + `Infrastructure/Persistence/OutboxStore.cs` (claim SQL'i) |
+| `Outbox/OutboxProcessor.cs` (257) | `Application/Outbox/OutboxProcessor.cs` (95, yalnızca akış) + `ErpSendStrategy.cs` (sor/gönder kararı) + `OutboxOutcomeWriter.cs` (sonuç transaction'ı) + `Infrastructure/Persistence/OutboxStore.cs` (claim SQL'i) |
 | `Outbox/OutboxWorker.cs` | `Api/Workers/OutboxWorker.cs` |
 | `Outbox/RetryPolicy.cs`, `OutboxOptions.cs` | `Application/Outbox/` |
 | `Erp/ErpClient.cs` | `Infrastructure/Erp/ErpClient.cs`; sonuç tipleri (`ErpSendResult`, `ErpLookupResult`) `Application/Abstractions/IErpGateway.cs`'e |
@@ -162,8 +222,9 @@ kaydı ve `WebhookPlanner`'ın planladığı event'leri tek transaction'da yazar
 | `Webhooks/WebhookDispatcher.cs` (219) | `Api/Workers/WebhookDispatcher.cs` (döngü) + `Application/Webhooks/WebhookSender.cs` (imza, sonuç) + `Infrastructure/Webhooks/HttpWebhookTransport.cs` + `Infrastructure/Persistence/WebhookDeliveryStore.cs` |
 | `Simulation/*`, `Webhooks/WebhookPlanner.cs`, `WebhookSignature.cs`, `WebhookOptions.cs` | `Application/Simulation/`, `Application/Webhooks/` |
 
-En büyük kaynak dosya 258 satırdan 164 satıra indi. Toplam satır sayısı ise arttı (arayüzler, DI kayıtları ve
-açıklamalar yüzünden); kazanç dosya başına düşen sorumluluktadır, satır sayısında değil.
+En büyük kaynak dosya 258 satırdan 164 satıra indi. Kod içindeki açıklama satırları 709'dan 553'e indi; paragraf
+uzunluğundaki gerekçeler [Tasarım kararları](#tasarım-kararları) bölümüne taşındı. Toplam satır sayısı ise arttı
+(arayüzler ve DI kayıtları yüzünden); kazanç dosya başına düşen sorumluluktadır, satır sayısında değil.
 
 ## Testler
 

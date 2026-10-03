@@ -17,19 +17,9 @@ public sealed record ErpEventBody(
     [property: JsonPropertyName("reason"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason);
 
 /// <summary>
-/// Decides which events a saved invoice gets and when: invoice.received after FirstEvent seconds, then the decision
-/// (approved / rejected by ApprovalRate) after SecondEvent seconds more; then the deliberate problems
-/// (Webhooks:Problems), each drawn on its own:
-/// <list type="bullet">
-/// <item>order mix (per invoice): send times swap, but invoice.received still occurs before the decision (not when the decision is
-/// lost: with no decision to send there is nothing to reorder, and invoice.received keeps its 2-10 s time);</item>
-/// <item>lost decision (per invoice): the decision is written as Skipped and never sent;</item>
-/// <item>duplicate (per sent event): a second row with the same event_id and body, 0-2 s later;</item>
-/// <item>fake (per invoice): a decision with its own event_id, signed with a wrong key at send time;</item>
-/// <item>replay (per invoice): one of its delivered events again, planned 1-5 s after it, with an old timestamp (signed for it).</item>
-/// </list>
-/// Uses its own RNG seeded from Simulator:Seed, so it does not shift the behavior sequence of POST /api/v1/invoices.
-/// Every invoice consumes the same number of draws, whatever was picked.
+/// Plans the events of a saved invoice: invoice.received, then the decision, plus the deliberate problems (order mix,
+/// lost decision, duplicate, fake, replay), each drawn independently. Uses its own seeded RNG, so it does not change
+/// the behavior sequence of POST /api/v1/invoices.
 /// </summary>
 public sealed class WebhookPlanner
 {

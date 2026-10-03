@@ -20,9 +20,7 @@ public enum ResendStatus
 public sealed record ResendInvoiceResult(ResendStatus Status, Invoice? Invoice = null, string? CurrentStatus = null);
 
 /// <summary>
-/// Queues a Başarısız invoice again. Does not call the ERP: resets the invoice's erp_outbox entry (Bekliyor, 0 attempts,
-/// due now) and sets the invoice to Bekliyor. The worker sends it again by the usual rules, asking the ERP first so an
-/// invoice the ERP already shows is not posted again.
+/// Queues a Başarısız invoice again by resetting its outbox entry. Does not call the ERP; the worker sends it later.
 /// </summary>
 public sealed class ResendInvoiceHandler(
     IUnitOfWork unitOfWork, IInvoiceStore invoices, IOutboxStore outbox, TimeProvider time, ILoggerFactory loggerFactory)
@@ -46,8 +44,7 @@ public sealed class ResendInvoiceHandler(
                 : new ResendInvoiceResult(ResendStatus.NotFailed, CurrentStatus: current.Status);
         }
 
-        // Reset the entry so the worker treats it like a new one: all attempts (Outbox:MaxAttempts) again, due now. Insert if missing:
-        // invoices that failed before the outbox existed (Gün 2) have no entry.
+        // Reset the entry so the worker treats it like a new one; inserted if missing (invoices that failed in Gün 2).
         await outbox.ResetAsync(invoiceNumber, now, CancellationToken.None);
 
         await transaction.CommitAsync(CancellationToken.None);

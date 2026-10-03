@@ -30,8 +30,7 @@ public sealed class OutboxOutcomeWriter(
 
         await using var transaction = await unitOfWork.BeginAsync(CancellationToken.None);
 
-        // Written only if the entry still carries this claim. If the lock ran out and the entry was taken again (by any
-        // worker, with any attempt number), this older outcome is dropped instead of overwriting the newer one.
+        // Written only if the entry still carries this claim; otherwise another worker took it and this outcome is dropped.
         var owned = await outbox.WriteOutcomeAsync(
             entry.Id, entry.ClaimToken, outboxStatus, result.Error, nextAttemptAt, processedAt, CancellationToken.None);
 
@@ -40,9 +39,8 @@ public sealed class OutboxOutcomeWriter(
             await invoices.WriteSendOutcomeAsync(
                 entry.InvoiceNumber, invoiceStatus, result.ErpReference, result.Error, now, CancellationToken.None);
 
-            // ERP events that arrived before the invoice was Gönderildi are applied now, in the same transaction.
-            // The UPDATE above holds the invoice's row lock, so an event arriving right now either committed before it
-            // (and is found here) or waits for this commit and then sees Gönderildi.
+            // Events that arrived before the invoice was Gönderildi are applied now. The UPDATE above holds the
+            // invoice's row lock, so an event arriving at this moment waits for this commit.
             if (invoiceStatus == InvoiceStatus.Sent)
                 await events.ApplyWaitingAsync(entry.InvoiceNumber, now, CancellationToken.None);
 

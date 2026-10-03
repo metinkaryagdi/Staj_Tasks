@@ -14,10 +14,8 @@ public enum Behavior
 public sealed record BehaviorDecision(long Sequence, Behavior Behavior, int RetryAfterSeconds);
 
 /// <summary>
-/// Picks a behavior for every incoming POST from a single seeded RNG.
-/// Each decision always consumes exactly two draws (behavior roll + Retry-After value),
-/// so the sequence depends only on the seed and the order of requests, never on which
-/// behavior happened to be chosen before.
+/// Picks a behavior for every POST from one seeded RNG. Every decision takes exactly two draws, so the same seed always
+/// gives the same sequence.
 /// </summary>
 public sealed class BehaviorSelector
 {

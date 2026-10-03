@@ -6,9 +6,8 @@ namespace InvoiceService.Application.Abstractions;
 public interface IOutboxStore
 {
     /// <summary>
-    /// Takes up to <paramref name="limit"/> pending entries whose time has come and that nobody holds, in one statement
-    /// (two instances never take the same row). The attempt is counted before the send and never goes past
-    /// <paramref name="maxAttempts"/>; see <see cref="ClaimedEntry"/>.
+    /// Takes up to <paramref name="limit"/> due entries that nobody holds (two instances never get the same row) and counts
+    /// the attempt before it is made.
     /// </summary>
     Task<IReadOnlyList<ClaimedEntry>> ClaimAsync(
         int limit, string workerId, DateTimeOffset now, DateTimeOffset lockedUntil, int maxAttempts, CancellationToken ct);

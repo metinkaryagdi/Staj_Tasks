@@ -19,9 +19,7 @@ public sealed partial record CreateInvoiceRequest(
         if (string.IsNullOrWhiteSpace(CustomerCode) || CustomerCode.Length > 64)
             errors[nameof(CustomerCode)] = ["Required, max 64 characters."];
 
-        // Same rule as the invoice service. amount is numeric(18,2): a third decimal would be rounded away silently.
-        // The task: more than two digits after the decimal point gets 400. decimal keeps the digits as written
-        // (1.230 has scale 3), so trailing zeros count too: 1.230 is rejected like 1.234.
+        // More than two decimals gets 400 (same rule as the invoice service). Trailing zeros count: 1.230 has scale 3.
         if (Amount is null or <= 0 || Amount.Value.Scale > 2)
             errors[nameof(Amount)] = ["Required, must be greater than 0 with at most 2 digits after the decimal point."];
 

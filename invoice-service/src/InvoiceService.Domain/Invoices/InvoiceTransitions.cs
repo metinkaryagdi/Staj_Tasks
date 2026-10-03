@@ -18,9 +18,8 @@ public enum TransitionOutcome
 public readonly record struct Transition(TransitionOutcome Outcome, string? NewStatus = null, string? IgnoreReason = null);
 
 /// <summary>
-/// What an ERP event does to an invoice. Status only moves forward:
-/// Gönderildi -> İşleme Alındı -> Onaylandı / Reddedildi, and Gönderildi -> Onaylandı / Reddedildi directly.
-/// Onaylandı and Reddedildi are final.
+/// What an ERP event does to an invoice. Status only moves forward (Gönderildi -> İşleme Alındı -> Onaylandı /
+/// Reddedildi, or straight to the decision); Onaylandı and Reddedildi are final.
 /// </summary>
 public static class InvoiceTransitions
 {

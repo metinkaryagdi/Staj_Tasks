@@ -19,11 +19,7 @@ public sealed class WebhookOptions
     /// <summary>A larger body gets 413 before its signature is computed.</summary>
     public int MaxBodyBytes { get; set; }
 
-    /// <summary>
-    /// The service answers every event within this time: if storing / applying it is not done by then, it gets 503 and
-    /// the ERP sends the event again (if the work still committed late, the next delivery is a repeat and is not applied
-    /// twice).
-    /// </summary>
+    /// <summary>Every event is answered within this time; if the work is not done by then, the answer is 503.</summary>
     public int ResponseBudgetMilliseconds { get; set; }
 
     /// <summary>How long the event waits for its invoice's row lock (PostgreSQL lock_timeout) before it gets 503.</summary>

@@ -15,24 +15,13 @@ public enum SendOutcome
     Failed
 }
 
-/// <param name="Reason">Why this delay, for the log (e.g. "Retry-After 17", "backoff 2^3=8s + jitter").</param>
-/// <param name="AttemptsUsedUp">
-/// Failed only because the last allowed attempt failed (not because the ERP rejected the invoice). The ERP may still have
-/// saved the invoice on that attempt, so the caller asks it once more before giving up.
-/// </param>
+/// <param name="Reason">Why this decision, for the log.</param>
+/// <param name="AttemptsUsedUp">Failed because no attempts are left (not because the ERP refused the invoice).</param>
 public sealed record RetryDecision(SendOutcome Outcome, TimeSpan Delay, string Reason, bool AttemptsUsedUp = false);
 
 /// <summary>
-/// What to do after one ERP attempt. Pure (time and randomness come in as arguments), so every rule is unit tested.
-/// The limits come from the Outbox settings (<see cref="OutboxOptions"/>).
-/// <list type="bullet">
-/// <item>202 with a reference: sent.</item>
-/// <item>429: wait as long as Retry-After says (seconds or HTTP date). No jitter: the ERP told us when.</item>
-/// <item>Any other 4xx: the ERP rejected the invoice itself; trying again cannot help, so failed at once.</item>
-/// <item>500, timeout, ERP unreachable (and anything else): exponential backoff 2, 4, 8 ... seconds, never more than
-/// MaxBackoffSeconds, plus a random jitter.</item>
-/// <item>The MaxAttempts-th attempt is the last: if it fails too, the invoice is failed.</item>
-/// </list>
+/// What to do after one ERP attempt: 202 -> sent; 429 -> wait for Retry-After; other 4xx -> failed at once;
+/// anything else -> exponential backoff with jitter. After the last attempt -> failed.
 /// </summary>
 public sealed class RetryPolicy(OutboxOptions options)
 {
@@ -44,7 +33,7 @@ public sealed class RetryPolicy(OutboxOptions options)
     /// <summary>The jitter is a random value in [0, this).</summary>
     public TimeSpan MaxJitter { get; } = TimeSpan.FromMilliseconds(options.MaxJitterMilliseconds);
 
-    /// <summary>Room left below <see cref="MaxBackoff"/> (Outbox:BackoffMarginMilliseconds; 0 with the shipped settings).</summary>
+    /// <summary>Room left below <see cref="MaxBackoff"/>.</summary>
     public TimeSpan BackoffMargin { get; } = TimeSpan.FromMilliseconds(options.BackoffMarginMilliseconds);
 
     /// <param name="attempt">Number of the attempt that just finished (1 = first).</param>
@@ -68,10 +57,7 @@ public sealed class RetryPolicy(OutboxOptions options)
         return new RetryDecision(SendOutcome.Retry, delay, reason);
     }
 
-    /// <summary>
-    /// Retry-After as a wait: "17" -> 17 s; an HTTP date -> the time left until then (0 if it is already past).
-    /// Null if there is no header.
-    /// </summary>
+    /// <summary>Retry-After as a wait: "17" -> 17 s; an HTTP date -> the time left until then. Null without the header.</summary>
     public static TimeSpan? RetryAfterDelay(RetryConditionHeaderValue? retryAfter, DateTimeOffset now)
     {
         if (retryAfter?.Delta is { } delta)
@@ -82,11 +68,8 @@ public sealed class RetryPolicy(OutboxOptions options)
     }
 
     /// <summary>
-    /// 2^attempt seconds (2, 4, 8, 16, 32, ...) plus jitter in [0, MaxJitter). The base is capped at
-    /// MaxBackoff - MaxJitter - BackoffMargin (59 s with the shipped settings), so with the jitter the wait is never more
-    /// than MaxBackoff - BackoffMargin and the capped waits are still spread out.
-    /// Why jitter: invoices that failed together (e.g. while the ERP was down) would otherwise all retry at exactly
-    /// the same moment, again and again, and hit the recovering ERP as one burst.
+    /// 2, 4, 8 ... seconds plus a random jitter, capped so that the total never passes MaxBackoff. The jitter spreads out
+    /// invoices that failed together, so they do not all hit the recovering ERP at the same moment.
     /// </summary>
     public (TimeSpan Delay, string Reason) Backoff(int attempt, double random)
     {

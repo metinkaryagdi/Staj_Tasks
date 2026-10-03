@@ -5,10 +5,8 @@ using InvoiceService.Domain.Invoices;
 namespace InvoiceService.Application.Outbox;
 
 /// <summary>
-/// A queued send the worker has taken: <see cref="Attempt"/> is this attempt's number (already counted).
-/// <see cref="AttemptsUsedUp"/>: the entry had already used all its attempts when it was taken, i.e. the last attempt was
-/// cut off (the service stopped before writing its outcome). Such an entry is not sent again; the ERP is only asked.
-/// <see cref="ClaimToken"/>: the id of this taking (erp_outbox.claim_token); see <see cref="Domain.Outbox.ErpOutboxEntry.ClaimToken"/>.
+/// An outbox entry the worker has taken. <see cref="Attempt"/> is already counted. <see cref="AttemptsUsedUp"/>: the last
+/// attempt was cut off before its outcome was written, so the ERP is only asked, not sent to again.
 /// </summary>
 public sealed record ClaimedEntry(long Id, string InvoiceNumber, int Attempt, bool AttemptsUsedUp, Guid ClaimToken)
 {
@@ -17,30 +15,17 @@ public sealed record ClaimedEntry(long Id, string InvoiceNumber, int Attempt, bo
 }
 
 /// <summary>
-/// Takes due entries from erp_outbox and sends them. Scoped: one instance (and one unit of work) per claim or per send.
-/// It only conducts the steps: taking is <see cref="IOutboxStore"/>, the "ask first, then POST" decision is
-/// <see cref="ErpSendStrategy"/>, what to do after an attempt is <see cref="RetryPolicy"/>, and writing the outcome is
-/// <see cref="OutboxOutcomeWriter"/>.
+/// Takes due outbox entries and sends them to the ERP. Runs the steps only: <see cref="ErpSendStrategy"/> sends,
+/// <see cref="RetryPolicy"/> decides what the result means, <see cref="OutboxOutcomeWriter"/> writes it.
 /// </summary>
 public sealed class OutboxProcessor(
     IOutboxStore outbox, IInvoiceStore invoices, ErpSendStrategy strategy, OutboxOutcomeWriter outcomes,
     RetryPolicy policy, IOptions<OutboxOptions> options, TimeProvider time, ILogger<OutboxProcessor> logger)
 {
-    /// <summary>
-    /// How long a taken entry belongs to the worker that took it (Outbox:LockSeconds). Longer than the longest attempt,
-    /// so it never runs out during a send; if the service is killed mid-send, another worker takes the entry after this time.
-    /// </summary>
+    /// <summary>How long a taken entry belongs to this worker; after that another worker may take it.</summary>
     private TimeSpan LockDuration => TimeSpan.FromSeconds(options.Value.LockSeconds);
 
-    /// <summary>
-    /// Takes up to <paramref name="limit"/> pending entries whose time has come and that nobody holds. In one statement:
-    /// FOR UPDATE SKIP LOCKED lets two instances run this at the same time without taking the same row (each skips the
-    /// rows the other is taking), locked_until/locked_by mark the row as taken after the statement ends, and the attempt
-    /// is counted before the send, so a send cut off by a crash is still counted. The count never goes past
-    /// Outbox:MaxAttempts: an entry whose last attempt was cut off is taken again with the same number
-    /// and only checked with the ERP (see <see cref="ClaimedEntry.AttemptsUsedUp"/>); the invoice's own count is not
-    /// raised for it, since nothing is sent.
-    /// </summary>
+    /// <summary>Takes up to <paramref name="limit"/> due entries that no other worker holds, counting the attempt.</summary>
     public Task<IReadOnlyList<ClaimedEntry>> ClaimAsync(int limit, string workerId, CancellationToken ct)
     {
         var now = time.GetUtcNow();
@@ -48,26 +33,8 @@ public sealed class OutboxProcessor(
     }
 
     /// <summary>
-    /// Sends one taken entry and writes the outcome to erp_outbox and invoices in one transaction, following
-    /// <see cref="RetryPolicy"/>: sent -> Gönderildi / Tamamlandı; retry -> both stay Bekliyor with next_attempt_at
-    /// moved to now + wait; failed -> Başarısız on both.
-    /// <para>
-    /// Duplicate protection: the ERP can save an invoice and still not tell us (500 after saving, an answer later
-    /// than our timeout, the service killed mid-send). So if the invoice was ever sent before, the ERP is asked first
-    /// and the invoice is POSTed again only if the ERP clearly does not have it (404). If it has it, its reference is
-    /// taken as the result. If it cannot be asked, nothing is sent: the attempt fails and is retried later.
-    /// Limit: this relies on the ERP showing a request it has received by the time it is asked (at least ~2 s after
-    /// our 10 s timeout). The simulator saves before it answers, so it always does; but if the ERP's own storage kept an
-    /// earlier request waiting even longer, it would answer 404, the invoice would be posted again and both requests
-    /// could end up saved. Only the ERP refusing a second record for the same invoice number would rule that out
-    /// (the simulator does this when Simulator:IdempotentInvoices is on; it is off by default).
-    /// </para>
-    /// <para>
-    /// Before giving up (all attempts used, or the last one cut off), the ERP is asked once more and nothing is sent:
-    /// the last attempt may have been saved by the ERP without telling us (500 after saving, a late answer). If the ERP
-    /// has the invoice it is Gönderildi with the ERP's reference; otherwise, or if the ERP cannot be asked, Başarısız.
-    /// A later resend asks the ERP first as well, so an invoice the ERP already shows is not posted again.
-    /// </para>
+    /// Makes one attempt and writes its outcome: Gönderildi, Bekliyor (retry later) or Başarısız. Before giving up, the
+    /// ERP is asked once more, because the last attempt may have been saved without us being told.
     /// </summary>
     public async Task SendAsync(ClaimedEntry entry, string workerId)
     {
@@ -81,8 +48,7 @@ public sealed class OutboxProcessor(
         ErpSendResult result;
         string check;
         RetryDecision decision;
-        // HTTP status shown in the log: the attempt's own request, not the final "ask before giving up" lookup
-        // (its outcome is already in check=final:...).
+        // The log shows the attempt's own HTTP status, not the final lookup's.
         int? httpStatus;
         if (entry.AttemptsUsedUp)
         {

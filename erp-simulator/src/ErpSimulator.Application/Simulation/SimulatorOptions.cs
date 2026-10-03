@@ -30,9 +30,8 @@ public sealed class SimulatorOptions
     public RetryAfterFormat RetryAfterFormat { get; set; }
 
     /// <summary>
-    /// Off (the default): every POST creates a new record, so the same invoice number sent twice gives two records.
-    /// On: an invoice number the ERP already has is not saved again; the same content gets the existing reference
-    /// (202), different content gets 409. Requests for the same invoice number are handled one at a time.
+    /// Off (default): the same invoice number sent twice gives two records. On: it is saved once; a repeat with the same
+    /// content gets the existing reference (202), with different content 409.
     /// </summary>
     public bool IdempotentInvoices { get; set; }
 }

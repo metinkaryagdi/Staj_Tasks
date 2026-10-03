@@ -3,11 +3,7 @@ using Microsoft.Extensions.Options;
 
 namespace InvoiceService.Application.Outbox;
 
-/// <summary>
-/// Bound from the "Outbox" section of appsettings.json. No defaults in code: a missing value stops the app at startup.
-/// The shipped values are the task's rules (10 sends at a time, 10 attempts, waits up to 60 s) and our own choices for
-/// the jitter, the lock and the idle delay.
-/// </summary>
+/// <summary>The "Outbox" settings. No defaults in code: a missing value stops the app at startup.</summary>
 public sealed class OutboxOptions
 {
     public const string SectionName = "Outbox";
@@ -24,12 +20,7 @@ public sealed class OutboxOptions
     /// <summary>The random jitter added to each backoff wait is in [0, this).</summary>
     public int MaxJitterMilliseconds { get; set; }
 
-    /// <summary>
-    /// Room left below <see cref="MaxBackoffSeconds"/>: the longest planned wait is MaxBackoffSeconds minus this. 0 means
-    /// a planned wait can reach MaxBackoffSeconds (jitter included). The real gap between two attempts is a little longer
-    /// than planned (the worker looks for due entries every IdleDelayMilliseconds and taking the entry takes a moment),
-    /// so if the measured gap must also stay under MaxBackoffSeconds, set this to about 1000.
-    /// </summary>
+    /// <summary>Room left below <see cref="MaxBackoffSeconds"/> for the longest planned wait.</summary>
     public int BackoffMarginMilliseconds { get; set; }
 
     /// <summary>

@@ -8,9 +8,8 @@ using InvoiceService.Domain.Invoices;
 namespace InvoiceService.Infrastructure.Erp;
 
 /// <summary>
-/// Sends one invoice to the ERP simulator with a single HTTP request and reports what happened. Deciding whether and when to try
-/// again is not done here but by the outbox (RetryPolicy); the Retry-After header is passed on for that.
-/// Only a 202 with an ERP reference counts as accepted; every other outcome is returned as a failure.
+/// Talks to the ERP over HTTP, one request per call. Only a 202 with an ERP reference counts as accepted; retrying is
+/// up to the outbox.
 /// </summary>
 public sealed class ErpClient(HttpClient http) : IErpGateway
 {
@@ -57,11 +56,7 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         }
     }
 
-    /// <summary>
-    /// Asks the ERP whether it already has the invoice (GET /api/v1/invoices/{invoiceNumber}). Only a 404 means
-    /// "not there"; anything that is not a clear yes or no is <see cref="ErpLookup.Unknown"/>, so the caller never
-    /// sends again on a guess.
-    /// </summary>
+    /// <summary>Asks the ERP whether it has the invoice. Only a 404 means "not there"; anything unclear is Unknown.</summary>
     public async Task<ErpLookupResult> FindAsync(string invoiceNumber, CancellationToken ct)
     {
         var watch = Stopwatch.StartNew();

@@ -6,13 +6,8 @@ using ErpSimulator.Domain.Webhooks;
 namespace ErpSimulator.Api.Workers;
 
 /// <summary>
-/// Picks the due rows of webhook_deliveries and hands each to <see cref="WebhookSender"/>, at most
-/// Webhooks:MaxConcurrentSends at a time.
-/// <para>
-/// One simulator instance: rows being sent are tracked in memory so the next poll does not take them again. If the
-/// simulator stops mid-send, the row is still Pending and is sent again after the restart (the invoice service
-/// ignores a repeated event_id).
-/// </para>
+/// Picks the due webhook deliveries and hands each to <see cref="WebhookSender"/>, at most MaxConcurrentSends at a time.
+/// Rows being sent are tracked in memory, so this works for a single simulator instance.
 /// </summary>
 public sealed class WebhookDispatcher(
     IServiceScopeFactory scopes, IOptions<WebhookOptions> options, TimeProvider time,
@@ -48,11 +43,7 @@ public sealed class WebhookDispatcher(
         }
     }
 
-    /// <summary>
-    /// How long to sleep: until the next pending event is due, but at most PollMilliseconds (a row written meanwhile is
-    /// then still picked up in time; new events are due at least 2 s after they are written). Waking exactly at due_at
-    /// instead of on a fixed 200 ms tick keeps the send within a few milliseconds of its planned time.
-    /// </summary>
+    /// <summary>Sleeps until the next event is due, but at most PollMilliseconds.</summary>
     private async Task<TimeSpan> NextWakeAsync(WebhookOptions settings, CancellationToken ct)
     {
         var poll = TimeSpan.FromMilliseconds(settings.PollMilliseconds);

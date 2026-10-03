@@ -6,25 +6,16 @@ namespace InvoiceService.Application.Webhooks;
 public sealed record EventResult(string EventId, string Status, bool Repeat);
 
 /// <summary>
-/// Stores ERP events and applies them to invoices. Scoped: uses the request's (or the outbox send's) unit of work.
-/// <para>
-/// Every decision about an invoice is made while holding that invoice's row lock (SELECT ... FOR UPDATE), and the outbox
-/// takes the same lock when it makes the invoice Gönderildi (its UPDATE). So "the invoice is not Gönderildi yet, the
-/// event waits" and "the invoice is now Gönderildi, apply what is waiting" cannot interleave: whichever comes second
-/// sees what the first committed.
-/// </para>
+/// Stores ERP events and applies them to invoices. Every decision is made while holding the invoice's row lock, the same
+/// lock the outbox takes when it makes the invoice Gönderildi, so the two can never interleave.
 /// </summary>
 public sealed class WebhookEventProcessor(
     IUnitOfWork unitOfWork, IWebhookEventStore events, IInvoiceStore invoices, InvoiceEventApplier applier,
     TimeProvider time, IOptions<WebhookOptions> options, ILogger<WebhookEventProcessor> logger)
 {
     /// <summary>
-    /// Stores the event once and applies it, in one transaction. A repeated event_id only increments delivery_count.
-    /// <para>
-    /// The insert is INSERT ... ON CONFLICT (event_id) DO UPDATE: when the same event arrives several times at once,
-    /// PostgreSQL lets one insert the row and makes the others wait for its row lock; they then find the row and only
-    /// increment the counter (RETURNING xmax = 0 tells which case it was). Only the one that inserted applies the event.
-    /// </para>
+    /// Stores the event once and applies it, in one transaction. A repeated event_id (even arriving at the same moment) is
+    /// only counted, never applied again.
     /// </summary>
     public async Task<EventResult> ReceiveAsync(ErpWebhookRequest request, string payload, CancellationToken ct)
     {
@@ -65,11 +56,8 @@ public sealed class WebhookEventProcessor(
     }
 
     /// <summary>
-    /// Applies the invoice's waiting (Bekliyor) events in the order they reached the service (received_at). Called by
-    /// the outbox in the same transaction that made the invoice Gönderildi, after that UPDATE (which holds the
-    /// invoice's row lock). Arrival order, not occurred_at: an event is then treated the same whether the invoice was
-    /// already Gönderildi when it arrived or not (e.g. a decision that arrived before invoice.received still makes the
-    /// later invoice.received Yok Sayıldı).
+    /// Applies the invoice's waiting events in arrival order. Called by the outbox in the transaction that makes the
+    /// invoice Gönderildi.
     /// </summary>
     public async Task ApplyWaitingAsync(string invoiceNumber, DateTimeOffset sentAt, CancellationToken ct)
     {
@@ -87,11 +75,7 @@ public sealed class WebhookEventProcessor(
         await unitOfWork.SaveChangesAsync(ct);
     }
 
-    /// <summary>
-    /// PostgreSQL's own limits for this transaction only: waiting longer than LockTimeoutMilliseconds for a
-    /// row lock, or running a statement longer than ResponseBudgetMilliseconds, fails it on the server, so the event
-    /// gets 503 in time even if cancelling from the client side would be slow.
-    /// </summary>
+    /// <summary>Lets the database itself stop this transaction if a lock wait or a statement takes too long.</summary>
     private Task LimitWaitsAsync(CancellationToken ct)
     {
         var settings = options.Value;

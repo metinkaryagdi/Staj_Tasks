@@ -3,9 +3,8 @@ using InvoiceService.Application.Outbox;
 namespace InvoiceService.Api.Workers;
 
 /// <summary>
-/// Background worker inside the service: takes due erp_outbox entries and sends them, at most
-/// <see cref="OutboxOptions.MaxConcurrentSends"/> at the same time. Takes only as many entries as it has free slots,
-/// so entries it cannot send yet stay free for another instance.
+/// Background worker: takes due outbox entries and sends them, at most MaxConcurrentSends at a time. It takes only as
+/// many entries as it has free slots, leaving the rest to other instances.
 /// </summary>
 public sealed class OutboxWorker(
     IServiceScopeFactory scopes,
@@ -18,8 +17,7 @@ public sealed class OutboxWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var max = options.Value.MaxConcurrentSends;
-        // How long to wait before looking again when nothing is due (Outbox:IdleDelayMilliseconds). Short, so a retry starts
-        // close to its next_attempt_at; the query is cheap thanks to the (status, next_attempt_at) index.
+        // Wait before looking again when nothing is due; short, so a retry starts close to its next_attempt_at.
         var idleDelay = TimeSpan.FromMilliseconds(options.Value.IdleDelayMilliseconds);
         using var slots = new SemaphoreSlim(max, max);
         var running = new HashSet<Task>();

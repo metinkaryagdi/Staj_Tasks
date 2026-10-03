@@ -41,11 +41,8 @@ public sealed class ErpOutboxEntry
     public string? LockedBy { get; set; }
 
     /// <summary>
-    /// Added column: a new random id written every time a worker takes the entry; cleared with the lock when the outcome
-    /// is written. The outcome is written only if the entry still carries this id, and the invoice is POSTed only if the
-    /// entry is still held with it. So a worker whose lock has run out (e.g. a stalled process) can neither send nor
-    /// overwrite the outcome of whoever took the entry after it, even when both took it with the same attempt number
-    /// (an entry whose last attempt was cut off keeps the number at Outbox:MaxAttempts).
+    /// Added column: a new id every time a worker takes the entry. A worker whose lock ran out no longer matches it, so it
+    /// can neither send nor overwrite the outcome of the worker that took the entry after it.
     /// </summary>
     public Guid? ClaimToken { get; set; }
 }

@@ -13,9 +13,7 @@ public interface IWebhookEventStore
     Task LimitWaitsAsync(int lockTimeoutMilliseconds, int statementTimeoutMilliseconds, CancellationToken ct);
 
     /// <summary>
-    /// Stores the event once. True when this call inserted it; false when the event_id was already stored, in which case
-    /// only its delivery_count is incremented. When the same event arrives several times at once, one inserts the row and
-    /// the others wait for it.
+    /// Stores the event once: true when this call inserted it, false when it was already there (only delivery_count grows).
     /// </summary>
     Task<bool> InsertOrCountAsync(ErpWebhookRequest request, string payload, DateTimeOffset now, CancellationToken ct);
 

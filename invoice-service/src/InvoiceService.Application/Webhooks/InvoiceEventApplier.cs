@@ -4,9 +4,8 @@ using InvoiceService.Domain.Webhooks;
 namespace InvoiceService.Application.Webhooks;
 
 /// <summary>
-/// Applies one ERP event to an invoice: the invoice and the event are tracked entities, and what changes on them is
-/// written by the caller's unit of work. The rules themselves are <see cref="InvoiceTransitions"/>; this adds the
-/// erp_reference check and the log line.
+/// Applies one ERP event to an invoice using <see cref="InvoiceTransitions"/>, plus the erp_reference check and the log
+/// line. The caller's unit of work saves the changes.
 /// </summary>
 public sealed class InvoiceEventApplier(ILogger<InvoiceEventApplier> logger)
 {

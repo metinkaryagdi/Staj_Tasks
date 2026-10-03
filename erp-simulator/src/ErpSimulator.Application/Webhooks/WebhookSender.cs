@@ -6,11 +6,8 @@ using ErpSimulator.Domain.Webhooks;
 namespace ErpSimulator.Application.Webhooks;
 
 /// <summary>
-/// Sends one due row of webhook_deliveries and records the outcome. A send that gets no 2xx within
-/// Webhooks:TimeoutSeconds is retried RetryDelaysSeconds[0], [1], ... (5, 10, 20, 40, 80 s) after that send started, so
-/// sends start 5, 10, 20, 40, 80 s apart even when each one waits the full 5 s for an answer; after the last retry the
-/// row is Failed. The row is signed at send time with the current timestamp; the body never changes.
-/// Scoped: one instance (and one unit of work) per send.
+/// Signs and sends one due webhook delivery and records the outcome. Without a 2xx it is retried after
+/// RetryDelaysSeconds (counted from when the send started); after the last retry it is Failed.
 /// </summary>
 public sealed class WebhookSender(
     IWebhookTransport transport, IWebhookDeliveryStore deliveries, IUnitOfWork unitOfWork, IOptions<WebhookOptions> options,
@@ -61,8 +58,7 @@ public sealed class WebhookSender(
             : rejected ? DeliveryStatus.Rejected
             : retry ? DeliveryStatus.Pending
             : DeliveryStatus.Failed;
-        // Counted from when this send started, not from when it failed: a send without an answer takes the full
-        // timeout, and counting from its end would stretch every gap by that much (10, 15, 25 ... instead of 5, 10, 20 ...).
+        // Counted from when this send started, so a send that waited the full timeout does not stretch the gaps.
         var nextDue = retry ? sentAt.AddSeconds(settings.RetryDelaysSeconds[attempt - 1]) : row.DueAt;
         DateTimeOffset? completedAt = delivered || rejected ? now : null;
 
