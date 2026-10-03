@@ -34,7 +34,7 @@ foreach ($format in 'Seconds', 'HttpDate') {
 
     Write-Step "Servis logu: 429 alan denemeler ($($numbers[0]) faturası)"
     Get-ServiceLog | Where-Object { $_ -match "ERP send invoice=$($numbers[0]) " } |
-        ForEach-Object { Write-Host ('  ' + ($_ -replace ' info: InvoiceService\.Outbox\.OutboxProcessor\[0\]', '' -replace ' erpReference=.*$', '')) }
+        ForEach-Object { Write-Host ('  ' + ($_ -replace ' info: InvoiceService\.Application\.Outbox\.OutboxProcessor\[0\]', '' -replace ' erpReference=.*$', '')) }
 
     $attempts = @(Get-SendAttempts $numbers)
     Show-SendAttempts $attempts

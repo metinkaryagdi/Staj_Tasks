@@ -30,7 +30,7 @@ function Get-PostCount([string]$Number) {
 function Show-Final([string]$Title, [string]$Number) {
     Write-Step "Servis logu ($Number)"
     Get-ServiceLog | Where-Object { $_ -match "ERP send( start)? invoice=$Number " } |
-        ForEach-Object { Write-Host ('  ' + ($_ -replace ' info: InvoiceService\.Outbox\.OutboxProcessor\[0\]', '' -replace ' erpReference=.*$', '')) }
+        ForEach-Object { Write-Host ('  ' + ($_ -replace ' info: InvoiceService\.Application\.Outbox\.OutboxProcessor\[0\]', '' -replace ' erpReference=.*$', '')) }
     Write-DbHeader $Title "Fatura numarası: $Number"
     Show-ServiceQuery "SELECT invoice_number, status, erp_reference, send_attempt_count, last_error FROM invoices WHERE invoice_number = '$Number';"
     Show-ServiceQuery "SELECT invoice_number, status, attempt_count, processed_at, locked_until, last_error FROM erp_outbox WHERE invoice_number = '$Number';"

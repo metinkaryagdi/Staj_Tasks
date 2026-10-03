@@ -81,7 +81,7 @@ function Invoke-SlowSave([string]$Title) {
 
     Write-Step "Servis logu ($number)"
     Get-ServiceLog | Where-Object { $_ -match "ERP send( start)? invoice=$number " } |
-        ForEach-Object { Write-Host ('  ' + ($_ -replace ' info: InvoiceService\.Outbox\.OutboxProcessor\[0\]', '' -replace ' erpReference=.*$', '')) }
+        ForEach-Object { Write-Host ('  ' + ($_ -replace ' info: InvoiceService\.Application\.Outbox\.OutboxProcessor\[0\]', '' -replace ' erpReference=.*$', '')) }
     Write-Step "Simülatör logu ($number)"
     Get-SimulatorLog | Where-Object { $_ -match "invoice=$number " } | ForEach-Object { Write-Host "  $_" }
 

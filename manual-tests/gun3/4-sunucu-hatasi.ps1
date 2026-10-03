@@ -22,7 +22,7 @@ Write-Host "  Fatura $seconds sn sonra Bekliyor'dan çıktı."
 
 Write-Step "Servis logu ($number)"
 Get-ServiceLog | Where-Object { $_ -match "ERP send invoice=$number " } |
-    ForEach-Object { Write-Host ('  ' + ($_ -replace ' info: InvoiceService\.Outbox\.OutboxProcessor\[0\]', '' -replace ' erpReference=.*$', '')) }
+    ForEach-Object { Write-Host ('  ' + ($_ -replace ' info: InvoiceService\.Application\.Outbox\.OutboxProcessor\[0\]', '' -replace ' erpReference=.*$', '')) }
 
 $attempts = @(Get-SendAttempts @($number))
 Show-SendAttempts $attempts

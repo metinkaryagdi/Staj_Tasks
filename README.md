@@ -235,7 +235,7 @@ gelir; imza doğrulanır, event `erp_webhook_events` tablosuna bir kez yazılır
 
 ### Ayarlar
 
-[`invoice-service/src/InvoiceService/appsettings.json`](invoice-service/src/InvoiceService/appsettings.json) — her
+[`invoice-service/src/InvoiceService.Api/appsettings.json`](invoice-service/src/InvoiceService.Api/appsettings.json) — her
 değerin yanında ne işe yaradığı ve görevden mi geldiği, uygulama tercihi mi olduğu yorum olarak yazılı. Hepsi zorunludur;
 eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar. Değişiklikten sonra `docker compose up -d --build invoice-service`.
 
@@ -287,7 +287,7 @@ göndermesi) test eder; [gun-2](https://github.com/metinkaryagdi/Staj_Tasks/tree
 Gün 3 script'leri onun yardımcılarını (`_common.ps1`, `db.ps1`) kullanmaya devam eder.
 
 Manuel deneme: Swagger UI (yukarıdaki adresler) veya `.http` dosyaları
-([ERP Simulator](erp-simulator/src/ErpSimulator/ErpSimulator.http), [Invoice Service](invoice-service/src/InvoiceService/InvoiceService.http));
+([ERP Simulator](erp-simulator/src/ErpSimulator/ErpSimulator.http), [Invoice Service](invoice-service/src/InvoiceService.Api/InvoiceService.Api.http));
 loglar için `docker compose logs -f erp-simulator` / `docker compose logs -f invoice-service`.
 Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
