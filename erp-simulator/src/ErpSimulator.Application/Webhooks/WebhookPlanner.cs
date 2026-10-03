@@ -40,23 +40,23 @@ public sealed class WebhookPlanner
 
         lock (_lock)
         {
-            var o = _options;
-            var p = o.Problems;
+            var settings = _options;
+            var problems = settings.Problems;
 
-            var receivedAt = savedAt + Seconds(o.FirstEventMinSeconds, o.FirstEventMaxSeconds);
-            var decidedAt = receivedAt + Seconds(o.SecondEventMinSeconds, o.SecondEventMaxSeconds);
-            var approved = Chance(o.ApprovalRate);
-            var reason = o.RejectReasons[_random.Next(o.RejectReasons.Length)];
-            var orderMix = Chance(p.OrderMixRate);
-            var lost = Chance(p.LostDecisionRate);
-            var duplicateReceived = Chance(p.DuplicateRate);
+            var receivedAt = savedAt + Seconds(settings.FirstEventMinSeconds, settings.FirstEventMaxSeconds);
+            var decidedAt = receivedAt + Seconds(settings.SecondEventMinSeconds, settings.SecondEventMaxSeconds);
+            var approved = Chance(settings.ApprovalRate);
+            var reason = settings.RejectReasons[_random.Next(settings.RejectReasons.Length)];
+            var orderMix = Chance(problems.OrderMixRate);
+            var decisionLost = Chance(problems.LostDecisionRate);
+            var duplicateReceived = Chance(problems.DuplicateRate);
             var duplicateReceivedDelay = Seconds(0, 2);
-            var duplicateDecision = Chance(p.DuplicateRate);
+            var duplicateDecision = Chance(problems.DuplicateRate);
             var duplicateDecisionDelay = Seconds(0, 2);
-            var fake = Chance(p.FakeRate);
+            var fake = Chance(problems.FakeRate);
             var fakeApproved = Chance(50);
-            var fakeAt = savedAt + Seconds(o.FirstEventMinSeconds, o.FirstEventMaxSeconds + o.SecondEventMaxSeconds);
-            var replay = Chance(p.ReplayRate);
+            var fakeAt = savedAt + Seconds(settings.FirstEventMinSeconds, settings.FirstEventMaxSeconds + settings.SecondEventMaxSeconds);
+            var replay = Chance(problems.ReplayRate);
             var replayDecision = Chance(50);
             var replayDelay = Seconds(1, 5);
             var receivedFraction = _random.NextDouble();
@@ -64,36 +64,36 @@ public sealed class WebhookPlanner
             // Only send times swap: invoice.received occurred earlier but was delayed in transit.
             // The fraction is drawn for every invoice, even when there is nothing to reorder.
             var receivedOccurredAt = receivedAt;
-            if (orderMix && !lost)
+            if (orderMix && !decisionLost)
             {
                 (receivedAt, decidedAt) = (decidedAt, receivedAt);
                 receivedOccurredAt = savedAt.AddTicks((long)((decidedAt - savedAt).Ticks * receivedFraction));
             }
 
-            var received = New(invoice, ErpEventType.Received, receivedAt, receivedOccurredAt, null, DeliveryKind.Normal, savedAt);
-            var decision = New(invoice, approved ? ErpEventType.Approved : ErpEventType.Rejected, decidedAt, decidedAt,
-                approved ? null : reason, lost ? DeliveryKind.LostDecision : DeliveryKind.Normal, savedAt);
-            if (lost)
+            var received = CreateDelivery(invoice, ErpEventType.Received, receivedAt, receivedOccurredAt, null, DeliveryKind.Normal, savedAt);
+            var decision = CreateDelivery(invoice, approved ? ErpEventType.Approved : ErpEventType.Rejected, decidedAt, decidedAt,
+                approved ? null : reason, decisionLost ? DeliveryKind.LostDecision : DeliveryKind.Normal, savedAt);
+            if (decisionLost)
                 decision.Status = DeliveryStatus.Skipped;
 
             var rows = new List<WebhookDelivery> { received, decision };
 
             if (duplicateReceived)
-                rows.Add(Copy(received, DeliveryKind.Duplicate, receivedAt + duplicateReceivedDelay));
-            if (duplicateDecision && !lost)
-                rows.Add(Copy(decision, DeliveryKind.Duplicate, decidedAt + duplicateDecisionDelay));
+                rows.Add(CopyDelivery(received, DeliveryKind.Duplicate, receivedAt + duplicateReceivedDelay));
+            if (duplicateDecision && !decisionLost)
+                rows.Add(CopyDelivery(decision, DeliveryKind.Duplicate, decidedAt + duplicateDecisionDelay));
 
             if (fake)
             {
-                rows.Add(New(invoice, fakeApproved ? ErpEventType.Approved : ErpEventType.Rejected, fakeAt, fakeAt,
+                rows.Add(CreateDelivery(invoice, fakeApproved ? ErpEventType.Approved : ErpEventType.Rejected, fakeAt, fakeAt,
                     fakeApproved ? null : reason, DeliveryKind.Fake, savedAt));
             }
 
             if (replay)
             {
                 // A lost decision was never sent, so it cannot be "sent again": the received event is replayed instead.
-                var original = replayDecision && !lost ? decision : received;
-                var replayRow = Copy(original, DeliveryKind.Replay, original.DueAt + replayDelay);
+                var original = replayDecision && !decisionLost ? decision : received;
+                var replayRow = CopyDelivery(original, DeliveryKind.Replay, original.DueAt + replayDelay);
                 replayRow.Status = DeliveryStatus.Waiting;
                 rows.Add(replayRow);
             }
@@ -108,7 +108,7 @@ public sealed class WebhookPlanner
     private TimeSpan Seconds(int min, int max) =>
         TimeSpan.FromMilliseconds(_random.NextInt64(min * 1000L, max * 1000L + 1));
 
-    private static WebhookDelivery New(
+    private static WebhookDelivery CreateDelivery(
         ErpInvoice invoice, string type, DateTimeOffset dueAt, DateTimeOffset occurredAt, string? reason, string kind, DateTimeOffset now)
     {
         var eventId = $"evt-{Guid.NewGuid():N}";
@@ -129,7 +129,7 @@ public sealed class WebhookPlanner
     }
 
     /// <summary>The same event (event_id, body) as another row, sent at <paramref name="dueAt"/>.</summary>
-    private static WebhookDelivery Copy(WebhookDelivery original, string kind, DateTimeOffset dueAt) => new()
+    private static WebhookDelivery CopyDelivery(WebhookDelivery original, string kind, DateTimeOffset dueAt) => new()
     {
         EventId = original.EventId,
         EventType = original.EventType,

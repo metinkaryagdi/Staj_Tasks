@@ -36,23 +36,23 @@ public sealed class WebhookEventProcessor(
             return new EventResult(stored.EventId, stored.Status, Repeat: true);
         }
 
-        var ev = await events.GetTrackedAsync(request.EventId!, ct);
-        var invoice = await invoices.LockAsync(ev.InvoiceNumber, ct);
+        var erpEvent = await events.GetTrackedAsync(request.EventId!, ct);
+        var invoice = await invoices.LockAsync(erpEvent.InvoiceNumber, ct);
         if (invoice is null)
         {
             logger.LogInformation(
                 "ERP webhook stored event={EventId} type={EventType} invoice={InvoiceNumber} status={Status} invoiceStatus=- " +
                 "(invoice unknown here; waits for it)",
-                ev.EventId, ev.EventType, ev.InvoiceNumber, ev.Status);
+                erpEvent.EventId, erpEvent.EventType, erpEvent.InvoiceNumber, erpEvent.Status);
         }
         else
         {
-            applier.Apply(invoice, ev, now, afterSend: false);
+            applier.Apply(invoice, erpEvent, now, afterSend: false);
         }
 
         await unitOfWork.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
-        return new EventResult(ev.EventId, ev.Status, Repeat: false);
+        return new EventResult(erpEvent.EventId, erpEvent.Status, Repeat: false);
     }
 
     /// <summary>
@@ -70,8 +70,8 @@ public sealed class WebhookEventProcessor(
             return;
 
         // The waiting events are applied in the transaction that made the invoice Gönderildi: same moment.
-        foreach (var ev in waiting)
-            applier.Apply(invoice, ev, sentAt, afterSend: true);
+        foreach (var erpEvent in waiting)
+            applier.Apply(invoice, erpEvent, sentAt, afterSend: true);
         await unitOfWork.SaveChangesAsync(ct);
     }
 

@@ -9,32 +9,32 @@ namespace InvoiceService.Application.Webhooks;
 /// </summary>
 public sealed class InvoiceEventApplier(ILogger<InvoiceEventApplier> logger)
 {
-    public void Apply(Invoice invoice, ErpWebhookEvent ev, DateTimeOffset now, bool afterSend)
+    public void Apply(Invoice invoice, ErpWebhookEvent erpEvent, DateTimeOffset now, bool afterSend)
     {
         var before = invoice.Status;
-        var transition = InvoiceTransitions.For(invoice.Status, ev.EventType);
+        var transition = InvoiceTransitions.For(invoice.Status, erpEvent.EventType);
 
         // Only an invoice the ERP has (Gönderildi or later) has a reference to compare with.
-        if (transition.Outcome != TransitionOutcome.Wait && ev.ErpReference != invoice.ErpReference)
+        if (transition.Outcome != TransitionOutcome.Wait && erpEvent.ErpReference != invoice.ErpReference)
             transition = new Transition(TransitionOutcome.Ignore, IgnoreReason: IgnoreReason.ReferenceMismatch);
 
         switch (transition.Outcome)
         {
             case TransitionOutcome.Apply:
                 invoice.Status = transition.NewStatus!;
-                if (ev.EventType == WebhookEventType.Rejected)
-                    invoice.RejectReason = ReadReason(ev.Payload);
+                if (erpEvent.EventType == WebhookEventType.Rejected)
+                    invoice.RejectReason = ReadReason(erpEvent.Payload);
                 invoice.UpdatedAt = now;
-                ev.Status = WebhookEventStatus.Processed;
-                ev.ProcessedAt = now;
+                erpEvent.Status = WebhookEventStatus.Processed;
+                erpEvent.ProcessedAt = now;
                 break;
             case TransitionOutcome.Ignore:
                 // Not applied to the invoice, so no processed_at; the decision's time is in the log.
-                ev.Status = WebhookEventStatus.Ignored;
-                ev.IgnoreReason = transition.IgnoreReason;
+                erpEvent.Status = WebhookEventStatus.Ignored;
+                erpEvent.IgnoreReason = transition.IgnoreReason;
                 break;
             case TransitionOutcome.Wait:
-                ev.Status = WebhookEventStatus.Pending;
+                erpEvent.Status = WebhookEventStatus.Pending;
                 break;
         }
 
@@ -44,11 +44,11 @@ public sealed class InvoiceEventApplier(ILogger<InvoiceEventApplier> logger)
             "invoiceErpReference={InvoiceReference}";
         object?[] args =
         [
-            afterSend ? "applied-after-send" : "stored", ev.EventId, ev.EventType, ev.InvoiceNumber, ev.Status,
-            before, invoice.Status, ev.IgnoreReason ?? "-", ev.ErpReference, invoice.ErpReference ?? "-"
+            afterSend ? "applied-after-send" : "stored", erpEvent.EventId, erpEvent.EventType, erpEvent.InvoiceNumber, erpEvent.Status,
+            before, invoice.Status, erpEvent.IgnoreReason ?? "-", erpEvent.ErpReference, invoice.ErpReference ?? "-"
         ];
         // The task asks for a warning when the reference does not match.
-        if (ev.IgnoreReason == IgnoreReason.ReferenceMismatch)
+        if (erpEvent.IgnoreReason == IgnoreReason.ReferenceMismatch)
             logger.LogWarning(message, args);
         else
             logger.LogInformation(message, args);

@@ -123,19 +123,19 @@ public sealed class WebhookOptionsValidator(IConfiguration configuration) : IVal
         if (options.PollMilliseconds <= 0)
             errors.Add($"Webhooks:PollMilliseconds must be greater than 0 (was {options.PollMilliseconds}).");
 
-        var p = options.Problems;
+        var problems = options.Problems;
         foreach (var (rateName, value) in new[]
                  {
-                     (nameof(p.DuplicateRate), p.DuplicateRate), (nameof(p.OrderMixRate), p.OrderMixRate),
-                     (nameof(p.LostDecisionRate), p.LostDecisionRate), (nameof(p.FakeRate), p.FakeRate),
-                     (nameof(p.ReplayRate), p.ReplayRate)
+                     (nameof(problems.DuplicateRate), problems.DuplicateRate), (nameof(problems.OrderMixRate), problems.OrderMixRate),
+                     (nameof(problems.LostDecisionRate), problems.LostDecisionRate), (nameof(problems.FakeRate), problems.FakeRate),
+                     (nameof(problems.ReplayRate), problems.ReplayRate)
                  })
         {
             if (!double.IsFinite(value) || value is < 0 or > 100)
                 errors.Add($"Webhooks:Problems:{rateName} must be a number between 0 and 100 (was {value}).");
         }
-        if (p.ReplayAgeSeconds <= 0)
-            errors.Add($"Webhooks:Problems:ReplayAgeSeconds must be greater than 0 (was {p.ReplayAgeSeconds}).");
+        if (problems.ReplayAgeSeconds <= 0)
+            errors.Add($"Webhooks:Problems:ReplayAgeSeconds must be greater than 0 (was {problems.ReplayAgeSeconds}).");
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }

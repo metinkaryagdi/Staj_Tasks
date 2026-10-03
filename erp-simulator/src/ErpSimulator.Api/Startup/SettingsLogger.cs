@@ -7,29 +7,29 @@ public static class SettingsLogger
 {
     public static void LogSimulatorSettings(this WebApplication app)
     {
-        var o = app.Services.GetRequiredService<IOptions<SimulatorOptions>>().Value;
-        var r = o.Rates;
+        var simulator = app.Services.GetRequiredService<IOptions<SimulatorOptions>>().Value;
+        var rates = simulator.Rates;
         string Pct(double rate) => rate.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         app.Logger.LogInformation(
             "Simulator settings: seed={Seed} success={Success}% busy={Busy}% serverError={ServerError}% " +
             "saveThenError={SaveThenError}% lateResponse={LateResponse}% (total={Total}) lateDelay={LateDelay}s " +
             "retryAfter={RetryMin}-{RetryMax}s format={RetryFormat} idempotentInvoices={IdempotentInvoices}",
-            o.Seed, Pct(r.Success), Pct(r.Busy), Pct(r.ServerError), Pct(r.SaveThenError), Pct(r.LateResponse), r.Total,
-            o.LateResponseDelaySeconds, o.RetryAfterMinSeconds, o.RetryAfterMaxSeconds, o.RetryAfterFormat,
-            o.IdempotentInvoices);
+            simulator.Seed, Pct(rates.Success), Pct(rates.Busy), Pct(rates.ServerError), Pct(rates.SaveThenError), Pct(rates.LateResponse), rates.Total,
+            simulator.LateResponseDelaySeconds, simulator.RetryAfterMinSeconds, simulator.RetryAfterMaxSeconds, simulator.RetryAfterFormat,
+            simulator.IdempotentInvoices);
 
         // The secret itself is never logged.
-        var w = app.Services.GetRequiredService<IOptions<WebhookOptions>>().Value;
+        var webhooks = app.Services.GetRequiredService<IOptions<WebhookOptions>>().Value;
         app.Logger.LogInformation(
             "Webhook settings: enabled={Enabled} target={Target} timeout={Timeout}s retries={Retries}s first={FirstMin}-{FirstMax}s " +
             "second={SecondMin}-{SecondMax}s approval={Approval}% maxConcurrent={Max}",
-            w.Enabled, w.TargetUrl, w.TimeoutSeconds, string.Join(",", w.RetryDelaysSeconds), w.FirstEventMinSeconds, w.FirstEventMaxSeconds,
-            w.SecondEventMinSeconds, w.SecondEventMaxSeconds, Pct(w.ApprovalRate), w.MaxConcurrentSends);
+            webhooks.Enabled, webhooks.TargetUrl, webhooks.TimeoutSeconds, string.Join(",", webhooks.RetryDelaysSeconds), webhooks.FirstEventMinSeconds, webhooks.FirstEventMaxSeconds,
+            webhooks.SecondEventMinSeconds, webhooks.SecondEventMaxSeconds, Pct(webhooks.ApprovalRate), webhooks.MaxConcurrentSends);
 
-        var p = w.Problems;
+        var problems = webhooks.Problems;
         app.Logger.LogInformation(
             "Webhook problems: duplicate={Duplicate}% orderMix={OrderMix}% lostDecision={Lost}% fake={Fake}% replay={Replay}% replayAge={ReplayAge}s",
-            Pct(p.DuplicateRate), Pct(p.OrderMixRate), Pct(p.LostDecisionRate), Pct(p.FakeRate), Pct(p.ReplayRate), p.ReplayAgeSeconds);
+            Pct(problems.DuplicateRate), Pct(problems.OrderMixRate), Pct(problems.LostDecisionRate), Pct(problems.FakeRate), Pct(problems.ReplayRate), problems.ReplayAgeSeconds);
     }
 }
