@@ -1,11 +1,11 @@
-#:project ../erp-simulator/src/ErpSimulator/ErpSimulator.csproj
+#:project ../erp-simulator/src/ErpSimulator.Application/ErpSimulator.Application.csproj
 // Runs the simulator's own BehaviorSelector without HTTP and prints "<sequence> <behavior>" per line.
 // Used by erp-simulator-distribution.sh to check that the behaviors logged over HTTP are exactly
 // the sequence the seed should produce.
 //
 // Usage: dotnet run scripts/erp-simulator-replay.cs -- <count> <seed> <success> <busy> <serverError> <saveThenError> <lateResponse>
 using System.Globalization;
-using ErpSimulator.Simulation;
+using ErpSimulator.Application.Simulation;
 using Microsoft.Extensions.Options;
 
 if (args.Length != 7)

@@ -54,8 +54,8 @@ services:
       Webhooks__Problems__ReplayRate:
     volumes:
       # Settings file is mounted so rates can be changed without rebuilding; restart the container to apply.
-      - ./erp-simulator/src/ErpSimulator/appsettings.json:/app/appsettings.json:ro
-      - ./erp-simulator/src/ErpSimulator/appsettings.Docker.json:/app/appsettings.Docker.json:ro
+      - ./erp-simulator/src/ErpSimulator.Api/appsettings.json:/app/appsettings.json:ro
+      - ./erp-simulator/src/ErpSimulator.Api/appsettings.Docker.json:/app/appsettings.Docker.json:ro
     networks:
       - erp-data
       - apps

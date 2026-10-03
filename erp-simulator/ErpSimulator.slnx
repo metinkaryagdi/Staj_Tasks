@@ -1,8 +1,12 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/ErpSimulator/ErpSimulator.csproj" />
+    <Project Path="src/ErpSimulator.Domain/ErpSimulator.Domain.csproj" />
+    <Project Path="src/ErpSimulator.Application/ErpSimulator.Application.csproj" />
+    <Project Path="src/ErpSimulator.Infrastructure/ErpSimulator.Infrastructure.csproj" />
+    <Project Path="src/ErpSimulator.Api/ErpSimulator.Api.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/ErpSimulator.Tests/ErpSimulator.Tests.csproj" />
+    <Project Path="tests/ErpSimulator.Application.Tests/ErpSimulator.Application.Tests.csproj" />
+    <Project Path="tests/ErpSimulator.Infrastructure.Tests/ErpSimulator.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>

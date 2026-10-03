@@ -93,8 +93,8 @@ Invoice Service'in `POST /api/v1/erp-webhooks` adresine gönderir.
 
 ### Ayarlar
 
-[`erp-simulator/src/ErpSimulator/appsettings.json`](erp-simulator/src/ErpSimulator/appsettings.json) ve
-[`appsettings.Docker.json`](erp-simulator/src/ErpSimulator/appsettings.Docker.json) — container'a mount edilir, değişiklikten sonra `docker compose restart erp-simulator`.
+[`erp-simulator/src/ErpSimulator.Api/appsettings.json`](erp-simulator/src/ErpSimulator.Api/appsettings.json) ve
+[`appsettings.Docker.json`](erp-simulator/src/ErpSimulator.Api/appsettings.Docker.json) — container'a mount edilir, değişiklikten sonra `docker compose restart erp-simulator`.
 
 ```json
 "Simulator": {
@@ -287,7 +287,7 @@ göndermesi) test eder; [gun-2](https://github.com/metinkaryagdi/Staj_Tasks/tree
 Gün 3 script'leri onun yardımcılarını (`_common.ps1`, `db.ps1`) kullanmaya devam eder.
 
 Manuel deneme: Swagger UI (yukarıdaki adresler) veya `.http` dosyaları
-([ERP Simulator](erp-simulator/src/ErpSimulator/ErpSimulator.http), [Invoice Service](invoice-service/src/InvoiceService.Api/InvoiceService.Api.http));
+([ERP Simulator](erp-simulator/src/ErpSimulator.Api/ErpSimulator.Api.http), [Invoice Service](invoice-service/src/InvoiceService.Api/InvoiceService.Api.http));
 loglar için `docker compose logs -f erp-simulator` / `docker compose logs -f invoice-service`.
 Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 

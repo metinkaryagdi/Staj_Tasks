@@ -96,5 +96,5 @@ Invoke-RestMethod http://localhost:5080/api/v1/invoices/INV-1
 
 Varsayılan oranlarda POST bazen 429 veya 500 döner; `Invoke-RestMethod` bu durumda kırmızı hata basar, bu beklenen davranıştır.
 
-Oranları kalıcı değiştirmek için `erp-simulator/src/ErpSimulator/appsettings.json` → `Simulator` bölümünü düzenleyip
+Oranları kalıcı değiştirmek için `erp-simulator/src/ErpSimulator.Api/appsettings.json` → `Simulator` bölümünü düzenleyip
 `docker compose restart erp-simulator` çalıştırın.
