@@ -146,18 +146,6 @@ public class RetryPolicyTests
     }
 
     [Fact]
-    public void A_backoff_margin_keeps_every_wait_that_much_under_the_cap()
-    {
-        var policy = new RetryPolicy(new OutboxOptions
-        {
-            MaxAttempts = 10, MaxBackoffSeconds = 60, MaxJitterMilliseconds = 1000, BackoffMarginMilliseconds = 1000
-        });
-
-        Assert.Equal(TimeSpan.FromSeconds(58), policy.Backoff(6, random: 0).Delay);
-        Assert.True(policy.Backoff(9, random: 1).Delay < TimeSpan.FromSeconds(59));
-    }
-
-    [Fact]
     public void The_backoff_cap_and_jitter_come_from_the_settings()
     {
         var policy = new RetryPolicy(new OutboxOptions { MaxAttempts = 10, MaxBackoffSeconds = 30, MaxJitterMilliseconds = 500 });

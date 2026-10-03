@@ -48,7 +48,6 @@ public class ShippedSettingsTests
         Assert.Equal(10, options.MaxConcurrentSends);
         Assert.Equal(10, options.MaxAttempts);
         Assert.Equal(60, options.MaxBackoffSeconds);
-        Assert.Equal(0, options.BackoffMarginMilliseconds);
     }
 
     [Fact]

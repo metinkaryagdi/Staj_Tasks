@@ -21,7 +21,7 @@ public sealed class Scenario
     public OutboxOptions OutboxSettings { get; } = new()
     {
         MaxConcurrentSends = 10, MaxAttempts = 3, MaxBackoffSeconds = 60, MaxJitterMilliseconds = 1000,
-        BackoffMarginMilliseconds = 0, LockSeconds = 60, IdleDelayMilliseconds = 250
+        LockSeconds = 60, IdleDelayMilliseconds = 250
     };
 
     public WebhookOptions WebhookSettings { get; } = new()

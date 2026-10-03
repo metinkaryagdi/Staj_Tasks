@@ -158,6 +158,9 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Jitter.** Birlikte hata alan faturalar (örneğin ERP kapalıyken) aynı anda yeniden denenip toparlanan ERP'ye tek
   dalga hâlinde yüklenmesin diye bekleme süresine rastgele bir sapma eklenir. 429'da eklenmez; ERP ne zaman
   denenebileceğini zaten söylemiştir.
+- **60 saniye sınırı planlanan beklemeye aittir.** Worker kuyruğa birkaç yüz milisaniyede bir baktığı için iki deneme
+  arasında ölçülen süre bu sınırı birkaç milisaniye aşabilir (Gün 3'te 60,010 sn ölçüldü). Bunu ayrıca bir ayarla
+  telafi etmek yerine bilinen bir sınır olarak bırakıldı.
 - **HTTP istemcisinde retry yok.** Her çağrı tam bir HTTP isteğidir; tekrar deneme kararı yalnızca `RetryPolicy`'dedir.
 
 ### ERP haberleri (Invoice Service)

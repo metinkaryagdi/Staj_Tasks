@@ -250,7 +250,6 @@ eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar. Değişiklikt
 | `Outbox:MaxAttempts` | `10` | Görev |
 | `Outbox:MaxBackoffSeconds` | `60` | Görev; jitter dahil tavan |
 | `Outbox:MaxJitterMilliseconds` | `1000` | Uygulama tercihi |
-| `Outbox:BackoffMarginMilliseconds` | `0` | Uygulama tercihi; tavanın altında bırakılan pay |
 | `Outbox:LockSeconds` | `60` | Uygulama tercihi; `3 × TimeoutSeconds`'tan uzun olmak zorunda |
 | `Outbox:IdleDelayMilliseconds` | `250` | Uygulama tercihi; kuyrukta iş yokken bekleme |
 | `ErpWebhooks:Secret` | yerel geliştirme değeri | Görev: ayar dosyasından; ERP Simulator'daki `Webhooks:Secret` ile aynı olmalı, en az 32 bayt |
