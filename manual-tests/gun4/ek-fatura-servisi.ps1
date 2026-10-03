@@ -104,19 +104,21 @@ Write-Step 'Kaynak sürümü ve unit kanıtı'
 Push-Location $RepoRoot
 try {
     & git log -1 --oneline
-    Write-Host "KOMUT: dotnet test invoice-service/tests/InvoiceService.Tests --logger trx --results-directory $OutputDir"
-    & dotnet test invoice-service/tests/InvoiceService.Tests --logger "trx;LogFileName=$([IO.Path]::GetFileName($unitFile))" --results-directory $OutputDir
+    # Testler katman başına bir projede (Domain/Application/Infrastructure/Api.Tests): her proje kendi trx dosyasını yazar.
+    Write-Host "KOMUT: dotnet test invoice-service/InvoiceService.slnx --logger trx --results-directory $OutputDir"
+    & dotnet test invoice-service/InvoiceService.slnx --logger "trx;LogFilePrefix=$([IO.Path]::GetFileNameWithoutExtension($unitFile))" --results-directory $OutputDir
     if ($LASTEXITCODE -ne 0) { throw 'Fatura Servisi unit testleri başarısız.' }
 } finally { Pop-Location }
-[xml]$unitXml = Get-Content -LiteralPath $unitFile -Raw
-$unitRows = @($unitXml.SelectNodes("//*[local-name()='UnitTestResult']"))
+$unitFiles = @(Get-ChildItem -LiteralPath $OutputDir -Filter "$([IO.Path]::GetFileNameWithoutExtension($unitFile))*.trx")
+$unitRows = @($unitFiles | ForEach-Object {
+    ([xml](Get-Content -LiteralPath $_.FullName -Raw)).SelectNodes("//*[local-name()='UnitTestResult']") } | ForEach-Object { $_ })
 Wait-Service
 
 Write-Title 'B1) Altı durum değeri'
-$currentSource = 'Data/Invoice.cs:40-58; Data/InvoiceDbContext.cs:32; Invoices/InvoiceEndpoints.cs:146-162; Data/Migrations/20261001195409_AddErpWebhookEvents.cs:13-51'
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Data/Invoice.cs' 40 58
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Data/InvoiceDbContext.cs' 28 46
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Invoices/InvoiceEndpoints.cs' 146 164
+$currentSource = 'InvoiceService.Domain/Invoices/Invoice.cs:40-58; InvoiceService.Infrastructure/Persistence/InvoiceDbContext.cs:26; InvoiceService.Api/Invoices/InvoiceEndpoints.cs:77-90; InvoiceService.Infrastructure/Persistence/Migrations/20261001195409_AddErpWebhookEvents.cs:13-51'
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Domain/Invoices/Invoice.cs' 40 58
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Infrastructure/Persistence/InvoiceDbContext.cs' 22 40
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Api/Invoices/InvoiceEndpoints.cs' 77 90
 Show-ServiceQuery "SELECT c.conname, c.convalidated, pg_get_constraintdef(c.oid) AS tanim FROM pg_constraint c WHERE c.conrelid='invoices'::regclass ORDER BY c.conname;"
 $constraint = [string]@(Get-ServiceRows "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='invoices'::regclass AND conname='ck_invoices_status';")[0]
 $values = @([regex]::Matches($constraint, "'([^']*)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
@@ -175,24 +177,28 @@ foreach ($s in $statuses + @('Bilinmiyor')) {
     } else { Write-Host "  Gelen: $json" }
     Check "GET status=$s HTTP $expected; gelen satırlar filtreyle uyumlu" "$([int]$response.StatusCode); $count satır" ([int]$response.StatusCode -eq $expected -and $matches)
 }
-Show-UnitEvidence 'InvoiceRulesTests'
-Write-Host 'YORUM: mevcut InvoiceRulesTests doğrudan HTTP durum filtresi veya PostgreSQL constraint testi içermiyor; bu ikisi yukarıda canlı doğrulandı.'
+# InvoiceRulesTests katmanlara bölündü; testleri artık bu beş sınıfta.
+foreach ($class in 'InvoiceNumberTests', 'CreateInvoiceRequestTests', 'OutboxOptionsTests', 'ErpOptionsTests', 'ShippedSettingsTests') { Show-UnitEvidence $class }
+Write-Host 'YORUM: bu unit testler (eski InvoiceRulesTests) doğrudan HTTP durum filtresi veya PostgreSQL constraint testi içermiyor; bu ikisi yukarıda canlı doğrulandı.'
 
 $section = 'B2'
 Write-Title 'B2) İleri durum geçişleri ve kesin durumlar'
-$currentSource = 'Webhooks/InvoiceTransitions.cs:45-66; Webhooks/WebhookEventProcessor.cs:79-137; Invoices/InvoiceEndpoints.cs:74,105-107; Outbox/OutboxProcessor.cs:43-73,148-184'
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Webhooks/InvoiceTransitions.cs' 45 66
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Webhooks/WebhookEventProcessor.cs' 99 137
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Invoices/InvoiceEndpoints.cs' 100 109
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Outbox/OutboxProcessor.cs' 43 73
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Outbox/OutboxProcessor.cs' 148 186
+$currentSource = 'InvoiceService.Domain/Invoices/InvoiceTransitions.cs:27-49; InvoiceService.Application/Webhooks/WebhookEventProcessor.cs:74-88; InvoiceService.Application/Webhooks/InvoiceEventApplier.cs:13-22; InvoiceService.Application/Invoices/CreateInvoiceHandler.cs:35; InvoiceService.Application/Invoices/ResendInvoiceHandler.cs:35-39; InvoiceService.Infrastructure/Persistence/InvoiceStore.cs:40-56; InvoiceService.Infrastructure/Persistence/OutboxStore.cs:10-39; InvoiceService.Application/Outbox/OutboxOutcomeWriter.cs:21-49'
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Domain/Invoices/InvoiceTransitions.cs' 27 49
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Application/Webhooks/WebhookEventProcessor.cs' 74 88
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Application/Webhooks/InvoiceEventApplier.cs' 13 22
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Application/Invoices/ResendInvoiceHandler.cs' 35 39
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Infrastructure/Persistence/InvoiceStore.cs' 40 46
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Infrastructure/Persistence/OutboxStore.cs' 10 39
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Application/Outbox/OutboxOutcomeWriter.cs' 21 49
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Infrastructure/Persistence/InvoiceStore.cs' 48 56
 Write-Step 'Fatura status yazma yollarının kaynak taraması'
 Push-Location $RepoRoot
 try {
     # Ek araç gerektirmesin diye Select-String (rg kurulu olmayabilir); Migrations, bin ve obj taranmaz.
     $pattern = 'SetProperty\(i => i.Status|invoice.Status =|Status = InvoiceStatus|UPDATE invoices|SET status'
-    Write-Host "KOMUT: Select-String -Pattern '$pattern' invoice-service/src/InvoiceService/**/*.cs (Migrations, bin, obj hariç)"
-    Get-ChildItem 'invoice-service/src/InvoiceService' -Recurse -Filter '*.cs' |
+    Write-Host "KOMUT: Select-String -Pattern '$pattern' invoice-service/src/**/*.cs (Migrations, bin, obj hariç)"
+    Get-ChildItem 'invoice-service/src' -Recurse -Filter '*.cs' |
         Where-Object { $_.FullName -notmatch '[\\/](Migrations|bin|obj)[\\/]' } |
         Select-String -Pattern $pattern |
         ForEach-Object { '{0}:{1}:{2}' -f (Resolve-Path -Relative $_.Path), $_.LineNumber, $_.Line.Trim() }
@@ -205,7 +211,7 @@ Write-Host '  İşleme Alındı    Yok Say/İlerletmiyor      Onaylandı        
 Write-Host '  Onaylandı        Yok Say/Geri Götürüyor    Yok Say/Kesin Durumda   Yok Say/Kesin Durumda'
 Write-Host '  Reddedildi       Yok Say/Geri Götürüyor    Yok Say/Kesin Durumda   Yok Say/Kesin Durumda'
 Write-Host '  Başarısız        Bekle                    Bekle                  Bekle'
-Show-CodeEvidence 'invoice-service/tests/InvoiceService.Tests/InvoiceTransitionsTests.cs' 7 55
+Show-CodeEvidence 'invoice-service/tests/InvoiceService.Domain.Tests/InvoiceTransitionsTests.cs' 7 51
 Show-UnitEvidence 'InvoiceTransitionsTests'
 Write-Host 'YORUM: Every_status_and_event_type_has_a_rule 18 birleşimin hepsini çağırır; Pending+rejected ve Failed+approved için ayrı beklenen sonuç assertion''ı yok, ortak Wait dalı kodda gösterildi.'
 
@@ -273,9 +279,9 @@ Write-Host 'YORUM: durum geçişi trigger''ı yok. Yalnız uygulama yazıyorsa m
 
 $section = 'B3'
 Write-Title 'B3) reject_reason'
-$currentSource = 'Data/Invoice.cs:23; Data/InvoiceDbContext.cs:45; Webhooks/WebhookEventProcessor.cs:121-126,155-156; Webhooks/WebhookContracts.cs:36-37; Invoices/InvoiceContracts.cs:38-54'
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Invoices/InvoiceContracts.cs' 38 54
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Webhooks/WebhookContracts.cs' 33 38
+$currentSource = 'InvoiceService.Domain/Invoices/Invoice.cs:23; InvoiceService.Infrastructure/Persistence/InvoiceDbContext.cs:39; InvoiceService.Infrastructure/Persistence/InvoiceStore.cs:58-62; InvoiceService.Application/Webhooks/InvoiceEventApplier.cs:26-27; InvoiceService.Application/Webhooks/ErpWebhookRequest.cs:36-37; InvoiceService.Api/Invoices/InvoiceResponse.cs:5-23'
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Api/Invoices/InvoiceResponse.cs' 5 23
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Application/Webhooks/ErpWebhookRequest.cs' 33 38
 Show-ServiceQuery "SELECT column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='invoices' AND column_name='reject_reason';"
 $column = [string]@(Get-ServiceRows "SELECT data_type || '|' || is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='invoices' AND column_name='reject_reason';")[0]
 Check 'reject_reason text ve nullable' $column ($column -eq 'text|YES')
@@ -295,10 +301,11 @@ Show-UnitEvidence 'WebhookRequestTests'
 
 $section = 'B4'
 Write-Title 'B4) erp_webhook_events: şema, ilk varış, işleme ve ham gövde'
-$currentSource = 'Data/ErpWebhookEvent.cs:1-49; Data/InvoiceDbContext.cs:78-110; Webhooks/WebhookEventProcessor.cs:30-70,79-97; Webhooks/WebhookEndpoints.cs:36-94; ilgili iki migration'
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Data/ErpWebhookEvent.cs' 1 49
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Data/InvoiceDbContext.cs' 78 111
-Show-CodeEvidence 'invoice-service/src/InvoiceService/Webhooks/WebhookEventProcessor.cs' 30 70
+$currentSource = 'InvoiceService.Domain/Webhooks/ErpWebhookEvent.cs:1-49; InvoiceService.Infrastructure/Persistence/InvoiceDbContext.cs:72-105; InvoiceService.Application/Webhooks/WebhookEventProcessor.cs:29-65,74-88; InvoiceService.Infrastructure/Persistence/WebhookEventStore.cs:20-44; InvoiceService.Api/Webhooks/WebhookEndpoints.cs:36-94; ilgili iki migration'
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Domain/Webhooks/ErpWebhookEvent.cs' 1 49
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Infrastructure/Persistence/InvoiceDbContext.cs' 72 105
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Application/Webhooks/WebhookEventProcessor.cs' 29 65
+Show-CodeEvidence 'invoice-service/src/InvoiceService.Infrastructure/Persistence/WebhookEventStore.cs' 20 28
 Show-ServiceQuery "SELECT ordinal_position,column_name,data_type,character_maximum_length,is_nullable,column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='erp_webhook_events' ORDER BY ordinal_position;"
 Show-ServiceQuery "SELECT conname,contype,convalidated,pg_get_constraintdef(oid) AS tanim FROM pg_constraint WHERE conrelid='erp_webhook_events'::regclass ORDER BY conname;"
 $columns = @(Get-ServiceRows "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='erp_webhook_events' ORDER BY ordinal_position;")
