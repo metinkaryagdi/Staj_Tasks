@@ -8,6 +8,9 @@ imzalı webhook'larla bildiren ERP Simulator.
 | ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; her isteğe seed'li rastgele bir hata davranışı uygular; kaydettiği faturalar için Invoice Service'e imzalı webhook gönderir (bilerek sorunlu) |
 | Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir; ERP'den gelen webhook event'lerini doğrulayıp faturaya işler |
 
+İki uygulama da Domain / Application / Infrastructure / Api olarak dört katmana ayrılmıştır; katmanlar, port'lar ve
+hangi kodun nerede olduğu [ARCHITECTURE.md](ARCHITECTURE.md)'de.
+
 Her günün teslim edilen hali bir git tag'idir; README yalnızca uygulamaları ve **bugünün** işini anlatır.
 Önceki günlerin anlatımı ve sonuçları kendi tag'inde durur (bkz. [Günler](#günler)).
 
