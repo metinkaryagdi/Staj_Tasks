@@ -1,9 +1,7 @@
 # Mimari
 
 İki uygulama da (Invoice Service ve ERP Simulator) aynı katmanlı yapıdadır: her biri dört projeye bölünmüştür ve
-projeler arasındaki referanslar tek yönlüdür. Bu yapı [`gun-4`](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-4)
-tag'indeki tek projelik hâlin **davranışı değiştirilmeden** yeniden düzenlenmiş hâlidir; nasıl doğrulandığı
-[aşağıda](#davranışın-değişmediği-nasıl-doğrulandı).
+projeler arasındaki referanslar tek yönlüdür.
 
 ## Katmanlar ve bağımlılık kuralı
 
@@ -193,42 +191,6 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Idempotent modda benzersiz indeks yerine kilit** (fatura numarasından üretilen PostgreSQL advisory lock): mevcut
   çift kayıtlar geçerli kalır ve ayar yeniden kapatılabilir.
 
-## Hangi dosya nereye gitti
-
-### Invoice Service
-
-| `gun-4` (tek proje) | Şimdi |
-|---|---|
-| `Program.cs` (139 satır) | `Api/Program.cs` (41) + `Api/Startup/*` + `Application/DependencyInjection.cs` + `Infrastructure/DependencyInjection.cs` |
-| `Data/Invoice.cs`, `ErpOutboxEntry.cs`, `ErpWebhookEvent.cs` | `Domain/Invoices/`, `Domain/Outbox/`, `Domain/Webhooks/` |
-| `Data/InvoiceDbContext.cs`, `Data/Migrations/` | `Infrastructure/Persistence/` (numara üretimi `InvoiceStore`'a geçti) |
-| `Outbox/OutboxProcessor.cs` (257) | `Application/Outbox/OutboxProcessor.cs` (95, yalnızca akış) + `ErpSendStrategy.cs` (sor/gönder kararı) + `OutboxOutcomeWriter.cs` (sonuç transaction'ı) + `Infrastructure/Persistence/OutboxStore.cs` (claim SQL'i) |
-| `Outbox/OutboxWorker.cs` | `Api/Workers/OutboxWorker.cs` |
-| `Outbox/RetryPolicy.cs`, `OutboxOptions.cs` | `Application/Outbox/` |
-| `Erp/ErpClient.cs` | `Infrastructure/Erp/ErpClient.cs`; sonuç tipleri (`ErpSendResult`, `ErpLookupResult`) `Application/Abstractions/IErpGateway.cs`'e |
-| `Webhooks/WebhookEventProcessor.cs` (176) | `Application/Webhooks/WebhookEventProcessor.cs` (akış) + `InvoiceEventApplier.cs` (bir event'i uygulama) + `Infrastructure/Persistence/WebhookEventStore.cs` (SQL) |
-| `Webhooks/WebhookEndpoints.cs` (193) | `Api/Webhooks/WebhookEndpoints.cs` + `WebhookRequestReader.cs`; PostgreSQL hata kodları `Infrastructure/Persistence/PostgresFailureClassifier.cs`'e |
-| `Webhooks/InvoiceTransitions.cs` | `Domain/Invoices/InvoiceTransitions.cs` (`IgnoreReason` → `Domain/Webhooks/IgnoreReason.cs`) |
-| `Webhooks/WebhookSignature.cs`, `WebhookOptions.cs`, `WebhookContracts.cs` | `Application/Webhooks/` (`ErpWebhookRequest.cs`) |
-| `Invoices/InvoiceEndpoints.cs` (176) | `Api/Invoices/InvoiceEndpoints.cs` (ince) + `Application/Invoices/CreateInvoiceHandler.cs`, `ResendInvoiceHandler.cs`, `InvoiceQueries.cs` |
-| `Invoices/InvoiceContracts.cs` | `CreateInvoiceRequest` → `Application/Invoices/`; `InvoiceResponse` → `Api/Invoices/` |
-
-### ERP Simulator
-
-| `gun-4` (tek proje) | Şimdi |
-|---|---|
-| `Program.cs` (136) | `Api/Program.cs` (40) + `Api/Startup/*` + iki `DependencyInjection.cs` |
-| `Data/ErpInvoice.cs`, `WebhookDelivery.cs` | `Domain/Invoices/`, `Domain/Webhooks/` |
-| `Data/ErpDbContext.cs`, `Data/Migrations/` | `Infrastructure/Persistence/` |
-| `Invoices/InvoiceEndpoints.cs` (258) | `Api/Invoices/InvoiceEndpoints.cs` (HTTP cevabı) + `Application/Invoices/SubmitInvoiceHandler.cs` (davranış, kayıt, geç cevap) + `InvoiceLookup.cs` + `Infrastructure/Persistence/ErpInvoiceStore.cs` (kilit, kayıt) |
-| `Invoices/InvoiceContracts.cs` | `CreateInvoiceRequest` → `Application/Invoices/`; cevap tipleri → `Api/Invoices/InvoiceResponses.cs` |
-| `Webhooks/WebhookDispatcher.cs` (219) | `Api/Workers/WebhookDispatcher.cs` (döngü) + `Application/Webhooks/WebhookSender.cs` (imza, sonuç) + `Infrastructure/Webhooks/HttpWebhookTransport.cs` + `Infrastructure/Persistence/WebhookDeliveryStore.cs` |
-| `Simulation/*`, `Webhooks/WebhookPlanner.cs`, `WebhookSignature.cs`, `WebhookOptions.cs` | `Application/Simulation/`, `Application/Webhooks/` |
-
-En büyük kaynak dosya 258 satırdan 164 satıra indi. Kod içindeki açıklama satırları 709'dan 553'e indi; paragraf
-uzunluğundaki gerekçeler [Tasarım kararları](#tasarım-kararları) bölümüne taşındı. Toplam satır sayısı ise arttı
-(arayüzler ve DI kayıtları yüzünden); kazanç dosya başına düşen sorumluluktadır, satır sayısında değil.
-
 ## Testler
 
 | Proje | Ne test eder |
@@ -260,18 +222,3 @@ Kitaptaki en katı hâli değil, davranışı değiştirmeden varılabilen pragm
   `InvoiceService.Application.Outbox.OutboxProcessor`). Bunu kullanan `manual-tests/gun3` script'leri güncellendi.
   Fatura use case'leri (`InvoiceService.Invoices`, `ErpSimulator.Invoices`) ve simülatörün `webhooks` HttpClient'ı
   eski kategorilerini korur.
-
-## Davranışın değişmediği nasıl doğrulandı
-
-Eski (`gun-4`) ve yeni sürüm aynı anda, ayrı veritabanlarıyla çalıştırılıp karşılaştırıldı:
-
-- **Birim testler:** eski testlerin hepsi (171 + 68) taşındıkları projelerde değişmeden geçiyor.
-- **HTTP sözleşmesi:** doğrulama hataları, 404/409, imzasız/süresi geçmiş/bozuk webhook (401/400), tekrar event,
-  413 — Fatura Servisi'nde 13, simülatörde 89 cevap birebir aynı (zaman damgaları hariç).
-- **Yük testi:** 40 fatura, varsayılan hata oranları ve webhook sorunlarıyla — fatura/outbox/event durum dağılımları,
-  yok sayma nedenleri, tekrar sayısı, ERP'deki çift kayıt (0) ve tutarlılık kontrolleri birebir aynı. Hangi faturanın
-  hangi davranışı aldığı iki sürümde de çalıştırmadan çalıştırmaya değişir (10 paralel gönderim).
-- **Senaryolar:** ERP kapalıyken Başarısız → ERP açılınca yeniden gönderme (önce sorup sonra gönderiyor); satır kilidi
-  tutulurken gelen event `503 lock-timeout` ve sonraki teslimatta işleniyor; idempotent modda Duplicate/409, HTTP-date
-  `Retry-After`, istemci giderken geç cevabın kaydı koruması; seed'li davranış dizisi (500 istek) aynı.
-- **Şema:** migration'lar modeli birebir tarif ediyor (`ModelSnapshotTests`); yeni migration yok.
