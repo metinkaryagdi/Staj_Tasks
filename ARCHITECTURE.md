@@ -37,7 +37,7 @@ invoice-service/
     InvoiceService.Application/
       Abstractions/    IErpGateway, IInvoiceStore, IOutboxStore, IWebhookEventStore, IUnitOfWork, IDatabaseFailureClassifier
       Invoices/        CreateInvoiceHandler, ResendInvoiceHandler, InvoiceQueries, CreateInvoiceRequest
-      Outbox/          OutboxProcessor, ErpSendStrategy, OutboxOutcomeWriter, RetryPolicy, OutboxOptions
+      Outbox/          OutboxProcessor, ClaimedEntry, ErpSendStrategy, OutboxOutcomeWriter, RetryPolicy, OutboxOptions
       Webhooks/        WebhookEventProcessor, InvoiceEventApplier, ErpWebhookRequest, WebhookSignature, WebhookOptions
       DependencyInjection.cs
     InvoiceService.Infrastructure/
