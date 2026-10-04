@@ -35,51 +35,66 @@ public sealed class OutboxProcessor(
             entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim,
             entry.AttemptsUsedUp ? " (last attempt was cut off: only asking the ERP)" : "");
 
-        ErpSendResult result;
-        string check;
-        RetryDecision decision;
-        // The log shows the attempt's own HTTP status, not the final lookup's.
-        int? httpStatus;
-        if (entry.AttemptsUsedUp)
+        var outcome = entry.AttemptsUsedUp
+            ? await ConfirmCutOffAttemptAsync(invoice)
+            : await AttemptAsync(invoice, entry);
+
+        if (outcome is null)
         {
-            (result, check) = await strategy.ConfirmAsync(invoice, "Son deneme yarıda kaldı (servis durdu).");
-            check = $"final:{check}";
-            decision = FinalDecision(result, "last attempt was cut off; ERP asked, not sent again");
-            httpStatus = result.HttpStatus;
-        }
-        else
-        {
-            (result, check) = await strategy.SendOnceAsync(invoice, entry);
-            if (check == ErpSendStrategy.NotHeld)
-            {
-                logger.LogWarning(
-                    "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim} check={Check} " +
-                    "not sent: the entry is no longer held with this claim (its lock ran out and it was taken again)",
-                    entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim, check);
-                return;
-            }
-            decision = policy.Decide(result, entry.Attempt, time.GetUtcNow(), Random.Shared.NextDouble());
-            httpStatus = result.HttpStatus;
-            if (decision.AttemptsUsedUp)
-            {
-                (result, var finalCheck) = await strategy.ConfirmAsync(invoice, result.Error);
-                check = $"{check},final:{finalCheck}";
-                decision = FinalDecision(result, $"all {policy.MaxAttempts} attempts used; ERP asked before giving up");
-            }
+            logger.LogWarning(
+                "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim} check=notHeld " +
+                "not sent: the entry is no longer held with this claim (its lock ran out and it was taken again)",
+                entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim);
+            return;
         }
 
-        var now = time.GetUtcNow();
-        var owned = await outcomes.WriteAsync(entry, decision, result, now);
+        var (result, decision) = (outcome.Result, outcome.Decision);
+        var owned = await outcomes.WriteAsync(entry, decision, result, time.GetUtcNow());
 
         logger.LogInformation(
             "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim} check={Check} outcome={Outcome} http={HttpStatus} " +
             "retryAfter={RetryAfter} wait={WaitSeconds}s reason={Reason} erpReference={ErpReference} elapsed={ElapsedMs}ms error={Error}{NotWritten}",
-            entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim, check, decision.Outcome, httpStatus?.ToString() ?? "-",
+            entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim, outcome.Check, decision.Outcome,
+            outcome.HttpStatus?.ToString() ?? "-",
             result.RetryAfter?.ToString() ?? "-", decision.Delay.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture),
             decision.Reason, result.ErpReference ?? "-", (long)result.Elapsed.TotalMilliseconds, result.Error ?? "-",
             owned ? "" : " (not written: the entry is no longer held by this worker)");
     }
 
+    /// <summary>
+    /// Sends once and decides what the result means. With no attempts left, the ERP is asked before giving up.
+    /// Null when the entry is no longer held: nothing was sent.
+    /// </summary>
+    private async Task<AttemptOutcome?> AttemptAsync(Invoice invoice, ClaimedEntry entry)
+    {
+        var sent = await strategy.SendOnceAsync(invoice, entry);
+        if (sent.Path == SendPath.NotHeld)
+            return null;
+
+        var decision = policy.Decide(sent.Result, entry.Attempt, time.GetUtcNow(), Random.Shared.NextDouble());
+        if (!decision.AttemptsUsedUp)
+            return new AttemptOutcome(sent.Result, decision, sent.Check, sent.Result.HttpStatus);
+
+        var final = await strategy.ConfirmAsync(invoice, sent.Result.Error);
+        return new AttemptOutcome(
+            final.Result, FinalDecision(final.Result, $"all {policy.MaxAttempts} attempts used; ERP asked before giving up"),
+            $"{sent.Check},final:{final.Check}", sent.Result.HttpStatus);
+    }
+
+    /// <summary>The last attempt was cut off before its outcome was written: the ERP is only asked, not sent to again.</summary>
+    private async Task<AttemptOutcome> ConfirmCutOffAttemptAsync(Invoice invoice)
+    {
+        var final = await strategy.ConfirmAsync(invoice, "Son deneme yarıda kaldı (servis durdu).");
+        return new AttemptOutcome(
+            final.Result, FinalDecision(final.Result, "last attempt was cut off; ERP asked, not sent again"),
+            $"final:{final.Check}", final.Result.HttpStatus);
+    }
+
     private static RetryDecision FinalDecision(ErpSendResult result, string reason) =>
         new(result.Accepted ? SendOutcome.Sent : SendOutcome.Failed, TimeSpan.Zero, reason);
+
+    /// <param name="Result">What gets written: the attempt's result, or the final lookup's when the ERP was asked before giving up.</param>
+    /// <param name="Check">The path for the log, e.g. "first", "found" or "notFound,final:found".</param>
+    /// <param name="HttpStatus">The attempt's own HTTP status for the log, not the final lookup's.</param>
+    private sealed record AttemptOutcome(ErpSendResult Result, RetryDecision Decision, string Check, int? HttpStatus);
 }

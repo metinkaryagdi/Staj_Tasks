@@ -164,4 +164,18 @@ public class OutboxProcessorTests
         Assert.Equal(WebhookEventStatus.Processed, _s.Events.Events["e-1"].Status);
         Assert.Equal(Scenario.Start, _s.Events.Events["e-1"].ProcessedAt);
     }
+
+    // The manual-tests/gun3 scripts read check= from the log: these names must not change.
+    [Theory]
+    [InlineData(SendPath.First, "first")]
+    [InlineData(SendPath.Found, "found")]
+    [InlineData(SendPath.NotFound, "notFound")]
+    [InlineData(SendPath.Unknown, "unknown")]
+    [InlineData(SendPath.NotHeld, "notHeld")]
+    public void Each_send_path_keeps_its_log_name(SendPath path, string expected)
+    {
+        var attempt = new SendAttempt(FakeErpGateway.Accepted("ERP-1"), path);
+
+        Assert.Equal(expected, attempt.Check);
+    }
 }
