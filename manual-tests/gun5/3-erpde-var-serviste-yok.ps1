@@ -37,5 +37,19 @@ Check (Write-DbVerdict 'bulgu: Serviste Yok / Raporlandı' ($finding -join ', ')
 Check (Write-DbVerdict 'serviste bu numarayla fatura yok (düzeltilmedi, eklenmedi)' "$inService" ($inService -eq 0))
 Check (Write-DbVerdict 'simülatördeki kayıt değişmedi' $erpAfter ($erpAfter -eq $erpBefore))
 
+# --- Endpoint ayrıntıları: Location başlığı, liste sırası, olmayan çalışma -----------------------------------------------
+Write-Step 'Endpoint ayrıntıları: ikinci bir mutabakat başlatılıyor (Location), sonra liste ve olmayan çalışma'
+$again = Start-Reconciliation
+if ($again.Status -eq 202) { Wait-RunDone $again.RunId | Out-Null }
+$listText = $script:Http.GetAsync("$ServiceUrl/api/v1/reconciliation-runs").GetAwaiter().GetResult().Content.ReadAsStringAsync().GetAwaiter().GetResult()
+$ids = @(($listText | ConvertFrom-Json) | ForEach-Object { [long]$_.id })
+$sortedIds = @($ids | Sort-Object -Descending)
+$missing = $script:Http.GetAsync("$ServiceUrl/api/v1/reconciliation-runs/999999999").GetAwaiter().GetResult()
+Check (Write-DbVerdict 'POST 202 ve Location = /api/v1/reconciliation-runs/{id}' "HTTP $($again.Status), $($again.Location)" `
+    ($again.Status -eq 202 -and $again.Location -like "*/api/v1/reconciliation-runs/$($again.RunId)"))
+Check (Write-DbVerdict 'liste en yeniden eskiye (id azalan); ilk eleman en son çalışma' "$($ids.Count) çalışma, ilk $($ids[0])" `
+    ($ids.Count -ge 2 -and ($ids -join ',') -eq ($sortedIds -join ',') -and $ids[0] -eq $again.RunId))
+Check (Write-DbVerdict 'olmayan çalışma 404' "HTTP $([int]$missing.StatusCode)" ([int]$missing.StatusCode -eq 404))
+
 Restart-Simulator
 Write-Result $allPassed 'ERP''de olup serviste olmayan fatura raporlandı, iki tarafta hiçbir şey değişmedi'

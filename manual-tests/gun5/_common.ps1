@@ -45,6 +45,7 @@ function Start-Reconciliation([string]$Url = $ServiceUrl) {
     $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
     [pscustomobject]@{
         Status = [int]$response.StatusCode; Body = $body
+        Location = $(if ($response.Headers.Location) { $response.Headers.Location.ToString() } else { '' })
         RunId  = $(if ($body -match '"id":(\d+)') { [long]$Matches[1] } else { 0 })
     }
 }

@@ -39,5 +39,23 @@ Check (Write-DbVerdict 'bulgu: ERP Çift Kayıt / Raporlandı' ($finding -join '
 Check (Write-DbVerdict 'serviste fatura aynı' $serviceAfter ($serviceAfter -eq $serviceBefore))
 Check (Write-DbVerdict 'simülatörde hâlâ 2 kayıt (silinmedi, birleştirilmedi)' "$erpAfter" ($erpAfter -eq 2))
 
+# --- Çift kayıtlı fatura Başarısız olsa da yalnızca raporlanır -------------------------------------------------------------
+Write-Step "$number serviste Başarısız yapılıyor (erp_reference boş); ERP'de hâlâ 2 kaydı var"
+Invoke-ServiceSql ("UPDATE invoices SET status = 'Başarısız', erp_reference = NULL, last_error = 'elle bozuldu' WHERE invoice_number = '$number'; " +
+                   "UPDATE erp_outbox SET status = 'Başarısız' WHERE invoice_number = '$number';") | Out-Null
+$stateSql = "SELECT i.status, coalesce(i.erp_reference, ''), o.status FROM invoices i JOIN erp_outbox o ON o.invoice_number = i.invoice_number WHERE i.invoice_number = '$number';"
+$failedBefore = (@(Get-ServiceRows $stateSql) -join ';')
+$run2 = Invoke-Reconciliation
+$id2 = $run2.run.id
+Write-Host "  çalışma ${id2}: $($run2.run.status)"
+Write-DbHeader 'Fatura Servisi' 'Çift kayıtlı Başarısız fatura: bulgu ve faturanın hâli'
+Show-Findings $id2 "AND invoice_number = '$number'"
+Show-ServiceQuery $stateSql
+$finding2 = @(Get-ServiceRows "SELECT finding_type, action FROM reconciliation_findings WHERE run_id = $id2 AND invoice_number = '$number' ORDER BY id;")
+$failedAfter = (@(Get-ServiceRows $stateSql) -join ';')
+Check (Write-DbVerdict 'yalnızca ERP Çift Kayıt / Raporlandı (geri getirme ya da düzeltme bulgusu yok)' ($finding2 -join ', ') `
+    ($finding2.Count -eq 1 -and $finding2[0] -eq 'ERP Çift Kayıt|Raporlandı'))
+Check (Write-DbVerdict 'fatura ve erp_outbox değişmedi (Başarısız, referans boş)' $failedAfter ($failedAfter -eq $failedBefore))
+
 Restart-Simulator
 Write-Result $allPassed 'çift kayıt raporlandı, iki tarafta hiçbir şey değişmedi'
