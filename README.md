@@ -350,16 +350,19 @@ Kontrol listesi ve ek test: [`manual-tests/gun5/`](manual-tests/gun5/) (`.\manua
 
 ### Son doğrulama — 5 Ekim 2026
 
-Gün 3 (7/7, 21,9 dk), Gün 4 (8/8, 9,3 dk) ve Gün 5 (2-9, 12,3 dk) listeleri Gün 5 kodunda tek seferde çalıştırıldı ve hepsi geçti.
-Bunlar bu koşunun sonuçlarıdır; başka koşullarda aynı sonucun çıkacağını göstermez.
+Gün 3 (22,2 dk) ve Gün 4 (8/8, 9,4 dk) listeleri Gün 5 koduyla koşuldu. Gün 3'te 7 maddenin 6'sı geçti; 4. madde, beklemeyi iki log damgasından
+ölçtüğü için, bir denemede planlanan beklemenin 87 ms altında kaldı (eşik 50 ms) ve tek başına yeniden koşulunca geçti; eşik gevşetilmedi.
+Gün 5 listesi (2-9, 13,0 dk) ve ek test kod incelemesinden sonraki son hâlde koşuldu ve hepsi geçti. Bu koşulardan sonra Gün 3 ve Gün 4
+yeniden koşulmadı: o zamandan beri yalnızca yorumlar, bir sabit adı ve Gün 5'in planlayıcı kuralı değişti, gönderim yoluna dokunulmadı
+(birim testler: Invoice Service 281, ERP Simulator 103, hepsi geçti). Bunlar bu koşuların sonuçlarıdır; başka koşullarda aynı sonucun çıkacağını göstermez.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
-| 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 listeleri | İkisi de baştan sona geçti (yukarıdaki süreler) |
-| 2 | Varsayılan oranlarla 500 fatura, haberler bitince mutabakat | Mutabakattan önce 30 fatura `Gönderildi` / `İşleme Alındı`'da kalmıştı; ERP Simulator'ın karar event'ini göndermediği fatura sayısı da 30. Mutabakat 30 fatura düzeltti (aynı faturalar), sonra kalan 0. Çalışma 24 saatlik pencerede 6.249 fatura karşılaştırdı; öncesinde önceki testlerin takılı faturalarını temizleyen bir çalışma yapıldı |
-| 3 | ERP Simulator'a elle eklenen, serviste olmayan fatura | `Serviste Yok` raporlandı; iki tarafta değişiklik yok |
+| 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 listeleri | Gün 4 8/8; Gün 3 6/7 + 4. maddenin yeniden koşusu geçti (yukarıdaki not) |
+| 2 | Varsayılan oranlarla 500 fatura, haberler bitince mutabakat | Mutabakattan önce 30 fatura `Gönderildi` / `İşleme Alındı`'da kalmıştı; ERP Simulator'ın karar event'ini göndermediği fatura sayısı da 30. Mutabakat 30 fatura düzeltti (aynı faturalar), sonra kalan 0. Çalışma 24 saatlik pencerede 9.811 fatura karşılaştırdı; öncesinde önceki testlerin takılı faturalarını temizleyen bir çalışma yapıldı |
+| 3 | ERP Simulator'a elle eklenen, serviste olmayan fatura | `Serviste Yok` raporlandı; iki tarafta değişiklik yok. Aynı script'te `POST` `202` + `Location`, listenin en yeniden eskiye sırası ve olmayan çalışma için `404` de doğrulandı |
 | 4 | ERP Simulator'da tutarı elle değiştirilen fatura | `Alan Farkı` (tutar: serviste 1250.50, ERP'de 1260.50) raporlandı; iki tarafta değişiklik yok |
-| 5 | `IdempotentInvoices` kapalıyken elle ikinci gönderim | `ERP Çift Kayıt` raporlandı; ERP Simulator'da 2 kayıt kaldı, serviste fatura aynı |
+| 5 | `IdempotentInvoices` kapalıyken elle ikinci gönderim | `ERP Çift Kayıt` raporlandı; ERP Simulator'da 2 kayıt kaldı, serviste fatura aynı. Aynı fatura serviste `Başarısız` yapılınca da mutabakat yalnızca `ERP Çift Kayıt` raporladı; fatura ve `erp_outbox` değişmedi |
 | 6 | Serviste elle `Başarısız` yapılan, `erp_reference`'ı boşaltılan fatura | `Başarısız Ama ERP Kayıtlı` düzeltildi: `Gönderildi`, ERP'deki referans, `erp_outbox` `Tamamlandı` |
 | 7 | Tanınmayan faturaya geçerli imzalı event, eşik 1 dk | Zamanlanmış çalışma 125 sn sonra event'i `Yok Sayıldı` (`Fatura Yok`) yaptı; serviste fatura oluşmadı |
 | 8 | Servisin iki kopyası + elle başlatma | Kilit başka oturumdayken iki kopya da `409`; 30 eşzamanlı istekte 1 `202`, 29 `409`; hiçbir iki çalışmanın zaman aralığı üst üste binmedi |
@@ -368,7 +371,7 @@ Bunlar bu koşunun sonuçlarıdır; başka koşullarda aynı sonucun çıkacağ�
 **Ek test** (`ek-haber-yarisi.ps1`): fatura satırı 8 sn kilitliyken mutabakat başlatıldı ve kararın event'i servise gönderildi. Event iki kez
 `503` (lock-timeout) aldı, sonra `200`; fatura tek kez doğru karara ilerledi. İki koşuda iki farklı sıra görüldü: mutabakat önce
 (event `Yok Sayıldı`, `Kesin Durumda`) ve event önce (mutabakat faturaya dokunmadı). Yerel ham çıktılar:
-`manual-tests/output/gun5-kontrol-listesi-20261005-110826.log` ve `gun5-ek-haber-yarisi.log` (Git'e dahil değildir).
+`manual-tests/output/gun5-kontrol-listesi-20261005-145813.log` ve `gun5-son-kosum-20261005-1458-zincir.log` (Git'e dahil değildir).
 
 ### Bilinen sınırlar
 
@@ -379,9 +382,10 @@ Bunlar bu koşunun sonuçlarıdır; başka koşullarda aynı sonucun çıkacağ�
 - **9. madde:** ERP Simulator kapatılmadı, `docker pause` ile donduruldu; kesinti çalışmanın ERP'den ilk okumasında oluştu. Karar sorgusu
   aşamasındaki kesinti yalnızca unit testle doğrulandı.
 - **Düzeltilmeyenler:** içeriği (tutar, para birimi, müşteri kodu, referans) ERP'den farklı fatura ERP'nin referansıyla ya da kararıyla
-  ilerletilmez, yalnızca raporlanır.
+  ilerletilmez, yalnızca raporlanır. ERP'de birden fazla kaydı olan fatura da geri getirilmez ve karar almaz, yalnızca raporlanır: hangi kaydın
+  doğru olduğu bilinmez.
 - **Yorum gerektirenler:** `decision` ilk event zamanı gelince `received`, karar zamanı gelince `approved` / `rejected` döner; alan adları
-  camelCase'tir (`decidedAt`); `pageSize` 500'ü aşarsa `400` döner; `ERP Kaydı Yok` türü görevdeki tabloda yoktur.
+  camelCase'tir (`decidedAt`); `pageSize` 500'ü aşarsa `400` döner; `ERP Kaydı Yok` türü görevdeki tabloda yoktur; `Başarısız` ve çift kayıtlı bir fatura iki bulgu türüne birden girer, görevdeki tablo bu durumu söylemez, düzeltmemek (yalnızca raporlamak) seçildi.
 - **Ölçek:** düzeltmeler ve karar sorguları sıralıdır; çalışma listesi sayfalanmaz. Her çalışma penceredeki bütün faturaları ve ERP kayıtlarını
   belleğe alır; test ölçeğinde (binlerce fatura) sorun olmadı, çok büyük hacimde ayrıca ele alınması gerekir.
 - **Kilit:** bağlantı canlı tutulur (keepalive) ama ağ gerçekten kopmuşsa kilit düşer ve ikinci bir çalışma başlayabilir; bunu yakalayan ek bir kontrol yoktur.
