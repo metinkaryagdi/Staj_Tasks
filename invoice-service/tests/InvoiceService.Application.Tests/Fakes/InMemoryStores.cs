@@ -18,6 +18,19 @@ public sealed class FixedTime(DateTimeOffset now) : TimeProvider
 }
 
 /// <summary>Records the transactions; SaveChanges is a no-op because the stores hand out the objects they keep.</summary>
+/// <summary>A clock that moves on by a step every time it is read.</summary>
+public sealed class SteppingTime(DateTimeOffset start, TimeSpan step) : TimeProvider
+{
+    private DateTimeOffset _now = start;
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        var current = _now;
+        _now += step;
+        return current;
+    }
+}
+
 public sealed class FakeUnitOfWork : IUnitOfWork
 {
     public int Begun { get; private set; }
@@ -215,7 +228,9 @@ public sealed class FakeErpGateway : IErpGateway
     {
         Calls.Add("LIST");
         LastListRange = (from, to);
-        return Task.FromResult(ListResult);
+        return Task.FromResult(ListResult.Succeeded
+            ? ListResult with { Records = ListResult.Records.Where(r => r.ReceivedAt >= from && r.ReceivedAt < to).ToList() }
+            : ListResult);
     }
 
     public Task<ErpSendResult> SendAsync(Invoice invoice, CancellationToken ct)

@@ -174,6 +174,25 @@ public class ReconciliationRunnerTests
     }
 
     [Fact]
+    public async Task An_invoice_sent_while_the_run_was_reading_is_not_reported_missing_from_the_erp()
+    {
+        // The invoice became Gönderildi half a second after the run started; the ERP received it then. The clock moves a
+        // second on each reading, so the ERP's list must run up to a moment after the service's data was read.
+        var invoice = AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-1");
+        invoice.UpdatedAt = Now.AddMilliseconds(500);
+        _s.Erp.ListResult = new ErpListResult(true, [Erp("F-1", "ERP-1") with { ReceivedAt = Now.AddMilliseconds(500) }], null);
+        var runner = new ReconciliationRunner(
+            _s.Reconciliation, _s.Erp, _s.UnitOfWork, _s.ReconciliationPlanner(), _s.Scopes(),
+            Microsoft.Extensions.Options.Options.Create(_s.ReconciliationSettings), new SteppingTime(Now, TimeSpan.FromSeconds(1)),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ReconciliationRunner>.Instance);
+
+        await runner.RunAsync(StartRun(), CancellationToken.None);
+
+        Assert.Empty(_s.Reconciliation.Findings);
+        Assert.True(_s.Erp.LastListRange!.Value.To > Now);
+    }
+
+    [Fact]
     public async Task A_fix_that_fails_is_skipped_and_the_other_fixes_and_the_run_go_on()
     {
         AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-1");

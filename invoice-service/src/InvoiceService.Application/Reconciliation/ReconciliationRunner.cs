@@ -80,12 +80,12 @@ public sealed class ReconciliationRunner(
         var now = time.GetUtcNow();
         var since = now - TimeSpan.FromHours(options.Value.LookbackHours);
 
-        // The service's side is read before the ERP's: an invoice that becomes Gönderildi in between was accepted by the ERP
-        // before this reading, so it is in the ERP's list; the other order would show it as missing from the ERP.
+        // The service's side is read before the ERP's, and the ERP's list runs up to a moment taken after that reading: an
+        // invoice that is Gönderildi in the service's data was accepted by the ERP before then, so it is in the list.
         var invoices = (await store.InvoicesCreatedSinceAsync(since, ct)).ToList();
         var unknownEvents = await store.WaitingEventsOfUnknownInvoicesAsync(ct);
 
-        var listed = await erp.ListAsync(since, now, ct);
+        var listed = await erp.ListAsync(since, time.GetUtcNow(), ct);
         if (!listed.Succeeded)
             throw new ReconciliationFailedException(listed.Error!);
 
