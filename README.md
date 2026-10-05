@@ -270,7 +270,7 @@ koşuların sonuçlarıdır; başka koşullarda aynı sonucun çıkacağını g�
 
 | # | Senaryo | Sonuç |
 |---|---|---|
-| 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 | Gün 4 8/8; Gün 3 6/7 + 4. madde yeniden koşuda geçti |
+| 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 | Gün 4 8/8; Gün 3 6/7 (4. madde ilk koşuda kaldı, tek başına yeniden koşulunca geçti; ayrıntı yukarıdaki notta) |
 | 2 | 500 fatura, varsayılan oranlar, haberler bitince mutabakat | 30 fatura takılı kalmıştı (karar event'i gönderilmeyen 30'la aynı); 30'u düzeltildi, kalan 0 |
 | 3 | ERP Simulator'a elle eklenen, serviste olmayan fatura | `Serviste Yok` raporlandı; iki tarafta değişiklik yok. `POST` `202` + `Location`, liste sırası ve `404` de doğrulandı |
 | 4 | ERP'de tutarı elle değiştirilen fatura | `Alan Farkı` (1250.50 / 1260.50) raporlandı; değişiklik yok |
@@ -282,7 +282,7 @@ koşuların sonuçlarıdır; başka koşullarda aynı sonucun çıkacağını g�
 
 **Ek test** (`ek-haber-yarisi.ps1`): fatura satırı 8 sn kilitliyken mutabakat başlatıldı ve kararın event'i servise
 gönderildi. Event iki kez `503` (lock-timeout) aldı, sonra `200`; fatura tek kez doğru karara ilerledi. İki koşuda iki
-farklı sıra görüldü (mutabakat önce / event önce), ikisinde de sonuç tutarlıydı. Yerel ham çıktılar `manual-tests/output/`
+farklı sıra görüldü (mutabakat önce: ilk koşuda, event önce: son koşuda), ikisinde de sonuç tutarlıydı. Yerel ham çıktılar `manual-tests/output/`
 altındadır (Git'e dahil değildir).
 
 ### Bilinen sınırlar
