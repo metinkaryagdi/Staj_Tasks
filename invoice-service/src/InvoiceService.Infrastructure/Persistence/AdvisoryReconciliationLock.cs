@@ -6,17 +6,26 @@ namespace InvoiceService.Infrastructure.Persistence;
 /// <summary>
 /// A PostgreSQL advisory lock held on a connection of its own for as long as a run lasts. Every copy of the service uses
 /// the same database and the same key, so only one of them can hold it. Pooling is off, so closing the connection ends the
-/// session, and the database releases the lock: a copy that stops or crashes never leaves it held.
+/// session, and the database releases the lock: a copy that stops or crashes never leaves it held. The connection does
+/// nothing else while a run lasts, so it is kept alive: an idle-timeout on the way to the database would end the session
+/// and release the lock while the run goes on.
 /// </summary>
 public sealed class AdvisoryReconciliationLock(IConfiguration configuration) : IReconciliationLock
 {
     /// <summary>Any number, as long as every copy uses the same one.</summary>
     private const long Key = 7_300_001;
 
+    /// <summary>Seconds between the keepalive messages on the otherwise idle connection.</summary>
+    private const int KeepAliveSeconds = 30;
+
+    /// <summary>The configured connection string, for a connection that is not pooled and does not sit idle.</summary>
+    public static string BuildConnectionString(string? configured) =>
+        new NpgsqlConnectionStringBuilder(configured) { Pooling = false, KeepAlive = KeepAliveSeconds, TcpKeepAlive = true }
+            .ConnectionString;
+
     public async Task<IAsyncDisposable?> TryAcquireAsync(CancellationToken ct)
     {
-        var connectionString = new NpgsqlConnectionStringBuilder(configuration.GetConnectionString("InvoiceDb")) { Pooling = false };
-        var connection = new NpgsqlConnection(connectionString.ConnectionString);
+        var connection = new NpgsqlConnection(BuildConnectionString(configuration.GetConnectionString("InvoiceDb")));
         try
         {
             await connection.OpenAsync(ct);
