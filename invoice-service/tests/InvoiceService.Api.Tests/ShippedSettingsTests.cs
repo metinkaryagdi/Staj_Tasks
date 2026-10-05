@@ -1,4 +1,5 @@
 using InvoiceService.Application.Outbox;
+using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
 using InvoiceService.Infrastructure.Erp;
 using Microsoft.Extensions.Configuration;
@@ -57,5 +58,19 @@ public class ShippedSettingsTests
         var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
         Assert.True(Validates(configuration));
         Assert.True(configuration.GetValue<int>("ErpWebhooks:ResponseBudgetMilliseconds") < WebhookOptionsValidator.TaskResponseLimitMilliseconds);
+    }
+
+    [Fact]
+    public void Shipped_reconciliation_settings_follow_the_task_rules()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
+        var options = new ReconciliationOptions();
+        configuration.GetSection(ReconciliationOptions.SectionName).Bind(options);
+
+        Assert.True(new ReconciliationOptionsValidator(configuration).Validate(null, options).Succeeded);
+        Assert.Equal(24, options.LookbackHours);
+        Assert.Equal(2, options.StuckAfterMinutes);
+        Assert.Equal(60, options.UnknownEventAfterMinutes);
     }
 }

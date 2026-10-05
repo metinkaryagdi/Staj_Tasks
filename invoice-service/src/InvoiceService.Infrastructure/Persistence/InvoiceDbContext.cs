@@ -1,5 +1,6 @@
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Outbox;
+using InvoiceService.Domain.Reconciliation;
 using InvoiceService.Domain.Webhooks;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,6 +15,10 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
     public DbSet<ErpOutboxEntry> ErpOutbox => Set<ErpOutboxEntry>();
 
     public DbSet<ErpWebhookEvent> ErpWebhookEvents => Set<ErpWebhookEvent>();
+
+    public DbSet<ReconciliationRun> ReconciliationRuns => Set<ReconciliationRun>();
+
+    public DbSet<ReconciliationFinding> ReconciliationFindings => Set<ReconciliationFinding>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -102,6 +107,53 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
 
             // Finding an invoice's events still waiting for it (Bekliyor) when it becomes Gönderildi.
             entity.HasIndex(e => new { e.InvoiceNumber, e.Status });
+        });
+
+        modelBuilder.Entity<ReconciliationRun>(entity =>
+        {
+            entity.ToTable("reconciliation_runs", t =>
+            {
+                t.HasCheckConstraint("ck_reconciliation_runs_status", InList("status", ReconciliationStatus.All));
+                t.HasCheckConstraint("ck_reconciliation_runs_finished_at",
+                    $"(status = '{ReconciliationStatus.Running}') = (finished_at IS NULL)");
+                t.HasCheckConstraint("ck_reconciliation_runs_error",
+                    $"(status = '{ReconciliationStatus.Failed}') = (error IS NOT NULL)");
+                t.HasCheckConstraint("ck_reconciliation_runs_counts",
+                    "checked_count >= 0 AND fixed_count >= 0 AND reported_count >= 0");
+            });
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
+            entity.Property(e => e.StartedAt).HasColumnName("started_at");
+            entity.Property(e => e.FinishedAt).HasColumnName("finished_at");
+            entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(16);
+            entity.Property(e => e.CheckedCount).HasColumnName("checked_count");
+            entity.Property(e => e.FixedCount).HasColumnName("fixed_count");
+            entity.Property(e => e.ReportedCount).HasColumnName("reported_count");
+            entity.Property(e => e.Error).HasColumnName("error");
+        });
+
+        modelBuilder.Entity<ReconciliationFinding>(entity =>
+        {
+            entity.ToTable("reconciliation_findings", t =>
+            {
+                t.HasCheckConstraint("ck_reconciliation_findings_finding_type", InList("finding_type", FindingType.All));
+                t.HasCheckConstraint("ck_reconciliation_findings_action", InList("action", FindingAction.All));
+                // Only the types the run fixes can be Düzeltildi; the others are only reported.
+                t.HasCheckConstraint("ck_reconciliation_findings_fixed_types",
+                    $"(action = '{FindingAction.Fixed}') = ({InList("finding_type", FindingType.Fixable)})");
+            });
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
+            entity.Property(e => e.RunId).HasColumnName("run_id");
+            entity.HasOne<ReconciliationRun>().WithMany().HasForeignKey(e => e.RunId).OnDelete(DeleteBehavior.Restrict);
+            // No foreign key to invoices: the ERP may have an invoice the service does not know.
+            entity.Property(e => e.InvoiceNumber).HasColumnName("invoice_number").HasMaxLength(64);
+            entity.Property(e => e.FindingType).HasColumnName("finding_type").HasMaxLength(32);
+            entity.Property(e => e.Action).HasColumnName("action").HasMaxLength(16);
+            entity.Property(e => e.Details).HasColumnName("details");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
         });
     }
 

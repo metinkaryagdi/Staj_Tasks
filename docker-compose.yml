@@ -90,6 +90,12 @@ services:
     environment:
       # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
+      # Optional overrides of the reconciliation settings, passed through from the shell only when set there
+      # (e.g. IntervalMinutes=1 for the Gün 5 checklist).
+      Reconciliation__IntervalMinutes:
+      Reconciliation__LookbackHours:
+      Reconciliation__StuckAfterMinutes:
+      Reconciliation__UnknownEventAfterMinutes:
     networks:
       - invoice-data
       - apps
@@ -109,6 +115,12 @@ services:
     environment:
       # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
+      # Optional overrides of the reconciliation settings, passed through from the shell only when set there
+      # (e.g. IntervalMinutes=1 for the Gün 5 checklist).
+      Reconciliation__IntervalMinutes:
+      Reconciliation__LookbackHours:
+      Reconciliation__StuckAfterMinutes:
+      Reconciliation__UnknownEventAfterMinutes:
     networks:
       - invoice-data
       - apps

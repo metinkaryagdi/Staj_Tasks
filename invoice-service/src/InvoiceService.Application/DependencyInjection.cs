@@ -1,5 +1,6 @@
 using InvoiceService.Application.Invoices;
 using InvoiceService.Application.Outbox;
+using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,6 +19,10 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(WebhookOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<WebhookOptions>, WebhookOptionsValidator>();
+        services.AddOptions<ReconciliationOptions>()
+            .Bind(configuration.GetSection(ReconciliationOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ReconciliationOptions>, ReconciliationOptionsValidator>();
 
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(sp => new RetryPolicy(sp.GetRequiredService<IOptions<OutboxOptions>>().Value));
