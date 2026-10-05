@@ -1,5 +1,6 @@
 using InvoiceService.Application.Invoices;
 using InvoiceService.Application.Outbox;
+using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -38,6 +39,8 @@ public sealed class Scenario
         Outbox, Invoices, new ErpSendStrategy(Erp, Outbox, Time),
         new OutboxOutcomeWriter(UnitOfWork, Outbox, Invoices, WebhookEventProcessor()),
         new RetryPolicy(OutboxSettings), Options.Create(OutboxSettings), Time, NullLogger<OutboxProcessor>.Instance);
+
+    public FixApplier FixApplier() => new(UnitOfWork, Invoices, Outbox, Events, WebhookEventProcessor(), Time);
 
     public ResendInvoiceHandler ResendInvoiceHandler() => new(UnitOfWork, Invoices, Outbox, Time, NullLoggerFactory.Instance);
 

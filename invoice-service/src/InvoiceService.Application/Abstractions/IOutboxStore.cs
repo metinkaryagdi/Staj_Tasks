@@ -28,4 +28,10 @@ public interface IOutboxStore
     /// it is missing.
     /// </summary>
     Task ResetAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
+
+    /// <summary>
+    /// Makes the invoice's entry Tamamlandı if it is Başarısız: the invoice got to the ERP after all, so the two agree.
+    /// Nothing happens for an entry in any other state, or a missing one.
+    /// </summary>
+    Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
 }

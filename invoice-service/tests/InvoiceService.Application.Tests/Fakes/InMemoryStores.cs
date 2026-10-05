@@ -117,6 +117,13 @@ public sealed class FakeOutboxStore : IOutboxStore
 
     public List<(long Id, string Status, string? Error, DateTimeOffset NextAttemptAt, DateTimeOffset? ProcessedAt)> Outcomes { get; } = [];
     public List<string> Resets { get; } = [];
+    public List<string> Completed { get; } = [];
+
+    public Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
+    {
+        Completed.Add(invoiceNumber);
+        return Task.CompletedTask;
+    }
 
     public Task<IReadOnlyList<ClaimedEntry>> ClaimAsync(
         int limit, string workerId, DateTimeOffset now, DateTimeOffset lockedUntil, int maxAttempts, CancellationToken ct) =>
@@ -160,6 +167,18 @@ public sealed class FakeWebhookEventStore : IWebhookEventStore
             ErpReference = request.ErpReference!, OccurredAt = request.OccurredAt!.Value, ReceivedAt = now,
             Status = WebhookEventStatus.Pending, Payload = payload
         };
+        return Task.FromResult(true);
+    }
+
+    /// <summary>What <see cref="IgnoreUnknownInvoiceAsync"/> treats as the invoices the service has.</summary>
+    public HashSet<string> KnownInvoices { get; } = [];
+
+    public Task<bool> IgnoreUnknownInvoiceAsync(string eventId, CancellationToken ct)
+    {
+        if (!Events.TryGetValue(eventId, out var e) || e.Status != WebhookEventStatus.Pending || KnownInvoices.Contains(e.InvoiceNumber))
+            return Task.FromResult(false);
+        e.Status = WebhookEventStatus.Ignored;
+        e.IgnoreReason = IgnoreReason.UnknownInvoice;
         return Task.FromResult(true);
     }
 

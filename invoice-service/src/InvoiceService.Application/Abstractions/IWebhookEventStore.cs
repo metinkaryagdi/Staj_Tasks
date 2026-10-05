@@ -28,4 +28,10 @@ public interface IWebhookEventStore
     /// (received_at, then occurred_at).
     /// </summary>
     Task<IReadOnlyList<ErpWebhookEvent>> LockWaitingAsync(string invoiceNumber, CancellationToken ct);
+
+    /// <summary>
+    /// Makes a waiting event Yok Sayıldı (Fatura Yok), but only while it is still Bekliyor and the invoice is still not in
+    /// the service. One statement, so an invoice or a repeat of the event arriving at the same time cannot interleave.
+    /// </summary>
+    Task<bool> IgnoreUnknownInvoiceAsync(string eventId, CancellationToken ct);
 }

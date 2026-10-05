@@ -73,4 +73,12 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
                 locked_by = NULL,
                 claim_token = NULL
             """, ct);
+
+    public async Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct) =>
+        await db.ErpOutbox
+            .Where(o => o.InvoiceNumber == invoiceNumber && o.Status == OutboxStatus.Failed)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.Status, OutboxStatus.Completed)
+                .SetProperty(o => o.LastError, (string?)null)
+                .SetProperty(o => o.ProcessedAt, now), ct);
 }

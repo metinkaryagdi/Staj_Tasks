@@ -33,6 +33,9 @@ public static class DependencyInjection
         services.AddScoped<InvoiceEventApplier>();
         services.AddScoped<WebhookEventProcessor>();
 
+        services.AddSingleton<ReconciliationPlanner>();
+        services.AddScoped<FixApplier>();
+
         services.AddScoped<CreateInvoiceHandler>();
         services.AddScoped<ResendInvoiceHandler>();
         services.AddScoped<InvoiceQueries>();

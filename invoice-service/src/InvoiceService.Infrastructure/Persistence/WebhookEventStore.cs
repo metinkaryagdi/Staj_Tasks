@@ -42,4 +42,12 @@ public sealed class WebhookEventStore(InvoiceDbContext db) : IWebhookEventStore
                 FOR UPDATE
                 """)
             .ToListAsync(ct);
+
+    public async Task<bool> IgnoreUnknownInvoiceAsync(string eventId, CancellationToken ct) =>
+        await db.Database.ExecuteSqlAsync($"""
+            UPDATE erp_webhook_events e
+            SET status = {WebhookEventStatus.Ignored}, ignore_reason = {IgnoreReason.UnknownInvoice}
+            WHERE e.event_id = {eventId} AND e.status = {WebhookEventStatus.Pending}
+              AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.invoice_number = e.invoice_number)
+            """, ct) == 1;
 }
