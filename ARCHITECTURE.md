@@ -32,21 +32,26 @@ invoice-service/
       Invoices/        Invoice, InvoiceStatus, InvoiceNumber, InvoiceTransitions
       Outbox/          ErpOutboxEntry, OutboxStatus
       Webhooks/        ErpWebhookEvent, WebhookEventType, WebhookEventStatus, IgnoreReason
+      Reconciliation/  ReconciliationRun, ReconciliationFinding, ReconciliationStatus, FindingType, FindingAction
     InvoiceService.Application/
-      Abstractions/    IErpGateway, IInvoiceStore, IOutboxStore, IWebhookEventStore, IUnitOfWork, IDatabaseFailureClassifier
+      Abstractions/    IErpGateway, IInvoiceStore, IOutboxStore, IWebhookEventStore, IReconciliationStore, IReconciliationLock,
+                       IUnitOfWork, IDatabaseFailureClassifier
       Invoices/        CreateInvoiceHandler, ResendInvoiceHandler, InvoiceQueries, CreateInvoiceRequest
       Outbox/          OutboxProcessor, ClaimedEntry, ErpSendStrategy, OutboxOutcomeWriter, RetryPolicy, OutboxOptions
       Webhooks/        WebhookEventProcessor, InvoiceEventApplier, ErpWebhookRequest, WebhookSignature, WebhookOptions
+      Reconciliation/  ReconciliationService, ReconciliationRunner, ReconciliationPlanner, ReconciliationPlan, FixApplier,
+                       ReconciliationQueries, ReconciliationOptions
       DependencyInjection.cs
     InvoiceService.Infrastructure/
       Persistence/     InvoiceDbContext, Migrations/, InvoiceStore, OutboxStore, WebhookEventStore, UnitOfWork,
-                       PostgresFailureClassifier
+                       ReconciliationStore, AdvisoryReconciliationLock, PostgresFailureClassifier
       Erp/             ErpClient (IErpGateway), ErpOptions
       DependencyInjection.cs
     InvoiceService.Api/
       Invoices/        InvoiceEndpoints, InvoiceResponse
       Webhooks/        WebhookEndpoints, WebhookRequestReader
-      Workers/         OutboxWorker
+      Reconciliation/  ReconciliationEndpoints, ReconciliationResponses
+      Workers/         OutboxWorker, ReconciliationWorker
       Startup/         LoggingExtensions, OpenApiExtensions, DatabaseMigrator, SettingsLogger
       Program.cs
   tests/
@@ -57,11 +62,13 @@ invoice-service/
 
 | Port | Ne için | Uygulaması |
 |---|---|---|
-| `IErpGateway` | ERP'ye faturayı gönder (`SendAsync`), ERP'ye faturayı sor (`FindAsync`); her çağrı tek HTTP isteği | `ErpClient` |
+| `IErpGateway` | ERP'ye faturayı gönder (`SendAsync`), faturayı ve kararını sor (`FindAsync`), aralıktaki kayıtları listele (`ListAsync`) | `ErpClient` |
 | `IInvoiceStore` | `invoices` tablosu: numara üret, fatura + outbox kaydını birlikte yaz, oku, koşullu güncelle, satır kilidi | `InvoiceStore` |
 | `IOutboxStore` | `erp_outbox`: `FOR UPDATE SKIP LOCKED` ile kayıt al, claim hâlâ bizde mi, sonucu claim'e göre yaz, sıfırla | `OutboxStore` |
 | `IWebhookEventStore` | `erp_webhook_events`: bir kez sakla (`ON CONFLICT`), oku, bekleyenleri kilitle, `SET LOCAL` süre limitleri | `WebhookEventStore` |
 | `IUnitOfWork` | Transaction sınırı: aynı DI scope'undaki store'lar aynı transaction'a katılır | `UnitOfWork` |
+| `IReconciliationStore` | `reconciliation_runs` / `reconciliation_findings`; mutabakatın okuduğu fatura ve haber listeleri | `ReconciliationStore` |
+| `IReconciliationLock` | Aynı anda tek mutabakat: bırakılana kadar tutulan kilit; başkasındaysa `null` | `AdvisoryReconciliationLock` |
 | `IDatabaseFailureClassifier` | Veritabanı hatası `lock_timeout` / `statement_timeout` mu (webhook'ta 503 için) | `PostgresFailureClassifier` |
 
 ### Akışlar
@@ -87,6 +94,19 @@ işi kendi scope'unda `WebhookEventProcessor.ReceiveAsync`'e verir ve en fazla `
 (yoksa `503`). `WebhookEventProcessor` event'i bir kez saklar, faturayı kilitler ve `InvoiceEventApplier` ile uygular
 (geçiş kuralları `InvoiceTransitions`'ta).
 
+**Mutabakat** — `ReconciliationWorker` ayardaki aralıkta, `POST /api/v1/reconciliation-runs` ise istendiğinde
+`ReconciliationService.TryStartAsync`'i çağırır: kilit alınırsa çalışma `Çalışıyor` olarak kaydedilir (alınamazsa
+`null`; endpoint `409`, worker o turu atlar). `ReconciliationRunner` önce her şeyi okur, sonra yazar:
+
+```mermaid
+flowchart LR
+    R[ReconciliationRunner] --> S["okuma: servisin faturaları + bekleyen haberler<br/>ERP listesi, takılı faturaların kararı"]
+    S --> P["ReconciliationPlanner<br/>bulgular + düzeltmeler (saf)"]
+    P --> F["FixApplier<br/>fatura başına bir transaction<br/>satır kilidi altında"]
+```
+
+ERP'ye ulaşılamazsa çalışma Başarısız olur ve hiçbir fatura değişmemiştir (yazma henüz başlamamıştır).
+
 **Yeniden gönderme** — `POST /api/v1/invoices/{n}/resend` → `ResendInvoiceHandler`: yalnızca Başarısız fatura
 Bekliyor'a döner ve outbox kaydı sıfırlanır (tek transaction); sonuç `Queued` / `NotFound` / `NotFailed` → `202` /
 `404` / `409`.
@@ -101,7 +121,7 @@ erp-simulator/
       Webhooks/        WebhookDelivery, DeliveryStatus, DeliveryKind, ErpEventType
     ErpSimulator.Application/
       Abstractions/    IErpInvoiceStore, IWebhookDeliveryStore, IWebhookTransport, IUnitOfWork
-      Invoices/        SubmitInvoiceHandler, InvoiceLookup, CreateInvoiceRequest
+      Invoices/        SubmitInvoiceHandler, InvoiceLookup, InvoiceListing, InvoiceDecisions, CreateInvoiceRequest
       Simulation/      BehaviorSelector, SimulatorOptions
       Webhooks/        WebhookSender, WebhookPlanner, WebhookSignature, WebhookOptions
       DependencyInjection.cs
@@ -178,8 +198,34 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **İmza sabit zamanlı karşılaştırılır**, böylece cevap süresi bir saldırgana tahmin ettiği imzanın ne kadarının doğru
   olduğunu söylemez.
 
+### Mutabakat (Invoice Service)
+
+- **Tek çalışma: PostgreSQL advisory lock.** Çalışma boyunca ayrı bir bağlantıda tutulur; her kopya aynı anahtarı kullandığı için
+  yalnızca biri alır. Bağlantı havuzsuzdur: kopya durur ya da çökerse oturum biter ve kilidi veritabanı bırakır. Kilidi alan,
+  `Çalışıyor` kalmış kayıtları (önceki sahibi öldü) Başarısız yapar; kilit satıra bağlı olsaydı çöken kopya her şeyi kilitli bırakırdı.
+- **Önce oku, sonra yaz.** ERP'nin her okuması (liste, takılı faturaların kararı) yazmadan önce biter; biri başarısızsa çalışma Başarısız olur.
+  Servisin tarafı ERP'den önce okunur: araya giren bir Gönderildi, ERP listesinde zaten vardır (tersi, onu ERP'de yokmuş gösterirdi).
+- **Düzeltilenler ve yalnızca raporlananlar.** Düzeltme, servisin kendi kuralıyla (`InvoiceTransitions`) ya da ERP'nin açıkça söylediği bir
+  şeyle yapılabilenlerdir: takılı fatura kararı alır, Başarısız ama ERP'de kayıtlı fatura referansıyla Gönderildi olur, tanınmayan faturanın
+  eski haberi Yok Sayıldı olur. Tutar, para birimi, müşteri kodu ve referans farkı, çift kayıt ve karşı tarafta olmayan fatura hangi tarafın
+  doğru olduğunu bilmeyi gerektirir; bunlara dokunulmaz, raporlanır. İçeriği ERP'den farklı bir fatura ERP'nin referansıyla ya da kararıyla
+  ilerletilmez.
+- **Haberle çakışma.** Bir fatura değişirken satır kilidi (`SELECT ... FOR UPDATE`) tutulur; haber ve resend de aynı kilidi alır. Kilit alındıktan
+  sonra fatura yeniden okunur: planın gördüğü durumda değilse (haber ya da resend araya girdiyse) o fatura bırakılır, bulgu yazılmaz.
+  Düzeltme ve bulgu aynı transaction'dadır; her düzeltme kendi DI scope'unda yapılır.
+- **Karar, olay gibi uygulanır.** ERP'nin kararı sahte bir webhook olayı olarak kaydedilmez; `InvoiceTransitions` doğrudan kullanılır, böylece
+  mutabakat da haberlerle aynı kuralları izler ve sonradan gelen gerçek haber `Kesin Durumda` diye Yok Sayıldı olur.
+- **Pencere.** Servis tarafı: son `LookbackHours` saatte oluşan faturalar ve ERP listesindeki numaralar (geç gönderilen fatura "serviste yok" diye
+  görünmesin). Takılı kalma süresi `updated_at`'ten ölçülür. Pencerenin dışına kaçan eski takılı fatura bir daha görülmez.
+- **Varsayılan aralık 60 dakika, ilk çalışma bir aralık sonra.** Daha kısa bir aralık, haberi yalnızca geç gelen faturaları da düzeltir ve
+  önceki günlerin sayımlarını (karar haberi gönderilmeyen fatura sayısı) değiştirirdi; Gün 5 testleri aralığı ortam değişkeniyle kısaltır.
+
 ### ERP Simulator
 
+- **Karar, planlanan olaylardan türetilir.** `GET /api/v1/invoices/{n}` kararı `webhook_deliveries`'ten hesaplar (Normal ve LostDecision
+  satırları, zamanı gelmişse); haberi hiç gönderilmeyen karar da görünür. Yeni kolon yoktur.
+- **Liste sayfalıdır ve kararlıdır.** `from` dahil, `to` hariç, `(received_at, id)` sıralı; aralığın sonu geçmişte olduğu için sonradan
+  eklenen kayıtlar sayfaları kaydırmaz. Sayfa boyutu en çok 500, fazlası `400` (sessizce kırpılmaz).
 - **Her POST aynı sayıda çekiliş yapar** (davranış + Retry-After); dizi yalnızca seed'e ve istek sırasına bağlıdır.
 - **Webhook planlaması kendi RNG'sini kullanır**, böylece POST'ların davranış dizisini kaydırmaz; her fatura da seçilen
   sorunlardan bağımsız olarak aynı sayıda çekiliş yapar.
