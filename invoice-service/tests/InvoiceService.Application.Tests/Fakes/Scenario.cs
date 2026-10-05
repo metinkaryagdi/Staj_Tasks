@@ -1,3 +1,4 @@
+using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Invoices;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Reconciliation;
@@ -40,7 +41,35 @@ public sealed class Scenario
         new OutboxOutcomeWriter(UnitOfWork, Outbox, Invoices, WebhookEventProcessor()),
         new RetryPolicy(OutboxSettings), Options.Create(OutboxSettings), Time, NullLogger<OutboxProcessor>.Instance);
 
-    public FixApplier FixApplier() => new(UnitOfWork, Invoices, Outbox, Events, WebhookEventProcessor(), Time);
+    public FakeReconciliationStore Reconciliation { get; }
+    public FakeReconciliationLock Lock { get; } = new();
+
+    public ReconciliationOptions ReconciliationSettings { get; } = new()
+    {
+        IntervalMinutes = 1, LookbackHours = 24, StuckAfterMinutes = 2, UnknownEventAfterMinutes = 60
+    };
+
+    public Scenario()
+    {
+        Reconciliation = new FakeReconciliationStore(Invoices, Events);
+    }
+
+    public FixApplier FixApplier() => new(UnitOfWork, Invoices, Outbox, Events, Reconciliation, WebhookEventProcessor(), Time);
+
+    public ReconciliationPlanner ReconciliationPlanner() => new(Options.Create(ReconciliationSettings));
+
+    /// <summary>Each scope gets its own FixApplier, as the container would.</summary>
+    public FakeScopeFactory Scopes() => new(type =>
+        type == typeof(FixApplier) ? FixApplier()
+        : type == typeof(ReconciliationRunner) ? ReconciliationRunner()
+        : type == typeof(IReconciliationStore) ? Reconciliation
+        : null);
+
+    public ReconciliationRunner ReconciliationRunner() => new(
+        Reconciliation, Erp, UnitOfWork, ReconciliationPlanner(), Scopes(), Options.Create(ReconciliationSettings), Time,
+        NullLogger<ReconciliationRunner>.Instance);
+
+    public ReconciliationService ReconciliationService() => new(Scopes(), Lock, Time, NullLogger<ReconciliationService>.Instance);
 
     public ResendInvoiceHandler ResendInvoiceHandler() => new(UnitOfWork, Invoices, Outbox, Time, NullLoggerFactory.Instance);
 

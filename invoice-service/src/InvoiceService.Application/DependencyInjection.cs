@@ -35,6 +35,9 @@ public static class DependencyInjection
 
         services.AddSingleton<ReconciliationPlanner>();
         services.AddScoped<FixApplier>();
+        services.AddScoped<ReconciliationRunner>();
+        services.AddSingleton<ReconciliationService>();
+        services.AddScoped<ReconciliationQueries>();
 
         services.AddScoped<CreateInvoiceHandler>();
         services.AddScoped<ResendInvoiceHandler>();

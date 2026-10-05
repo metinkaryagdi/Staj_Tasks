@@ -2,6 +2,7 @@ using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Tests.Fakes;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Reconciliation;
 using InvoiceService.Domain.Webhooks;
 
 namespace InvoiceService.Application.Tests;
@@ -22,6 +23,9 @@ public class FixApplierTests
 
     private Invoice Invoice => _s.Invoices.Invoices[Number];
 
+    private Task<bool> Apply(Fix fix, string type = FindingType.StuckInvoice) =>
+        _s.FixApplier().ApplyAsync(7, new PlannedFinding(Number, type, "ayrıntı", fix));
+
     private ErpWebhookEvent AddWaitingEvent(string id, string type, string reference = "ERP-1")
     {
         var e = new ErpWebhookEvent
@@ -40,7 +44,7 @@ public class FixApplierTests
     {
         _s.Invoices.Add(Number, InvoiceStatus.Sent, erpReference: "ERP-1");
 
-        var applied = await _s.FixApplier().ApplyAsync(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Approved)));
+        var applied = await Apply(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Approved)));
 
         Assert.True(applied);
         Assert.Equal(InvoiceStatus.Approved, Invoice.Status);
@@ -52,11 +56,11 @@ public class FixApplierTests
     public async Task A_rejection_keeps_the_erps_reason_and_one_without_reason_gets_a_stated_placeholder()
     {
         _s.Invoices.Add(Number, InvoiceStatus.Processing, erpReference: "ERP-1");
-        await _s.FixApplier().ApplyAsync(Decision(InvoiceStatus.Processing, Decided(ErpDecisionKind.Rejected, "Mükerrer fatura")));
+        await Apply(Decision(InvoiceStatus.Processing, Decided(ErpDecisionKind.Rejected, "Mükerrer fatura")));
         Assert.Equal("Mükerrer fatura", Invoice.RejectReason);
 
         _s.Invoices.Add(Number, InvoiceStatus.Sent, erpReference: "ERP-1");
-        await _s.FixApplier().ApplyAsync(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Rejected)));
+        await Apply(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Rejected)));
         Assert.Equal("ERP sebep bildirmedi", Invoice.RejectReason);
     }
 
@@ -68,7 +72,7 @@ public class FixApplierTests
     {
         _s.Invoices.Add(Number, newStatus, erpReference: "ERP-1");
 
-        var applied = await _s.FixApplier().ApplyAsync(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Approved)));
+        var applied = await Apply(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Approved)));
 
         Assert.False(applied);
         Assert.Equal(newStatus, Invoice.Status);
@@ -79,10 +83,10 @@ public class FixApplierTests
     public async Task An_invoice_whose_reference_changed_or_that_is_gone_is_left_alone()
     {
         _s.Invoices.Add(Number, InvoiceStatus.Sent, erpReference: "ERP-2");
-        var changed = await _s.FixApplier().ApplyAsync(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Approved), reference: "ERP-1"));
+        var changed = await Apply(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Approved), reference: "ERP-1"));
 
         _s.Invoices.Invoices.Clear();
-        var gone = await _s.FixApplier().ApplyAsync(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Approved)));
+        var gone = await Apply(Decision(InvoiceStatus.Sent, Decided(ErpDecisionKind.Approved)));
 
         Assert.False(changed);
         Assert.False(gone);
@@ -94,7 +98,7 @@ public class FixApplierTests
     {
         _s.Invoices.Add(Number, InvoiceStatus.Processing, erpReference: "ERP-1");
 
-        var applied = await _s.FixApplier().ApplyAsync(Decision(InvoiceStatus.Processing, Decided(ErpDecisionKind.Received)));
+        var applied = await Apply(Decision(InvoiceStatus.Processing, Decided(ErpDecisionKind.Received)));
 
         Assert.False(applied);
         Assert.Equal(InvoiceStatus.Processing, Invoice.Status);
@@ -108,7 +112,7 @@ public class FixApplierTests
         var invoice = _s.Invoices.Add(Number, InvoiceStatus.Failed);
         invoice.LastError = "10 deneme sonunda başarısız";
 
-        var applied = await _s.FixApplier().ApplyAsync(Recover(ErpDecision.None, "ERP-42"));
+        var applied = await Apply(Recover(ErpDecision.None, "ERP-42"));
 
         Assert.True(applied);
         Assert.Equal(InvoiceStatus.Sent, invoice.Status);
@@ -123,7 +127,7 @@ public class FixApplierTests
     {
         _s.Invoices.Add(Number, InvoiceStatus.Failed);
 
-        await _s.FixApplier().ApplyAsync(Recover(Decided(ErpDecisionKind.Rejected, "Vergi numarası geçersiz")));
+        await Apply(Recover(Decided(ErpDecisionKind.Rejected, "Vergi numarası geçersiz")));
 
         Assert.Equal(InvoiceStatus.Rejected, Invoice.Status);
         Assert.Equal("Vergi numarası geçersiz", Invoice.RejectReason);
@@ -137,7 +141,7 @@ public class FixApplierTests
         var received = AddWaitingEvent("e-1", WebhookEventType.Received);
         var other = AddWaitingEvent("e-2", WebhookEventType.Approved, reference: "ERP-OTHER");
 
-        await _s.FixApplier().ApplyAsync(Recover(Decided(ErpDecisionKind.Approved)));
+        await Apply(Recover(Decided(ErpDecisionKind.Approved)));
 
         Assert.Equal(WebhookEventStatus.Processed, received.Status);
         Assert.Equal(WebhookEventStatus.Ignored, other.Status);
@@ -151,7 +155,7 @@ public class FixApplierTests
         _s.Invoices.Add(Number, InvoiceStatus.Failed);
         AddWaitingEvent("e-1", WebhookEventType.Rejected);
 
-        await _s.FixApplier().ApplyAsync(Recover(Decided(ErpDecisionKind.Approved)));
+        await Apply(Recover(Decided(ErpDecisionKind.Approved)));
 
         // Onaylandı and Reddedildi are final: the rejection that was waiting came first, the approval changes nothing.
         Assert.Equal(InvoiceStatus.Rejected, Invoice.Status);
@@ -165,7 +169,7 @@ public class FixApplierTests
     {
         _s.Invoices.Add(Number, status);
 
-        var applied = await _s.FixApplier().ApplyAsync(Recover(Decided(ErpDecisionKind.Approved)));
+        var applied = await Apply(Recover(Decided(ErpDecisionKind.Approved)));
 
         Assert.False(applied);
         Assert.Equal(status, Invoice.Status);
@@ -180,7 +184,7 @@ public class FixApplierTests
     {
         var e = AddWaitingEvent("e-1", WebhookEventType.Received);
 
-        var applied = await _s.FixApplier().ApplyAsync(new Fix(FixKind.IgnoreEvent, Number, EventId: "e-1"));
+        var applied = await Apply(new Fix(FixKind.IgnoreEvent, Number, EventId: "e-1"));
 
         Assert.True(applied);
         Assert.Equal(WebhookEventStatus.Ignored, e.Status);
@@ -195,8 +199,8 @@ public class FixApplierTests
         var arrived = AddWaitingEvent("e-2", WebhookEventType.Approved);
         _s.Events.KnownInvoices.Add(Number);
 
-        var first = await _s.FixApplier().ApplyAsync(new Fix(FixKind.IgnoreEvent, Number, EventId: "e-1"));
-        var second = await _s.FixApplier().ApplyAsync(new Fix(FixKind.IgnoreEvent, Number, EventId: "e-2"));
+        var first = await Apply(new Fix(FixKind.IgnoreEvent, Number, EventId: "e-1"));
+        var second = await Apply(new Fix(FixKind.IgnoreEvent, Number, EventId: "e-2"));
 
         Assert.False(first);
         Assert.False(second);

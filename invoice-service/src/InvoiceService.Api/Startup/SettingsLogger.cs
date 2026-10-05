@@ -1,4 +1,5 @@
 using InvoiceService.Application.Outbox;
+using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
 using InvoiceService.Infrastructure.Erp;
 
@@ -21,5 +22,10 @@ public static class SettingsLogger
         app.Logger.LogInformation(
             "ERP webhook settings: tolerance={Tolerance}s maxBody={MaxBody} bytes responseBudget={Budget}ms lockTimeout={LockTimeout}ms",
             webhooks.ToleranceSeconds, webhooks.MaxBodyBytes, webhooks.ResponseBudgetMilliseconds, webhooks.LockTimeoutMilliseconds);
+
+        var reconciliation = app.Services.GetRequiredService<IOptions<ReconciliationOptions>>().Value;
+        app.Logger.LogInformation(
+            "Reconciliation settings: interval={Interval}min lookback={Lookback}h stuckAfter={Stuck}min unknownEventAfter={Unknown}min",
+            reconciliation.IntervalMinutes, reconciliation.LookbackHours, reconciliation.StuckAfterMinutes, reconciliation.UnknownEventAfterMinutes);
     }
 }

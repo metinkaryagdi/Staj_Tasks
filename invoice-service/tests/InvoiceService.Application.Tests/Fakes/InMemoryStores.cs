@@ -1,8 +1,10 @@
 using InvoiceService.Application.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Webhooks;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Outbox;
+using InvoiceService.Domain.Reconciliation;
 using InvoiceService.Domain.Webhooks;
 
 namespace InvoiceService.Application.Tests.Fakes;
@@ -199,10 +201,15 @@ public sealed class FakeErpGateway : IErpGateway
     public Queue<ErpLookupResult> LookupResults { get; } = new();
     public List<string> Calls { get; } = [];
     public ErpListResult ListResult { get; set; } = new(true, [], null);
+    public (DateTimeOffset From, DateTimeOffset To)? LastListRange { get; private set; }
+
+    /// <summary>Called with the invoice number each time the ERP is asked about an invoice.</summary>
+    public Action<string>? OnFind { get; set; }
 
     public Task<ErpListResult> ListAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
     {
         Calls.Add("LIST");
+        LastListRange = (from, to);
         return Task.FromResult(ListResult);
     }
 
@@ -215,6 +222,7 @@ public sealed class FakeErpGateway : IErpGateway
     public Task<ErpLookupResult> FindAsync(string invoiceNumber, CancellationToken ct)
     {
         Calls.Add($"GET {invoiceNumber}");
+        OnFind?.Invoke(invoiceNumber);
         return Task.FromResult(LookupResults.Dequeue());
     }
 
@@ -223,4 +231,120 @@ public sealed class FakeErpGateway : IErpGateway
     public static ErpLookupResult Found(string reference) => new(ErpLookup.Found, reference, 200, null, TimeSpan.Zero);
     public static ErpLookupResult NotFound() => new(ErpLookup.NotFound, null, 404, null, TimeSpan.Zero);
     public static ErpLookupResult Unknown() => new(ErpLookup.Unknown, null, null, "ERP'ye ulaşılamadı", TimeSpan.Zero);
+}
+
+
+public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebhookEventStore events) : IReconciliationStore
+{
+    public List<ReconciliationRun> Runs { get; } = [];
+    public List<ReconciliationFinding> Findings { get; } = [];
+    public bool FailToStart { get; set; }
+
+    public Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        if (FailToStart)
+            throw new InvalidOperationException("database is gone");
+        var run = new ReconciliationRun { Id = Runs.Count + 1, StartedAt = now, Status = ReconciliationStatus.Running };
+        Runs.Add(run);
+        return Task.FromResult(run);
+    }
+
+    public Task<int> FailAbandonedRunsAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        var abandoned = Runs.Where(r => r.Status == ReconciliationStatus.Running).ToList();
+        foreach (var run in abandoned)
+        {
+            run.Status = ReconciliationStatus.Failed;
+            run.FinishedAt = now;
+            run.Error = "Servis durdu: çalışma sonuçlanmadan kesildi.";
+        }
+        return Task.FromResult(abandoned.Count);
+    }
+
+    public Task FinishRunAsync(
+        long id, string status, int checkedCount, int fixedCount, int reportedCount, string? error, DateTimeOffset now,
+        CancellationToken ct)
+    {
+        var run = Runs.Single(r => r.Id == id);
+        run.Status = status;
+        run.FinishedAt = now;
+        run.CheckedCount = checkedCount;
+        run.FixedCount = fixedCount;
+        run.ReportedCount = reportedCount;
+        run.Error = error;
+        return Task.CompletedTask;
+    }
+
+    public void AddFinding(ReconciliationFinding finding)
+    {
+        finding.Id = Findings.Count + 1;
+        Findings.Add(finding);
+    }
+
+    public Task<IReadOnlyList<ReconciliationRun>> ListRunsAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ReconciliationRun>>(Runs.OrderByDescending(r => r.Id).ToList());
+
+    public Task<ReconciliationRun?> FindRunAsync(long id, CancellationToken ct) =>
+        Task.FromResult(Runs.SingleOrDefault(r => r.Id == id));
+
+    public Task<IReadOnlyList<ReconciliationFinding>> ListFindingsAsync(long runId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ReconciliationFinding>>(Findings.Where(f => f.RunId == runId).ToList());
+
+    public Task<IReadOnlyList<Invoice>> InvoicesCreatedSinceAsync(DateTimeOffset since, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values.Where(i => i.CreatedAt >= since).ToList());
+
+    public Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values.Where(i => numbers.Contains(i.InvoiceNumber)).ToList());
+
+    public Task<IReadOnlyList<ErpWebhookEvent>> WaitingEventsOfUnknownInvoicesAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ErpWebhookEvent>>(events.Events.Values
+            .Where(e => e.Status == WebhookEventStatus.Pending && !invoices.Invoices.ContainsKey(e.InvoiceNumber)).ToList());
+}
+
+/// <summary>Held or free as the test says; counts how often it was taken and let go.</summary>
+public sealed class FakeReconciliationLock : IReconciliationLock
+{
+    public bool HeldByOthers { get; set; }
+    public int Acquired { get; private set; }
+    public int Released { get; private set; }
+
+    public Task<IAsyncDisposable?> TryAcquireAsync(CancellationToken ct)
+    {
+        if (HeldByOthers)
+            return Task.FromResult<IAsyncDisposable?>(null);
+        Acquired++;
+        return Task.FromResult<IAsyncDisposable?>(new Lease(this));
+    }
+
+    private sealed class Lease(FakeReconciliationLock owner) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()
+        {
+            owner.Released++;
+            return ValueTask.CompletedTask;
+        }
+    }
+}
+
+/// <summary>Hands out what the test registers, a new scope each time, like the DI container does for scoped services.</summary>
+public sealed class FakeScopeFactory(Func<Type, object?> resolve) : IServiceScopeFactory
+{
+    public int Created { get; private set; }
+
+    public IServiceScope CreateScope()
+    {
+        Created++;
+        return new Scope(resolve);
+    }
+
+    private sealed class Scope(Func<Type, object?> resolve) : IServiceScope, IServiceProvider
+    {
+        public IServiceProvider ServiceProvider => this;
+
+        public object? GetService(Type serviceType) => resolve(serviceType);
+
+        public void Dispose()
+        {
+        }
+    }
 }

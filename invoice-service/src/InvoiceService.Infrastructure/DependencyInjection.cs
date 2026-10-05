@@ -31,6 +31,8 @@ public static class DependencyInjection
         services.AddScoped<IInvoiceStore, InvoiceStore>();
         services.AddScoped<IOutboxStore, OutboxStore>();
         services.AddScoped<IWebhookEventStore, WebhookEventStore>();
+        services.AddScoped<IReconciliationStore, ReconciliationStore>();
+        services.AddSingleton<IReconciliationLock, AdvisoryReconciliationLock>();
         services.AddSingleton<IDatabaseFailureClassifier, PostgresFailureClassifier>();
 
         return services;

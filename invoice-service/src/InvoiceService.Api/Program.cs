@@ -1,4 +1,5 @@
 using InvoiceService.Api.Invoices;
+using InvoiceService.Api.Reconciliation;
 using InvoiceService.Api.Startup;
 using InvoiceService.Api.Webhooks;
 using InvoiceService.Api.Workers;
@@ -12,6 +13,7 @@ builder.AddConsoleLogging();
 builder.Services.AddInvoiceApplication(builder.Configuration);
 builder.Services.AddInvoiceInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<OutboxWorker>();
+builder.Services.AddHostedService<ReconciliationWorker>();
 
 builder.Services.AddProblemDetails();
 builder.Services.AddInvoiceOpenApi();
@@ -35,6 +37,7 @@ app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
 app.MapInvoiceEndpoints();
 app.MapWebhookEndpoints();
+app.MapReconciliationEndpoints();
 
 app.Run();
 
