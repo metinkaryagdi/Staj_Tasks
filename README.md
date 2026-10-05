@@ -261,16 +261,17 @@ maddeleri sırayla çalıştırır; 1. madde `gun3` ve `gun4` listeleridir).
 
 ### Son doğrulama — 5 Ekim 2026
 
-Gün 3 (7 maddenin 6'sı) ve Gün 4 (8/8) listeleri Gün 5 koduyla koşuldu. Gün 3'ün 4. maddesi bir denemede planlanan
-beklemenin 87 ms altında kaldı (eşik 50 ms; beklemeyi iki log damgasından ölçer), tek başına yeniden koşulunca geçti;
-eşik gevşetilmedi. Gün 5 listesi (2-9) ve ek test, kod incelemesinden sonraki son hâlde koşuldu ve hepsi geçti. Bu
-koşulardan sonra yalnızca yorumlar, bir sabit adı ve planlayıcının bir kuralı değişti, gönderim yoluna dokunulmadı;
-Gün 3 ve Gün 4 yeniden koşulmadı. Birim testler: Invoice Service 281, ERP Simulator 103, hepsi geçti. Bunlar bu
-koşuların sonuçlarıdır; başka koşullarda aynı sonucun çıkacağını göstermez.
+Gün 3 listesi son kodla koşuldu ve 7/7 geçti (22,1 dk). Gün 4 listesi (8/8) daha önceki bir koşuda koşuldu; o koşudan
+sonra yalnızca yorumlar, bir sabit adı ve planlayıcının bir kuralı değişti, gönderim yoluna dokunulmadı; Gün 4
+yeniden koşulmadı. Gün 3'ün daha önceki bir koşusunda 4. madde, beklemeyi iki log damgasından ölçtüğü için,
+planlanan beklemenin 87 ms altında kalmıştı (eşik 50 ms); yeniden koşularda geçti, eşik gevşetilmedi. Gün 5 listesi
+(2-9) ve ek test, kod incelemesinden sonraki son hâlde koşuldu ve hepsi geçti; sonrasında yalnızca yorumlar
+kısaltıldı. Birim testler: Invoice Service 281, ERP Simulator 103, hepsi geçti. Bunlar bu koşuların sonuçlarıdır;
+başka koşullarda aynı sonucun çıkacağını göstermez.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
-| 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 | Gün 4 8/8; Gün 3 6/7 (4. madde ilk koşuda kaldı, tek başına yeniden koşulunca geçti; ayrıntı yukarıdaki notta) |
+| 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 | Gün 3 7/7 (son kodla), Gün 4 8/8 (daha önceki koşuda; ayrıntı yukarıdaki notta) |
 | 2 | 500 fatura, varsayılan oranlar, haberler bitince mutabakat | 30 fatura takılı kalmıştı (karar event'i gönderilmeyen 30'la aynı); 30'u düzeltildi, kalan 0 |
 | 3 | ERP Simulator'a elle eklenen, serviste olmayan fatura | `Serviste Yok` raporlandı; iki tarafta değişiklik yok. `POST` `202` + `Location`, liste sırası ve `404` de doğrulandı |
 | 4 | ERP'de tutarı elle değiştirilen fatura | `Alan Farkı` (1250.50 / 1260.50) raporlandı; değişiklik yok |
