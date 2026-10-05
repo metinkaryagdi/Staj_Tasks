@@ -82,6 +82,10 @@ Check (Write-DbVerdict 'from = ilk kaydın zamanı, to = ikincinin zamanı: yaln
     ($one.Json.totalCount -eq 1 -and $one.Json.items[0].invoiceNumber -eq $numbers[0]))
 $beyond = Get-List $from $to 9 10
 Check (Write-DbVerdict 'aralığın ötesindeki sayfa boş, toplam aynı' "$(@($beyond.Json.items).Count) kayıt, toplam $($beyond.Json.totalCount)" (@($beyond.Json.items).Count -eq 0 -and $beyond.Json.totalCount -eq 26))
+$huge = Get-List $from $to 2147483647 500
+Check (Write-DbVerdict 'çok büyük sayfa numarası (int.MaxValue): 500 değil, 200 ve boş liste, toplam aynı' `
+    "HTTP $($huge.Status), $(@($huge.Json.items).Count) kayıt, toplam $($huge.Json.totalCount)" `
+    ($huge.Status -eq 200 -and @($huge.Json.items).Count -eq 0 -and $huge.Json.totalCount -eq 26))
 $none = Get-List '2000-01-01T00:00:00Z' '2000-01-02T00:00:00Z'
 Check (Write-DbVerdict 'kayıt olmayan aralık: 200, boş liste' "$($none.Status), $(@($none.Json.items).Count) kayıt" ($none.Status -eq 200 -and @($none.Json.items).Count -eq 0 -and $none.Json.totalCount -eq 0))
 

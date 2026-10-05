@@ -44,8 +44,10 @@ public sealed class InvoiceListing(IErpInvoiceStore invoices)
         if (errors.Count > 0)
             return new InvoiceListResult(errors, null);
 
-        var page = await invoices.ListReceivedAsync(
-            request.From!.Value, request.To!.Value, (request.Page - 1) * request.PageSize, request.PageSize, ct);
+        // Worked out in long: a very large page times the page size must not wrap into a negative offset. Past int.MaxValue
+        // it is far beyond the last record anyway, so it is cut there and the page comes back empty.
+        var skip = (int)Math.Min((long)(request.Page - 1) * request.PageSize, int.MaxValue);
+        var page = await invoices.ListReceivedAsync(request.From!.Value, request.To!.Value, skip, request.PageSize, ct);
         return new InvoiceListResult(null, page);
     }
 }

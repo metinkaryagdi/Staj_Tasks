@@ -67,6 +67,19 @@ public class InvoiceListingTests
         Assert.Equal(5, beyond.Page.TotalCount);
     }
 
+    [Fact]
+    public async Task A_page_number_so_large_that_the_offset_would_overflow_is_an_empty_page()
+    {
+        await AddAsync("INV-0", 0);
+        await AddAsync("INV-1", 1);
+
+        var result = await Listing.ListAsync(Range(0, 10, page: int.MaxValue, pageSize: 500), CancellationToken.None);
+
+        Assert.Null(result.Errors);
+        Assert.Empty(result.Page!.Items);
+        Assert.Equal(2, result.Page.TotalCount);
+    }
+
     [Theory]
     [InlineData(0, nameof(InvoiceListRequest.PageSize))]
     [InlineData(501, nameof(InvoiceListRequest.PageSize))]
