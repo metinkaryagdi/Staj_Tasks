@@ -99,7 +99,8 @@ public class ReconciliationRunnerTests
         Assert.Equal(1, run.CheckedCount);
     }
 
-    // --- Simülatöre ulaşılamazsa ---------------------------------------------------------------------------------------
+    // --- Simülatöre ulaşılamazsa
+    // ---------------------------------------------------------------------------------------
 
     [Fact]
     public async Task When_the_erp_list_cannot_be_read_the_run_fails_and_nothing_is_changed()
@@ -154,7 +155,8 @@ public class ReconciliationRunnerTests
         Assert.Equal(InvoiceStatus.Failed, _s.Invoices.Invoices["F-2"].Status);
     }
 
-    // --- Mutabakat bir faturayı değiştirirken haber gelirse ------------------------------------------------------------
+    // --- Mutabakat bir faturayı değiştirirken haber gelirse
+    // ------------------------------------------------------------
 
     [Fact]
     public async Task An_invoice_that_an_event_moved_after_the_erp_was_read_is_left_to_the_event()
@@ -176,8 +178,9 @@ public class ReconciliationRunnerTests
     [Fact]
     public async Task An_invoice_sent_while_the_run_was_reading_is_not_reported_missing_from_the_erp()
     {
-        // The invoice became Gönderildi half a second after the run started; the ERP received it then. The clock moves a
-        // second on each reading, so the ERP's list must run up to a moment after the service's data was read.
+        // The invoice became Gönderildi half a second after the run started; the ERP received it then. The clock
+        // moves a second on each reading, so the ERP's list must run up to a moment after the service's data was
+        // read.
         var invoice = AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-1");
         invoice.UpdatedAt = Now.AddMilliseconds(500);
         _s.Erp.ListResult = new ErpListResult(true, [Erp("F-1", "ERP-1") with { ReceivedAt = Now.AddMilliseconds(500) }], null);

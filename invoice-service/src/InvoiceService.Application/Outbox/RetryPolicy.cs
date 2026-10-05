@@ -54,7 +54,9 @@ public sealed class RetryPolicy(OutboxOptions options)
         return new RetryDecision(SendOutcome.Retry, delay, reason);
     }
 
-    /// <summary>Retry-After as a wait: "17" -> 17 s; an HTTP date -> the time left until then. Null without the header.</summary>
+    /// <summary>
+    /// Retry-After as a wait: "17" -> 17 s; an HTTP date -> the time left until then. Null without the header.
+    /// </summary>
     public static TimeSpan? RetryAfterDelay(RetryConditionHeaderValue? retryAfter, DateTimeOffset now)
     {
         if (retryAfter?.Delta is { } delta)
@@ -65,8 +67,8 @@ public sealed class RetryPolicy(OutboxOptions options)
     }
 
     /// <summary>
-    /// 2, 4, 8 ... seconds plus a random jitter, capped so that the total never passes MaxBackoff. The jitter spreads out
-    /// invoices that failed together, so they do not all hit the recovering ERP at the same moment.
+    /// 2, 4, 8 ... seconds plus a random jitter, capped so that the total never passes MaxBackoff. The jitter spreads
+    /// out invoices that failed together, so they do not all hit the recovering ERP at the same moment.
     /// </summary>
     public (TimeSpan Delay, string Reason) Backoff(int attempt, double random)
     {

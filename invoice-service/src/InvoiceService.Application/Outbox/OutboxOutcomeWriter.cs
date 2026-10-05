@@ -30,7 +30,8 @@ public sealed class OutboxOutcomeWriter(
 
         await using var transaction = await unitOfWork.BeginAsync(CancellationToken.None);
 
-        // Written only if the entry still carries this claim; otherwise another worker took it and this outcome is dropped.
+        // Written only if the entry still carries this claim; otherwise another worker took it and this outcome is
+        // dropped.
         var owned = await outbox.WriteOutcomeAsync(
             entry.Id, entry.ClaimToken, outboxStatus, result.Error, nextAttemptAt, processedAt, CancellationToken.None);
 

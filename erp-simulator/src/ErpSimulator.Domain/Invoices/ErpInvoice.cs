@@ -8,8 +8,9 @@ public sealed class ErpInvoice
     public string ErpReference { get; set; } = null!;
 
     /// <summary>
-    /// Not unique on purpose: by default the simulator does not protect against duplicates. Simulator:IdempotentInvoices
-    /// turns the protection on in code (no unique index, so existing duplicates stay and the setting can be switched back).
+    /// Not unique on purpose: by default the simulator does not protect against duplicates.
+    /// Simulator:IdempotentInvoices turns the protection on in code (no unique index, so existing duplicates stay and
+    /// the setting can be switched back).
     /// </summary>
     public required string InvoiceNumber { get; set; }
 

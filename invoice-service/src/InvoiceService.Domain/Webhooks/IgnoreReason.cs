@@ -15,7 +15,8 @@ public static class IgnoreReason
     /// <summary>The event's erp_reference is not the invoice's: it is not about the record the service sent.</summary>
     public const string ReferenceMismatch = "Referans Farklı";
 
-    /// <summary>Waiting for an invoice the service never got, longer than Reconciliation:UnknownEventAfterMinutes.</summary>
+    /// <summary>Waiting for an invoice the service never got, longer than
+    /// Reconciliation:UnknownEventAfterMinutes.</summary>
     public const string UnknownInvoice = "Fatura Yok";
 
     public static readonly string[] All = [Backward, Final, NotForward, ReferenceMismatch, UnknownInvoice];

@@ -11,9 +11,10 @@ public sealed record InvoiceRecordResponse(
     DateTimeOffset ReceivedAt);
 
 /// <summary>
-/// One invoice number can map to several ERP records (duplicates are allowed): <see cref="ErpReference"/> is the first, and
-/// the decision (none, received, approved, rejected) is the first record's, shown once its time has come even if its event
-/// was never sent. <see cref="Reason"/> only when rejected; <see cref="DecidedAt"/> when approved or rejected.
+/// One invoice number can map to several ERP records (duplicates are allowed): <see cref="ErpReference"/> is the
+/// first, and the decision (none, received, approved, rejected) is the first record's, shown once its time has come
+/// even if its event was never sent. <see cref="Reason"/> only when rejected; <see cref="DecidedAt"/> when approved
+/// or rejected.
 /// </summary>
 public sealed record InvoiceLookupResponse(
     string InvoiceNumber,

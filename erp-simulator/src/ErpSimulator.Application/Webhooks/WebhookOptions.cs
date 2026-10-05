@@ -4,7 +4,8 @@ using Microsoft.Extensions.Options;
 namespace ErpSimulator.Application.Webhooks;
 
 /// <summary>
-/// Bound from the "Webhooks" section of appsettings.json. No defaults in code: a missing value stops the app at startup.
+/// Bound from the "Webhooks" section of appsettings.json. No defaults in code: a missing value stops the app at
+/// startup.
 /// </summary>
 public sealed class WebhookOptions
 {
@@ -70,10 +71,15 @@ public sealed class WebhookProblems
     /// <summary>Per invoice: a decision with a wrong signature is sent for it.</summary>
     public double FakeRate { get; set; }
 
-    /// <summary>Per invoice: one of its events is sent again later with an old timestamp and a signature valid for it.</summary>
+    /// <summary>
+    /// Per invoice: one of its events is sent again later with an old timestamp and a signature valid for it.
+    /// </summary>
     public double ReplayRate { get; set; }
 
-    /// <summary>How old the replayed event's timestamp is, in seconds (10 minutes: older than the service's timestamp tolerance, so the service rejects the replay).</summary>
+    /// <summary>
+    /// How old the replayed event's timestamp is, in seconds (10 minutes: older than the service's timestamp
+    /// tolerance, so the service rejects the replay).
+    /// </summary>
     public int ReplayAgeSeconds { get; set; }
 }
 

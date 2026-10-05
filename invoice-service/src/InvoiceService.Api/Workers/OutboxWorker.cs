@@ -11,7 +11,8 @@ public sealed class OutboxWorker(
     IOptions<OutboxOptions> options,
     ILogger<OutboxWorker> logger) : BackgroundService
 {
-    /// <summary>Written to erp_outbox.locked_by: the container's host name, so two running copies can be told apart.</summary>
+    /// <summary>Written to erp_outbox.locked_by: the container's host name, so two running copies can be told
+    /// apart.</summary>
     public static readonly string WorkerId = Environment.MachineName;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

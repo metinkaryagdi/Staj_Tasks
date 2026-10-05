@@ -6,6 +6,7 @@ namespace InvoiceService.Application.Abstractions;
 /// </summary>
 public interface IReconciliationLock
 {
-    /// <summary>The lock, held until the result is disposed; null when somebody else (this copy or another) holds it.</summary>
+    /// <summary>The lock, held until the result is disposed; null when somebody else (this copy or another) holds
+    /// it.</summary>
     Task<IAsyncDisposable?> TryAcquireAsync(CancellationToken ct);
 }

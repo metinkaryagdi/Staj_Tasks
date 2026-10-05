@@ -44,7 +44,8 @@ public sealed class ResendInvoiceHandler(
                 : new ResendInvoiceResult(ResendStatus.NotFailed, CurrentStatus: current.Status);
         }
 
-        // Reset the entry so the worker treats it like a new one; inserted if missing (invoices that failed before the outbox existed).
+        // Reset the entry so the worker treats it like a new one; inserted if missing (invoices that failed before
+        // the outbox existed).
         await outbox.ResetAsync(invoiceNumber, now, CancellationToken.None);
 
         await transaction.CommitAsync(CancellationToken.None);

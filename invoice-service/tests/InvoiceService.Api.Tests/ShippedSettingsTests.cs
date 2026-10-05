@@ -6,7 +6,8 @@ using Microsoft.Extensions.Configuration;
 
 namespace InvoiceService.Api.Tests;
 
-/// <summary>The settings the service ships with (appsettings.json of the Api project, copied next to the test dll).</summary>
+/// <summary>The settings the service ships with (appsettings.json of the Api project, copied next to the test
+/// dll).</summary>
 public class ShippedSettingsTests
 {
     private static ErpOptions Bind(IConfiguration configuration)

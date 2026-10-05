@@ -7,7 +7,8 @@ using InvoiceService.Domain.Webhooks;
 
 namespace InvoiceService.Application.Tests;
 
-/// <summary>Writing a reconciliation fix: only when the invoice is still what the plan saw, once the lock is held.</summary>
+/// <summary>Writing a reconciliation fix: only when the invoice is still what the plan saw, once the lock is
+/// held.</summary>
 public class FixApplierTests
 {
     private const string Number = "FTR-000001";
@@ -37,7 +38,8 @@ public class FixApplierTests
         return e;
     }
 
-    // --- ApplyDecision ------------------------------------------------------------------------------------------------
+    // --- ApplyDecision
+    // ------------------------------------------------------------------------------------------------
 
     [Fact]
     public async Task A_decision_moves_a_sent_invoice_in_one_transaction()
@@ -104,7 +106,8 @@ public class FixApplierTests
         Assert.Equal(InvoiceStatus.Processing, Invoice.Status);
     }
 
-    // --- RecoverFailed ------------------------------------------------------------------------------------------------
+    // --- RecoverFailed
+    // ------------------------------------------------------------------------------------------------
 
     [Fact]
     public async Task A_failed_invoice_becomes_sent_with_the_erps_reference_and_its_outbox_entry_is_completed()
@@ -177,7 +180,8 @@ public class FixApplierTests
         Assert.Equal(0, _s.UnitOfWork.Committed);
     }
 
-    // --- IgnoreEvent --------------------------------------------------------------------------------------------------
+    // --- IgnoreEvent
+    // --------------------------------------------------------------------------------------------------
 
     [Fact]
     public async Task A_waiting_event_for_an_unknown_invoice_becomes_ignored()

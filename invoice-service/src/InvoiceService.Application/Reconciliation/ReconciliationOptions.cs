@@ -13,7 +13,9 @@ public sealed class ReconciliationOptions
     /// <summary>How far back a run looks: invoices created in the last this many hours.</summary>
     public int LookbackHours { get; set; }
 
-    /// <summary>An invoice that stays Gönderildi or İşleme Alındı longer than this many minutes is checked against the ERP.</summary>
+    /// <summary>
+    /// An invoice that stays Gönderildi or İşleme Alındı longer than this many minutes is checked against the ERP.
+    /// </summary>
     public int StuckAfterMinutes { get; set; }
 
     /// <summary>A waiting event for an invoice the service does not know is ignored after this many minutes.</summary>
@@ -22,7 +24,8 @@ public sealed class ReconciliationOptions
 
 public sealed class ReconciliationOptionsValidator(IConfiguration configuration) : IValidateOptions<ReconciliationOptions>
 {
-    /// <summary>One week: a chosen limit; with a longer wait between runs differences would stay unseen for too long.</summary>
+    /// <summary>One week: a chosen limit; with a longer wait between runs differences would stay unseen for too
+    /// long.</summary>
     public const int MaxIntervalMinutes = 10_080;
 
     /// <summary>One year: a chosen limit; a longer window would read most of the database in every run.</summary>

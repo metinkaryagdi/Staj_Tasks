@@ -6,7 +6,8 @@ namespace InvoiceService.Application.Abstractions;
 /// <summary>Storage of invoices (the invoices table).</summary>
 public interface IInvoiceStore
 {
-    /// <summary>Takes the next value from the sequence; numbers are never reused, even if the insert later fails.</summary>
+    /// <summary>Takes the next value from the sequence; numbers are never reused, even if the insert later
+    /// fails.</summary>
     Task<string> NextInvoiceNumberAsync(CancellationToken ct);
 
     /// <summary>
@@ -25,8 +26,8 @@ public interface IInvoiceStore
     Task<IReadOnlyList<Invoice>> ListAsync(string? status, CancellationToken ct);
 
     /// <summary>
-    /// Conditional: only a Başarısız invoice moves to Bekliyor (last_error cleared). Returns how many rows changed (0 or 1),
-    /// so two resends at the same time cannot both queue it.
+    /// Conditional: only a Başarısız invoice moves to Bekliyor (last_error cleared). Returns how many rows changed (0
+    /// or 1), so two resends at the same time cannot both queue it.
     /// </summary>
     Task<int> MarkPendingIfFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
 

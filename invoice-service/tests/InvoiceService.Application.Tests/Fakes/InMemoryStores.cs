@@ -17,7 +17,8 @@ public sealed class FixedTime(DateTimeOffset now) : TimeProvider
     public override DateTimeOffset GetUtcNow() => Now;
 }
 
-/// <summary>Records the transactions; SaveChanges is a no-op because the stores hand out the objects they keep.</summary>
+/// <summary>Records the transactions; SaveChanges is a no-op because the stores hand out the objects they
+/// keep.</summary>
 /// <summary>A clock that moves on by a step every time it is read.</summary>
 public sealed class SteppingTime(DateTimeOffset start, TimeSpan step) : TimeProvider
 {
@@ -346,7 +347,8 @@ public sealed class FakeReconciliationLock : IReconciliationLock
     }
 }
 
-/// <summary>Hands out what the test registers, a new scope each time, like the DI container does for scoped services.</summary>
+/// <summary>Hands out what the test registers, a new scope each time, like the DI container does for scoped
+/// services.</summary>
 public sealed class FakeScopeFactory(Func<Type, object?> resolve) : IServiceScopeFactory
 {
     public int Created { get; private set; }

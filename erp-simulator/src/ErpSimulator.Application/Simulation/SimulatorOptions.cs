@@ -30,8 +30,8 @@ public sealed class SimulatorOptions
     public RetryAfterFormat RetryAfterFormat { get; set; }
 
     /// <summary>
-    /// Off (default): the same invoice number sent twice gives two records. On: it is saved once; a repeat with the same
-    /// content gets the existing reference (202), with different content 409.
+    /// Off (default): the same invoice number sent twice gives two records. On: it is saved once; a repeat with the
+    /// same content gets the existing reference (202), with different content 409.
     /// </summary>
     public bool IdempotentInvoices { get; set; }
 }
@@ -94,7 +94,8 @@ public sealed class SimulatorOptionsValidator(IConfiguration configuration) : IV
                      (nameof(rates.LateResponse), rates.LateResponse)
                  })
         {
-            // "NaN" and "Infinity" bind as doubles, and every comparison with NaN is false, so check for a real number first.
+            // "NaN" and "Infinity" bind as doubles, and every comparison with NaN is false, so check for a real
+            // number first.
             if (!double.IsFinite(value) || value is < 0 or > 100)
                 errors.Add($"Simulator:Rates:{rateName} must be a number between 0 and 100 (was {Format(value)}).");
         }

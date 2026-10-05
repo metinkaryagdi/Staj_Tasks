@@ -110,7 +110,8 @@ public class ReconciliationPlannerTests
         Assert.Empty(Planner.InvoicesToAsk(snapshot));
     }
 
-    // --- Serviste Başarısız ama ERP'de kayıtlı ------------------------------------------------------------------------
+    // --- Serviste Başarısız ama ERP'de kayıtlı
+    // ------------------------------------------------------------------------
 
     [Fact]
     public void A_failed_invoice_the_erp_has_is_recovered_with_the_erps_reference_and_decision()
@@ -156,7 +157,8 @@ public class ReconciliationPlannerTests
         Assert.Null(finding.Fix);
     }
 
-    // --- Servisin tanımadığı faturaya ait, 1 saatten eski bekleyen haber -----------------------------------------------
+    // --- Servisin tanımadığı faturaya ait, 1 saatten eski bekleyen haber
+    // -----------------------------------------------
 
     [Fact]
     public void A_waiting_event_for_an_unknown_invoice_is_ignored_only_after_the_threshold()
@@ -197,7 +199,8 @@ public class ReconciliationPlannerTests
         Assert.All(plan.Findings, f => Assert.Null(f.Fix));
     }
 
-    // --- ERP'de birden fazla kaydı olan --------------------------------------------------------------------------------
+    // --- ERP'de birden fazla kaydı olan
+    // --------------------------------------------------------------------------------
 
     [Fact]
     public void An_invoice_with_two_erp_records_is_reported_and_otherwise_compared_with_the_first()
@@ -237,7 +240,8 @@ public class ReconciliationPlannerTests
         Assert.Equal([FindingType.MissingInService, FindingType.DuplicateInErp], plan.Findings.Select(f => f.FindingType));
     }
 
-    // --- Tutar, para birimi, müşteri kodu ya da erp_reference farklı ---------------------------------------------------
+    // --- Tutar, para birimi, müşteri kodu ya da erp_reference farklı
+    // ---------------------------------------------------
 
     [Theory]
     [InlineData("tutar", 105.5, "TRY", "C-001")]
@@ -279,7 +283,8 @@ public class ReconciliationPlannerTests
         Assert.Empty(Plan(snapshot).Findings);
     }
 
-    // --- Sayım ---------------------------------------------------------------------------------------------------------
+    // --- Sayım
+    // ---------------------------------------------------------------------------------------------------------
 
     [Fact]
     public void The_checked_count_is_the_distinct_invoice_numbers_of_both_sides()

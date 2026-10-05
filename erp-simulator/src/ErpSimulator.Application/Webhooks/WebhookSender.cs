@@ -17,8 +17,8 @@ public sealed class WebhookSender(
     private const string FakeSecret = "not-the-shared-secret-fake-events-are-signed-with-this";
 
     /// <summary>
-    /// Returns without writing anything when <paramref name="stoppingToken"/> is cancelled during the send: the row stays
-    /// Pending and is sent again after the restart.
+    /// Returns without writing anything when <paramref name="stoppingToken"/> is cancelled during the send: the row
+    /// stays Pending and is sent again after the restart.
     /// </summary>
     public async Task SendAsync(WebhookDelivery row, CancellationToken stoppingToken)
     {

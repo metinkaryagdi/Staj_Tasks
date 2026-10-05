@@ -6,8 +6,8 @@ using ErpSimulator.Domain.Webhooks;
 namespace ErpSimulator.Api.Workers;
 
 /// <summary>
-/// Picks the due webhook deliveries and hands each to <see cref="WebhookSender"/>, at most MaxConcurrentSends at a time.
-/// Rows being sent are tracked in memory, so this works for a single simulator instance.
+/// Picks the due webhook deliveries and hands each to <see cref="WebhookSender"/>, at most MaxConcurrentSends at a
+/// time. Rows being sent are tracked in memory, so this works for a single simulator instance.
 /// </summary>
 public sealed class WebhookDispatcher(
     IServiceScopeFactory scopes, IOptions<WebhookOptions> options, TimeProvider time,

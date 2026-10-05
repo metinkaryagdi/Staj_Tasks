@@ -15,7 +15,8 @@ public sealed class OutboxProcessor(
     /// <summary>How long a taken entry belongs to this worker; after that another worker may take it.</summary>
     private TimeSpan LockDuration => TimeSpan.FromSeconds(options.Value.LockSeconds);
 
-    /// <summary>Takes up to <paramref name="limit"/> due entries that no other worker holds, counting the attempt.</summary>
+    /// <summary>Takes up to <paramref name="limit"/> due entries that no other worker holds, counting the
+    /// attempt.</summary>
     public Task<IReadOnlyList<ClaimedEntry>> ClaimAsync(int limit, string workerId, CancellationToken ct)
     {
         var now = time.GetUtcNow();
@@ -81,7 +82,9 @@ public sealed class OutboxProcessor(
             $"{sent.Check},final:{final.Check}", sent.Result.HttpStatus);
     }
 
-    /// <summary>The last attempt was cut off before its outcome was written: the ERP is only asked, not sent to again.</summary>
+    /// <summary>
+    /// The last attempt was cut off before its outcome was written: the ERP is only asked, not sent to again.
+    /// </summary>
     private async Task<AttemptOutcome> ConfirmCutOffAttemptAsync(Invoice invoice)
     {
         var final = await strategy.ConfirmAsync(invoice, "Son deneme yarıda kaldı (servis durdu).");
@@ -93,7 +96,8 @@ public sealed class OutboxProcessor(
     private static RetryDecision FinalDecision(ErpSendResult result, string reason) =>
         new(result.Accepted ? SendOutcome.Sent : SendOutcome.Failed, TimeSpan.Zero, reason);
 
-    /// <param name="Result">What gets written: the attempt's result, or the final lookup's when the ERP was asked before giving up.</param>
+    /// <param name="Result">What gets written: the attempt's result, or the final lookup's when the ERP was asked
+    /// before giving up.</param>
     /// <param name="Check">The path for the log, e.g. "first", "found" or "notFound,final:found".</param>
     /// <param name="HttpStatus">The attempt's own HTTP status for the log, not the final lookup's.</param>
     private sealed record AttemptOutcome(ErpSendResult Result, RetryDecision Decision, string Check, int? HttpStatus);

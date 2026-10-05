@@ -6,9 +6,10 @@ using InvoiceService.Domain.Reconciliation;
 namespace InvoiceService.Application.Reconciliation;
 
 /// <summary>
-/// Writes one fix together with its finding, in one transaction. An invoice is changed while its row lock is held, the
-/// lock an incoming event and a resend take too, so they cannot interleave with this. The invoice is read again after the
-/// lock is taken: if it is no longer what the plan saw, an event or a resend got there first and it is left alone.
+/// Writes one fix together with its finding, in one transaction. An invoice is changed while its row lock is held,
+/// the lock an incoming event and a resend take too, so they cannot interleave with this. The invoice is read again
+/// after the lock is taken: if it is no longer what the plan saw, an event or a resend got there first and it is left
+/// alone.
 /// </summary>
 public sealed class FixApplier(
     IUnitOfWork unitOfWork, IInvoiceStore invoices, IOutboxStore outbox, IWebhookEventStore events,
@@ -76,7 +77,8 @@ public sealed class FixApplier(
         return true;
     }
 
-    /// <summary>Moves the invoice the way the ERP's decision would as an event; false if that changes nothing.</summary>
+    /// <summary>Moves the invoice the way the ERP's decision would as an event; false if that changes
+    /// nothing.</summary>
     private bool TryApplyDecision(Invoice invoice, ErpDecision decision)
     {
         var target = ReconciliationPlanner.DecisionTarget(invoice.Status, decision);

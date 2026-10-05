@@ -1,6 +1,7 @@
 namespace ErpSimulator.Application.Abstractions;
 
-/// <summary>What came back from one webhook POST: the HTTP status (null without an answer) and the error, if any.</summary>
+/// <summary>What came back from one webhook POST: the HTTP status (null without an answer) and the error, if
+/// any.</summary>
 public sealed record WebhookPostResult(int? HttpStatus, string? Error);
 
 /// <summary>The way out to the invoice service.</summary>

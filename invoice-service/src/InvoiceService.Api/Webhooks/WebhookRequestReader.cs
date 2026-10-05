@@ -3,7 +3,8 @@ namespace InvoiceService.Api.Webhooks;
 /// <summary>Reads the raw parts of an incoming ERP event request.</summary>
 public static class WebhookRequestReader
 {
-    /// <summary>The raw body, or null if it is larger than <paramref name="maxBytes"/> (read no further than that).</summary>
+    /// <summary>The raw body, or null if it is larger than <paramref name="maxBytes"/> (read no further than
+    /// that).</summary>
     public static async Task<byte[]?> ReadBodyAsync(HttpRequest request, int maxBytes, CancellationToken ct)
     {
         if (request.ContentLength > maxBytes)

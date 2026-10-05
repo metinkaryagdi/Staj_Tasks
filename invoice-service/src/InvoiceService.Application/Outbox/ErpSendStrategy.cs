@@ -12,7 +12,8 @@ public enum SendPath
     /// <summary>The ERP already had the invoice: not sent again.</summary>
     Found,
 
-    /// <summary>The ERP said it does not have the invoice (404): POSTed (or, when only asking, counted as not there).</summary>
+    /// <summary>The ERP said it does not have the invoice (404): POSTed (or, when only asking, counted as not
+    /// there).</summary>
     NotFound,
 
     /// <summary>The ERP could not be asked: nothing sent.</summary>
@@ -37,8 +38,8 @@ public sealed record SendAttempt(ErpSendResult Result, SendPath Path)
 }
 
 /// <summary>
-/// Makes one attempt to get an invoice to the ERP: the first time it POSTs; later it asks the ERP first and POSTs only if
-/// the ERP clearly does not have the invoice. Does not retry and writes nothing.
+/// Makes one attempt to get an invoice to the ERP: the first time it POSTs; later it asks the ERP first and POSTs
+/// only if the ERP clearly does not have the invoice. Does not retry and writes nothing.
 /// </summary>
 public sealed class ErpSendStrategy(IErpGateway erp, IOutboxStore outbox, TimeProvider time)
 {
@@ -57,10 +58,14 @@ public sealed class ErpSendStrategy(IErpGateway erp, IOutboxStore outbox, TimePr
         };
     }
 
-    /// <summary>One attempt. Nothing is POSTed if the entry is no longer held with this claim (<see cref="SendPath.NotHeld"/>).</summary>
+    /// <summary>
+    /// One attempt. Nothing is POSTed if the entry is no longer held with this claim
+    /// (<see cref="SendPath.NotHeld"/>).
+    /// </summary>
     public async Task<SendAttempt> SendOnceAsync(Invoice invoice, ClaimedEntry entry)
     {
-        // send_attempt_count already includes this attempt and is never reset: 1 means the ERP cannot have the invoice yet.
+        // send_attempt_count already includes this attempt and is never reset: 1 means the ERP cannot have the
+        // invoice yet.
         if (invoice.SendAttemptCount <= 1)
         {
             return await StillHeldAsync(entry)

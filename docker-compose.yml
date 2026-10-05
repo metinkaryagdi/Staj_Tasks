@@ -24,10 +24,12 @@ services:
     ports:
       - "5080:8080"
     environment:
-      # Container settings (database, invoice service address) are in appsettings.Docker.json, read on top of appsettings.json.
+      # Container settings (database, invoice service address) are in appsettings.Docker.json, read on top of
+      # appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
-      # Optional overrides, passed through from the shell only when set there
-      # (e.g. `Simulator__Rates__Success=0 Simulator__Rates__Busy=100 ... docker compose up -d erp-simulator`; rates must add up to 100).
+      # Optional overrides, passed through from the shell only when set there (e.g.
+      # `Simulator__Rates__Success=0 Simulator__Rates__Busy=100 ... docker compose up -d erp-simulator`; rates must
+      # add up to 100).
       Simulator__Seed:
       Simulator__Rates__Success:
       Simulator__Rates__Busy:
@@ -37,7 +39,8 @@ services:
       Simulator__LateResponseDelaySeconds:
       Simulator__RetryAfterFormat:
       Simulator__IdempotentInvoices:
-      # Optional overrides of the event problem rates (e.g. all 0 for a run without event problems), passed through like the ones above.
+      # Optional overrides of the event problem rates (e.g. all 0 for a run without event problems), passed through
+      # like the ones above.
       Webhooks__Enabled:
       Webhooks__ApprovalRate:
       Webhooks__FirstEventMinSeconds:
@@ -88,7 +91,8 @@ services:
     ports:
       - "5090:8080"
     environment:
-      # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of appsettings.json.
+      # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of
+      # appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
       # Optional overrides of the reconciliation settings, passed through from the shell only when set there
       # (e.g. IntervalMinutes=1 to see the scheduled runs quickly).
@@ -113,7 +117,8 @@ services:
     ports:
       - "5091:8080"
     environment:
-      # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of appsettings.json.
+      # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of
+      # appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
       # Optional overrides of the reconciliation settings, passed through from the shell only when set there
       # (e.g. IntervalMinutes=1 to see the scheduled runs quickly).

@@ -29,8 +29,8 @@ public static class WebhookEndpoints
     }
 
     /// <summary>
-    /// Verifies and stores an ERP event. Answers within ResponseBudgetMilliseconds whatever the database does: if the work
-    /// is not done by then, the answer is 503 and the ERP sends the event again.
+    /// Verifies and stores an ERP event. Answers within ResponseBudgetMilliseconds whatever the database does: if the
+    /// work is not done by then, the answer is 503 and the ERP sends the event again.
     /// </summary>
     private static async Task<IResult> ReceiveEvent(
         HttpRequest request, IOptions<WebhookOptions> options, TimeProvider clock, IServiceScopeFactory scopes,
@@ -118,7 +118,9 @@ public static class WebhookEndpoints
         return await processor.ReceiveAsync(payload, body, ct);
     }
 
-    /// <summary>503: not done in time; the ERP's next delivery stores it (or is counted as a repeat if it committed late).</summary>
+    /// <summary>
+    /// 503: not done in time; the ERP's next delivery stores it (or is counted as a repeat if it committed late).
+    /// </summary>
     private static IResult Unavailable(ILogger logger, string reason, string eventId, TimeSpan elapsed)
     {
         logger.LogWarning("ERP webhook rejected http=503 reason={Reason} event={EventId} elapsed={ElapsedMs}ms",
@@ -126,7 +128,8 @@ public static class WebhookEndpoints
         return Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Not processed in time");
     }
 
-    /// <summary>After a 503 on timeout: logs whether the work still committed (then a redelivery is a repeat) or not.</summary>
+    /// <summary>After a 503 on timeout: logs whether the work still committed (then a redelivery is a repeat) or
+    /// not.</summary>
     private static void LogLateOutcome(Task<EventResult> processing, ILogger logger, string eventId) =>
         _ = processing.ContinueWith(t =>
         {

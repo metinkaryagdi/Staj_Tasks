@@ -1,6 +1,7 @@
 namespace InvoiceService.Domain.Reconciliation;
 
-/// <summary>One reconciliation run (reconciliation_runs): the service's invoices compared with the ERP's records.</summary>
+/// <summary>One reconciliation run (reconciliation_runs): the service's invoices compared with the ERP's
+/// records.</summary>
 public sealed class ReconciliationRun
 {
     public long Id { get; set; }

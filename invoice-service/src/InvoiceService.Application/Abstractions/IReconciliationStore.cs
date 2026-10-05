@@ -4,7 +4,8 @@ using InvoiceService.Domain.Webhooks;
 
 namespace InvoiceService.Application.Abstractions;
 
-/// <summary>Storage of the reconciliation runs and findings, and the reads a run makes of the service's own data.</summary>
+/// <summary>Storage of the reconciliation runs and findings, and the reads a run makes of the service's own
+/// data.</summary>
 public interface IReconciliationStore
 {
     /// <summary>Records a new run as Çalışıyor.</summary>
@@ -21,7 +22,8 @@ public interface IReconciliationStore
         long id, string status, int checkedCount, int fixedCount, int reportedCount, string? error, DateTimeOffset now,
         CancellationToken ct);
 
-    /// <summary>Adds a finding to the open unit of work; <see cref="IUnitOfWork.SaveChangesAsync"/> writes it.</summary>
+    /// <summary>Adds a finding to the open unit of work; <see cref="IUnitOfWork.SaveChangesAsync"/> writes
+    /// it.</summary>
     void AddFinding(ReconciliationFinding finding);
 
     /// <summary>Newest first, without findings.</summary>

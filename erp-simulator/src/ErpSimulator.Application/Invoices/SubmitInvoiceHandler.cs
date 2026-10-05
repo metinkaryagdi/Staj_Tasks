@@ -21,7 +21,8 @@ public enum SubmitOutcome
 }
 
 /// <param name="Invoice">The saved record (Decided and saved), or the existing one (Duplicate, Conflict).</param>
-/// <param name="ClientGone">LateResponse only: the client disconnected during the delay (the record stays saved).</param>
+/// <param name="ClientGone">LateResponse only: the client disconnected during the delay (the record stays
+/// saved).</param>
 public sealed record SubmitInvoiceResult(
     SubmitOutcome Outcome, Dictionary<string, string[]>? Errors = null, ErpInvoice? Invoice = null,
     BehaviorDecision? Decision = null, bool ClientGone = false);
@@ -89,7 +90,8 @@ public sealed class SubmitInvoiceHandler(
 
             case Behavior.LateResponse:
             {
-                // Save commits (and releases the invoice number lock) before the delay, like a real ERP that answers late.
+                // Save commits (and releases the invoice number lock) before the delay, like a real ERP that answers
+                // late.
                 var invoice = await Save(request, decision);
                 try
                 {

@@ -14,7 +14,8 @@ public enum TransitionOutcome
     Wait
 }
 
-/// <param name="IgnoreReason">One of <see cref="IgnoreReason"/> when the outcome is <see cref="TransitionOutcome.Ignore"/>.</param>
+/// <param name="IgnoreReason">One of <see cref="IgnoreReason"/> when the outcome is
+/// <see cref="TransitionOutcome.Ignore"/>.</param>
 public readonly record struct Transition(TransitionOutcome Outcome, string? NewStatus = null, string? IgnoreReason = null);
 
 /// <summary>

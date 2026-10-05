@@ -4,12 +4,15 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace InvoiceService.Application.Reconciliation;
 
-/// <summary>A run that was started and holds the lock; <see cref="ReconciliationService.ExecuteAsync"/> does it and lets the lock go.</summary>
+/// <summary>
+/// A run that was started and holds the lock; <see cref="ReconciliationService.ExecuteAsync"/> does it and lets the
+/// lock go.
+/// </summary>
 public sealed record StartedRun(ReconciliationRun Run, IAsyncDisposable Lease);
 
 /// <summary>
-/// Starts runs one at a time, however they are asked for (the schedule, the endpoint, another copy of the service): taking
-/// the lock is what starts a run, so a second request while one is going gets nothing.
+/// Starts runs one at a time, however they are asked for (the schedule, the endpoint, another copy of the service):
+/// taking the lock is what starts a run, so a second request while one is going gets nothing.
 /// </summary>
 public sealed class ReconciliationService(
     IServiceScopeFactory scopes, IReconciliationLock gate, TimeProvider time, ILogger<ReconciliationService> logger)
@@ -53,8 +56,8 @@ public sealed class ReconciliationService(
         }
         catch (Exception ex)
         {
-            // The runner records a failed run itself; this is for what it could not (the database is gone). The next run
-            // marks the record Başarısız.
+            // The runner records a failed run itself; this is for what it could not (the database is gone). The next
+            // run marks the record Başarısız.
             logger.LogError("Reconciliation run could not be closed run={RunId}: {Message}", started.Run.Id, ex.Message);
         }
     }

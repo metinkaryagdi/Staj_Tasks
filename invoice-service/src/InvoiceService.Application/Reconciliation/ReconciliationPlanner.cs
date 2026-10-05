@@ -80,8 +80,8 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
     }
 
     /// <summary>
-    /// Başarısız and in the ERP, or Gönderildi / İşleme Alındı for too long: the ERP's decision may move it. Not when the ERP has
-    /// several records of it: which one is the right one is not known, so that invoice is only reported.
+    /// Başarısız and in the ERP, or Gönderildi / İşleme Alındı for too long: the ERP's decision may move it. Not when
+    /// the ERP has several records of it: which one is the right one is not known, so that invoice is only reported.
     /// </summary>
     private bool WantsDecision(Invoice invoice, IReadOnlyList<ErpRecord> records, DateTimeOffset now) =>
         records.Count == 1 && Differences(invoice, records[0]).Count == 0 &&
@@ -112,7 +112,9 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
             new Fix(FixKind.ApplyDecision, number, invoice.Status, erp.ErpReference, decision));
     }
 
-    /// <summary>The status the ERP's decision gives the invoice by the same rules as an event; null if it changes nothing.</summary>
+    /// <summary>
+    /// The status the ERP's decision gives the invoice by the same rules as an event; null if it changes nothing.
+    /// </summary>
     public static string? DecisionTarget(string status, ErpDecision decision)
     {
         var eventType = decision.Kind switch

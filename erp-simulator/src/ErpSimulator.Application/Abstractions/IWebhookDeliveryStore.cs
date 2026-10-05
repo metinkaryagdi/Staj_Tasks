@@ -5,10 +5,14 @@ namespace ErpSimulator.Application.Abstractions;
 /// <summary>Storage of the planned webhook sends (the webhook_deliveries table).</summary>
 public interface IWebhookDeliveryStore
 {
-    /// <summary>The earliest due time of a Pending row that is not in <paramref name="busy"/>; null if there is none.</summary>
+    /// <summary>The earliest due time of a Pending row that is not in <paramref name="busy"/>; null if there is
+    /// none.</summary>
     Task<DateTimeOffset?> NextDueAtAsync(long[] busy, CancellationToken ct);
 
-    /// <summary>Up to <paramref name="limit"/> Pending rows due by <paramref name="now"/>, not in <paramref name="busy"/>, oldest due first.</summary>
+    /// <summary>
+    /// Up to <paramref name="limit"/> Pending rows due by <paramref name="now"/>, not in <paramref name="busy"/>,
+    /// oldest due first.
+    /// </summary>
     Task<IReadOnlyList<WebhookDelivery>> DueAsync(int limit, DateTimeOffset now, long[] busy, CancellationToken ct);
 
     /// <summary>
@@ -25,6 +29,8 @@ public interface IWebhookDeliveryStore
     /// <summary>The event's waiting replays become Skipped: the event they repeat was never delivered.</summary>
     Task SkipReplaysAsync(string eventId);
 
-    /// <summary>The rows planned for the record that carry the ERP's own events (Normal and LostDecision), not tracked.</summary>
+    /// <summary>
+    /// The rows planned for the record that carry the ERP's own events (Normal and LostDecision), not tracked.
+    /// </summary>
     Task<IReadOnlyList<WebhookDelivery>> ListForInvoiceAsync(long invoiceId, CancellationToken ct);
 }

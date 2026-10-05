@@ -35,7 +35,8 @@ public sealed record InvoiceListRequest(DateTimeOffset? From, DateTimeOffset? To
 /// <param name="Errors">Set when the request is invalid (400); then <paramref name="Page"/> is null.</param>
 public sealed record InvoiceListResult(Dictionary<string, string[]>? Errors, InvoicePage? Page);
 
-/// <summary>Lists the ERP's records received in a time range, one page at a time. No faults are injected here.</summary>
+/// <summary>Lists the ERP's records received in a time range, one page at a time. No faults are injected
+/// here.</summary>
 public sealed class InvoiceListing(IErpInvoiceStore invoices)
 {
     public async Task<InvoiceListResult> ListAsync(InvoiceListRequest request, CancellationToken ct)
@@ -44,8 +45,8 @@ public sealed class InvoiceListing(IErpInvoiceStore invoices)
         if (errors.Count > 0)
             return new InvoiceListResult(errors, null);
 
-        // Worked out in long: a very large page times the page size must not wrap into a negative offset. Past int.MaxValue
-        // it is far beyond the last record anyway, so it is cut there and the page comes back empty.
+        // Worked out in long: a very large page times the page size must not wrap into a negative offset. Past
+        // int.MaxValue it is far beyond the last record anyway, so it is cut there and the page comes back empty.
         var skip = (int)Math.Min((long)(request.Page - 1) * request.PageSize, int.MaxValue);
         var page = await invoices.ListReceivedAsync(request.From!.Value, request.To!.Value, skip, request.PageSize, ct);
         return new InvoiceListResult(null, page);

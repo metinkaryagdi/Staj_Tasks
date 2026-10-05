@@ -6,8 +6,8 @@ namespace InvoiceService.Application.Abstractions;
 public interface IOutboxStore
 {
     /// <summary>
-    /// Takes up to <paramref name="limit"/> due entries that nobody holds (two instances never get the same row) and counts
-    /// the attempt before it is made.
+    /// Takes up to <paramref name="limit"/> due entries that nobody holds (two instances never get the same row) and
+    /// counts the attempt before it is made.
     /// </summary>
     Task<IReadOnlyList<ClaimedEntry>> ClaimAsync(
         int limit, string workerId, DateTimeOffset now, DateTimeOffset lockedUntil, int maxAttempts, CancellationToken ct);
@@ -16,16 +16,16 @@ public interface IOutboxStore
     Task<bool> IsHeldAsync(long id, Guid claimToken, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>
-    /// Writes the outcome, only if the entry is still Bekliyor and still carries this claim (and clears the lock and the
-    /// claim). Returns false when it does not: the entry was taken again, so this older outcome is dropped.
+    /// Writes the outcome, only if the entry is still Bekliyor and still carries this claim (and clears the lock and
+    /// the claim). Returns false when it does not: the entry was taken again, so this older outcome is dropped.
     /// </summary>
     Task<bool> WriteOutcomeAsync(
         long id, Guid claimToken, string status, string? lastError, DateTimeOffset nextAttemptAt, DateTimeOffset? processedAt,
         CancellationToken ct);
 
     /// <summary>
-    /// Resets the invoice's entry so the worker treats it like a new one (Bekliyor, 0 attempts, due now), inserting it if
-    /// it is missing.
+    /// Resets the invoice's entry so the worker treats it like a new one (Bekliyor, 0 attempts, due now), inserting
+    /// it if it is missing.
     /// </summary>
     Task ResetAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
 

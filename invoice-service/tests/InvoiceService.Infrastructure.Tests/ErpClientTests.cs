@@ -288,7 +288,8 @@ public class ErpClientTests
         Assert.Equal(ErpLookup.Unknown, result.Lookup);
     }
 
-    // --- Karar ve liste (mutabakat) ------------------------------------------------------------------------------------
+    // --- Karar ve liste (mutabakat)
+    // ------------------------------------------------------------------------------------
 
     [Fact]
     public async Task A_lookup_returns_the_erps_decision()

@@ -21,7 +21,8 @@ public sealed class WebhookDelivery
     /// <summary>One of <see cref="DeliveryKind"/>: a normal event or one of the deliberate problems.</summary>
     public required string Kind { get; set; }
 
-    /// <summary>The JSON body, the same bytes on every send; only the timestamp and signature are made at send time.</summary>
+    /// <summary>The JSON body, the same bytes on every send; only the timestamp and signature are made at send
+    /// time.</summary>
     public required string Payload { get; set; }
 
     /// <summary>When the event happened in the ERP (occurred_at in the body).</summary>
@@ -63,7 +64,8 @@ public static class DeliveryStatus
     /// <summary>No 2xx after the first send and every retry.</summary>
     public const string Failed = "Failed";
 
-    /// <summary>A fake or replayed event rejected with HTTP 4xx: not sent again; 5xx and no answer are retried.</summary>
+    /// <summary>A fake or replayed event rejected with HTTP 4xx: not sent again; 5xx and no answer are
+    /// retried.</summary>
     public const string Rejected = "Rejected";
 
     /// <summary>Never sent: a lost decision or a replay whose normal event exhausted its retries.</summary>

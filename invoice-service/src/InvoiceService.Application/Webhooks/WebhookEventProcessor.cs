@@ -2,20 +2,21 @@ using InvoiceService.Application.Abstractions;
 
 namespace InvoiceService.Application.Webhooks;
 
-/// <summary>The outcome of one delivery: the event's status after it, and whether it was a repeat of a stored event.</summary>
+/// <summary>The outcome of one delivery: the event's status after it, and whether it was a repeat of a stored
+/// event.</summary>
 public sealed record EventResult(string EventId, string Status, bool Repeat);
 
 /// <summary>
-/// Stores ERP events and applies them to invoices. Every decision is made while holding the invoice's row lock, the same
-/// lock the outbox takes when it makes the invoice Gönderildi, so the two can never interleave.
+/// Stores ERP events and applies them to invoices. Every decision is made while holding the invoice's row lock, the
+/// same lock the outbox takes when it makes the invoice Gönderildi, so the two can never interleave.
 /// </summary>
 public sealed class WebhookEventProcessor(
     IUnitOfWork unitOfWork, IWebhookEventStore events, IInvoiceStore invoices, InvoiceEventApplier applier,
     TimeProvider time, IOptions<WebhookOptions> options, ILogger<WebhookEventProcessor> logger)
 {
     /// <summary>
-    /// Stores the event once and applies it, in one transaction. A repeated event_id (even arriving at the same moment) is
-    /// only counted, never applied again.
+    /// Stores the event once and applies it, in one transaction. A repeated event_id (even arriving at the same
+    /// moment) is only counted, never applied again.
     /// </summary>
     public async Task<EventResult> ReceiveAsync(ErpWebhookRequest request, string payload, CancellationToken ct)
     {

@@ -20,14 +20,14 @@ public interface IErpInvoiceStore
     Task<IReadOnlyList<ErpInvoice>> ListAsync(string invoiceNumber, CancellationToken ct);
 
     /// <summary>
-    /// Saves the record and the events <paramref name="planEvents"/> plans for it in one transaction (the lock's, if open).
-    /// Not cancellable: once the ERP decides to save, a client disconnect must not undo it.
+    /// Saves the record and the events <paramref name="planEvents"/> plans for it in one transaction (the lock's, if
+    /// open). Not cancellable: once the ERP decides to save, a client disconnect must not undo it.
     /// </summary>
     Task SaveAsync(ErpInvoice invoice, Func<ErpInvoice, IEnumerable<WebhookDelivery>> planEvents);
 
     /// <summary>
-    /// The records received in [<paramref name="from"/>, <paramref name="to"/>), ordered by received_at then id (so a page
-    /// does not change while records are added later), not tracked.
+    /// The records received in [<paramref name="from"/>, <paramref name="to"/>), ordered by received_at then id (so a
+    /// page does not change while records are added later), not tracked.
     /// </summary>
     Task<InvoicePage> ListReceivedAsync(DateTimeOffset from, DateTimeOffset to, int skip, int take, CancellationToken ct);
 }

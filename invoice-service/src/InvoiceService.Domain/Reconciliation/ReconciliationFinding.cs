@@ -32,13 +32,17 @@ public static class FindingAction
 
 public static class FindingType
 {
-    /// <summary>Gönderildi or İşleme Alındı for longer than the threshold; the ERP's decision is applied. Fixed.</summary>
+    /// <summary>Gönderildi or İşleme Alındı for longer than the threshold; the ERP's decision is applied.
+    /// Fixed.</summary>
     public const string StuckInvoice = "Takılı Fatura";
 
-    /// <summary>Başarısız here, but the ERP has it: Gönderildi with the ERP's reference (and its decision). Fixed.</summary>
+    /// <summary>Başarısız here, but the ERP has it: Gönderildi with the ERP's reference (and its decision).
+    /// Fixed.</summary>
     public const string FailedButInErp = "Başarısız Ama ERP Kayıtlı";
 
-    /// <summary>A waiting event for an invoice the service does not know, older than the threshold: Yok Sayıldı. Fixed.</summary>
+    /// <summary>
+    /// A waiting event for an invoice the service does not know, older than the threshold: Yok Sayıldı. Fixed.
+    /// </summary>
     public const string UnknownEvent = "Tanınmayan Haber";
 
     /// <summary>The ERP has the invoice, the service does not. Reported.</summary>

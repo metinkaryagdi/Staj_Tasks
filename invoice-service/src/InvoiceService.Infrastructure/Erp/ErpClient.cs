@@ -32,7 +32,8 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
-            // HttpClient.Timeout surfaces as TaskCanceledException (inner TimeoutException), not as HttpRequestException.
+            // HttpClient.Timeout surfaces as TaskCanceledException (inner TimeoutException), not as
+            // HttpRequestException.
             return Failed(null, $"ERP {http.Timeout.TotalSeconds:0} saniye içinde cevap vermedi (zaman aşımı).", watch);
         }
         catch (HttpRequestException ex)
@@ -59,7 +60,8 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         }
     }
 
-    /// <summary>Asks the ERP whether it has the invoice. Only a 404 means "not there"; anything unclear is Unknown.</summary>
+    /// <summary>Asks the ERP whether it has the invoice. Only a 404 means "not there"; anything unclear is
+    /// Unknown.</summary>
     public async Task<ErpLookupResult> FindAsync(string invoiceNumber, CancellationToken ct)
     {
         var watch = Stopwatch.StartNew();
@@ -117,7 +119,8 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
                 if (records.Count >= body.TotalCount)
                     return new ErpListResult(true, records, null);
 
-                // An empty page before the count is reached: a partial list would read as records the ERP does not have.
+                // An empty page before the count is reached: a partial list would read as records the ERP does not
+                // have.
                 if (body.Items.Count == 0)
                     return ListFailed($"Sayfa {page} boş geldi ama {body.TotalCount} kayıt bekleniyordu ({records.Count} okundu).");
             }
@@ -191,7 +194,8 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         {
             using var json = JsonDocument.Parse(body);
             var root = json.RootElement;
-            // Only a string title is used: GetString throws on a number or an object, which would leave the entry locked.
+            // Only a string title is used: GetString throws on a number or an object, which would leave the entry
+            // locked.
             if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String)
             {
                 return root.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String

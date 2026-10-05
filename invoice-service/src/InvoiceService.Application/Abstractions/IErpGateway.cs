@@ -19,7 +19,8 @@ public enum ErpLookup
     /// <summary>The ERP does not have the invoice (GET 404).</summary>
     NotFound,
 
-    /// <summary>The ERP could not be asked (no answer, or an answer that is neither a readable 200 nor a 404).</summary>
+    /// <summary>The ERP could not be asked (no answer, or an answer that is neither a readable 200 nor a
+    /// 404).</summary>
     Unknown
 }
 
@@ -40,7 +41,8 @@ public sealed record ErpDecision(string Kind, string? Reason = null, DateTimeOff
 
 /// <summary>
 /// Outcome of asking the ERP whether it already has an invoice. <see cref="Decision"/> is the ERP's decision about it
-/// (<see cref="ErpDecision.None"/> when the ERP has not decided or did not say); only set when <see cref="Lookup"/> is Found.
+/// (<see cref="ErpDecision.None"/> when the ERP has not decided or did not say); only set when <see cref="Lookup"/>
+/// is Found.
 /// </summary>
 public sealed record ErpLookupResult(
     ErpLookup Lookup, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed, ErpDecision? Decision = null);
@@ -70,8 +72,8 @@ public interface IErpGateway
     Task<ErpLookupResult> FindAsync(string invoiceNumber, CancellationToken ct);
 
     /// <summary>
-    /// Every record the ERP received in [<paramref name="from"/>, <paramref name="to"/>), all pages. A page that cannot be read
-    /// fails the whole call: a partial list would look like records the ERP does not have.
+    /// Every record the ERP received in [<paramref name="from"/>, <paramref name="to"/>), all pages. A page that
+    /// cannot be read fails the whole call: a partial list would look like records the ERP does not have.
     /// </summary>
     Task<ErpListResult> ListAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
 }

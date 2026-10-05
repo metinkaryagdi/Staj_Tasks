@@ -6,7 +6,9 @@ namespace InvoiceService.Application.Abstractions;
 /// </summary>
 public interface IUnitOfWork
 {
-    /// <summary>Starts a transaction. Disposing it without <see cref="IUnitOfWorkTransaction.CommitAsync"/> rolls it back.</summary>
+    /// <summary>
+    /// Starts a transaction. Disposing it without <see cref="IUnitOfWorkTransaction.CommitAsync"/> rolls it back.
+    /// </summary>
     Task<IUnitOfWorkTransaction> BeginAsync(CancellationToken ct);
 
     /// <summary>Writes the changes made to tracked entities.</summary>
