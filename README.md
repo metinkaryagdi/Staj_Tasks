@@ -293,8 +293,8 @@ eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar. Değişiklikt
 | `ErpWebhooks:MaxBodyBytes` | `65536` | Uygulama tercihi; büyük body imza hesaplanmadan `413` |
 | `ErpWebhooks:ResponseBudgetMilliseconds` | `4000` | Görev: her event'e 5 sn içinde cevap; 5000'den küçük olmak zorunda |
 | `ErpWebhooks:LockTimeoutMilliseconds` | `2000` | Uygulama tercihi; fatura satırının lock'unu bekleme sınırı, `ResponseBudgetMilliseconds`'tan küçük |
-| `Reconciliation:IntervalMinutes` | `60` | Uygulama tercihi; testlerde `Reconciliation__IntervalMinutes` ortam değişkeniyle 1'e çekilir (`docker-compose.yml`'de geçişi var). Daha kısası, karar event'i hiç gelmeyen faturaları da düzelteceği için Gün 4'ün sayımını değiştirir |
-| `Reconciliation:LookbackHours` | `24` | Görev: son 24 saat |
+| `Reconciliation:IntervalMinutes` | `60` | Uygulama tercihi; testlerde `Reconciliation__IntervalMinutes` ortam değişkeniyle 1'e çekilir; en çok 10080 (`docker-compose.yml`'de geçişi var). Daha kısası, karar event'i hiç gelmeyen faturaları da düzelteceği için Gün 4'ün sayımını değiştirir |
+| `Reconciliation:LookbackHours` | `24` | Görev: son 24 saat; en çok 8760 |
 | `Reconciliation:StuckAfterMinutes` | `2` | Görev: `Gönderildi` / `İşleme Alındı`'da bundan uzun kalan fatura |
 | `Reconciliation:UnknownEventAfterMinutes` | `60` | Görev: tanınmayan faturanın bekleyen event'i bundan eskiyse |
 

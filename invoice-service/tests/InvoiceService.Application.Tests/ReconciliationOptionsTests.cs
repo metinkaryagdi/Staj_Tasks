@@ -46,6 +46,27 @@ public class ReconciliationOptionsTests
     }
 
     [Theory]
+    [InlineData("Reconciliation:IntervalMinutes", "10081")]
+    [InlineData("Reconciliation:IntervalMinutes", "2147483647")]
+    [InlineData("Reconciliation:LookbackHours", "8761")]
+    [InlineData("Reconciliation:LookbackHours", "2147483647")]
+    public void A_value_above_what_the_timer_and_the_dates_can_take_is_refused_and_named(string key, string value)
+    {
+        var result = Validate(Settings((key, value)));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains($"{key} must be at most", result.FailureMessage);
+    }
+
+    [Theory]
+    [InlineData("Reconciliation:IntervalMinutes", "10080")]
+    [InlineData("Reconciliation:LookbackHours", "8760")]
+    public void The_largest_accepted_values_are_accepted(string key, string value)
+    {
+        Assert.True(Validate(Settings((key, value))).Succeeded);
+    }
+
+    [Theory]
     [InlineData("Reconciliation:IntervalMinutes", "0")]
     [InlineData("Reconciliation:LookbackHours", "-1")]
     [InlineData("Reconciliation:StuckAfterMinutes", "0")]

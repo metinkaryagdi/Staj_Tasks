@@ -22,6 +22,12 @@ public sealed class ReconciliationOptions
 
 public sealed class ReconciliationOptionsValidator(IConfiguration configuration) : IValidateOptions<ReconciliationOptions>
 {
+    /// <summary>One week. The timer cannot wait much longer than this and a run every week is not a reconciliation.</summary>
+    public const int MaxIntervalMinutes = 10_080;
+
+    /// <summary>One year. A window this long is already more than the database is asked for; beyond it the date arithmetic overflows.</summary>
+    public const int MaxLookbackHours = 8_760;
+
     public static readonly string[] RequiredKeys =
     [
         nameof(ReconciliationOptions.IntervalMinutes), nameof(ReconciliationOptions.LookbackHours),
@@ -52,6 +58,11 @@ public sealed class ReconciliationOptionsValidator(IConfiguration configuration)
             if (value <= 0)
                 errors.Add($"{ReconciliationOptions.SectionName}:{key} must be greater than 0 (was {value}).");
         }
+
+        if (options.IntervalMinutes > MaxIntervalMinutes)
+            errors.Add($"{ReconciliationOptions.SectionName}:IntervalMinutes must be at most {MaxIntervalMinutes} (was {options.IntervalMinutes}).");
+        if (options.LookbackHours > MaxLookbackHours)
+            errors.Add($"{ReconciliationOptions.SectionName}:LookbackHours must be at most {MaxLookbackHours} (was {options.LookbackHours}).");
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }
