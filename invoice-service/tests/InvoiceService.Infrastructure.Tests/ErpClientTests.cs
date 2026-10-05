@@ -354,6 +354,21 @@ public class ErpClientTests
     }
 
     [Fact]
+    public async Task An_empty_page_before_the_total_is_reached_fails_the_whole_list()
+    {
+        var (client, handler) = Create((request, _) => request.RequestUri!.Query.Contains("page=1")
+            ? Reply(HttpStatusCode.OK, ListPage(5, "A", "B"))
+            : Reply(HttpStatusCode.OK, ListPage(5)));
+
+        var result = await client.ListAsync(DateTimeOffset.UnixEpoch, DateTimeOffset.UtcNow, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(result.Records);
+        Assert.Contains("Sayfa 2 boş", result.Error);
+        Assert.Equal(2, handler.Calls);
+    }
+
+    [Fact]
     public async Task A_failing_second_page_fails_the_whole_list_and_returns_no_records()
     {
         var (client, _) = Create((request, _) => request.RequestUri!.Query.Contains("page=1")

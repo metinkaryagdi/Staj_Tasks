@@ -114,8 +114,12 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
 
                 records.AddRange(body.Items.Select(i => new ErpRecord(
                     i.InvoiceNumber, i.ErpReference, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.ReceivedAt)));
-                if (body.Items.Count == 0 || records.Count >= body.TotalCount)
+                if (records.Count >= body.TotalCount)
                     return new ErpListResult(true, records, null);
+
+                // An empty page before the count is reached: a partial list would read as records the ERP does not have.
+                if (body.Items.Count == 0)
+                    return ListFailed($"Sayfa {page} boş geldi ama {body.TotalCount} kayıt bekleniyordu ({records.Count} okundu).");
             }
             catch (TaskCanceledException) when (!ct.IsCancellationRequested)
             {
