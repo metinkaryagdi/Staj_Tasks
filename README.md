@@ -200,8 +200,9 @@ hiçbir fatura değişmemiştir.
 - **Aynı anda tek çalışma:** PostgreSQL advisory lock. Zamanlanmış çalışma, elle başlatma ve servisin ikinci kopyası
   aynı kilidi kullanır; kilit başkasındaysa `POST` `409` alır, zamanlanmış tur atlanır. Kilit bağlantıya bağlıdır:
   kopya çökerse veritabanı bırakır.
-- **Event'le çakışma:** bir fatura düzeltilirken satırının lock'u tutulur; event ve resend de aynı lock'u alır. Lock
-  alındıktan sonra fatura planın gördüğü durumda değilse o fatura bırakılır.
+- **Event'le çakışma:** bir fatura düzeltilirken satırının lock'u (`SELECT … FOR UPDATE`) tutulur; event aynı lock'u
+  alır, resend ise aynı satırı güncellediği için lock tutulurken bekler. Lock alındıktan sonra fatura planın gördüğü
+  durumda değilse o fatura bırakılır.
 - Düzeltilmeyenler hangi tarafın doğru olduğunu bilmeyi gerektirir; bu yüzden yalnızca raporlanır.
 
 ### Ayarlar
@@ -307,7 +308,9 @@ altındadır (Git'e dahil değildir).
 - **Kilit:** bağlantı canlı tutulur (keepalive) ama ağ gerçekten kopmuşsa kilit düşer ve ikinci bir çalışma başlayabilir;
   bunu yakalayan ek bir kontrol yoktur.
 - **Test kapsamı:** SQL store'ları, advisory lock ve endpoint'ler otomatik testle değil `manual-tests/gun5/`
-  script'leriyle (docker gerekir) doğrulanır; birim testler bunların yerine bellek içi sahteleri kullanır.
+  script'leriyle (docker gerekir) doğrulanır; birim testler bunların yerine bellek içi sahteleri kullanır. Event ile
+  mutabakat yarışı canlı denendi (`ek-haber-yarisi.ps1`); resend ile mutabakat yarışı denenmedi, yalnızca kod
+  okumasıyla (resend satırı güncellediği için lock tutulurken bekler) değerlendirildi.
 
 ---
 
