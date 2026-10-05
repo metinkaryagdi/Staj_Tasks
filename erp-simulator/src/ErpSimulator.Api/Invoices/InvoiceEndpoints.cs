@@ -44,7 +44,7 @@ public static class InvoiceEndpoints
             .WithDescription(
                 "Returns the ERP reference(s) recorded for the invoice number. No faults are injected here. " +
                 "erpReference is the first record; records lists all of them when duplicates exist. " +
-                "decision (none, received, approved, rejected) is the first record's, with reason (rejected only) and decidedAt; " +
+                "decision (none, received, approved, rejected) is the first record's, with reason (rejected only) and decided_at; " +
                 "it shows once its time has come, even if the event was never sent.")
             .Produces<InvoiceLookupResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound);

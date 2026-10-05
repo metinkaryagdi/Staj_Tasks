@@ -1,7 +1,7 @@
 ﻿# Gün 5 - Adım 1: ERP Simülatörü GET /api/v1/invoices/{faturaNumarası} faturanın kararını da döner. ~2 dk.
 #
 #   A) Tek fatura: ilk haber 5 sn sonra olduğu için ilk cevap "none"; sonra received, sonra approved ya da rejected
-#      (geriye gitmez). Karar zamanı geldiğinde cevapta decision, reason (yalnızca rejected) ve decidedAt var.
+#      (geriye gitmez). Karar zamanı geldiğinde cevapta decision, reason (yalnızca rejected) ve decided_at var.
 #   B) 20 fatura, karar haberinin kaybolma oranı %30: haberi hiç gönderilmeyen faturalarda da karar görünür.
 #      Servisin durumuyla karşılaştırılır: Onaylandı = approved, Reddedildi = rejected (aynı reason);
 #      serviste Gönderildi / İşleme Alındı'da kalanlar tam olarak kararı kaybolanlardır.
@@ -13,16 +13,16 @@
 trap { Write-Host "Hata: $_ - simülatör varsayılan ayarlarına döndürülüyor." -ForegroundColor Red
        try { Restart-Simulator } catch { }; break }
 
-Write-Title 'Adım 1) GET /api/v1/invoices/{n}: decision, reason, decidedAt'
+Write-Title 'Adım 1) GET /api/v1/invoices/{n}: decision, reason, decided_at'
 $allPassed = $true
 function Check([bool]$Passed) { if (-not $Passed) { $script:allPassed = $false } }
 
-# Cevaptan karar alanlarını okur. decidedAt'i metin olarak alır: ConvertFrom-Json tarihi yerel saate çevirirdi.
+# Cevaptan karar alanlarını okur. decided_at'i metin olarak alır: ConvertFrom-Json tarihi yerel saate çevirirdi.
 function Get-Decision([string]$Number) {
     $r = Get-Invoice $Number
     if ($r.Status -ne 200) { return [pscustomobject]@{ Status = $r.Status; Kind = '-'; Reason = ''; DecidedAt = $null } }
     $json = $r.Body | ConvertFrom-Json
-    $at = if ($r.Body -match '"decidedAt":"([^"]+)"') { [DateTimeOffset]::Parse($Matches[1]) } else { $null }
+    $at = if ($r.Body -match '"decided_at":"([^"]+)"') { [DateTimeOffset]::Parse($Matches[1]) } else { $null }
     [pscustomobject]@{ Status = 200; Kind = $json.decision; Reason = $json.reason; DecidedAt = $at }
 }
 
@@ -44,7 +44,7 @@ while ($watch.Elapsed.TotalSeconds -lt 60) {
     $d = Get-Decision $number
     if ($d.Status -eq 200 -and ($seen.Count -eq 0 -or $seen[-1] -ne $d.Kind)) {
         $seen += $d.Kind
-        Write-Host ('  {0,5:N1} sn: decision={1} reason={2} decidedAt={3}' -f $watch.Elapsed.TotalSeconds, $d.Kind, $d.Reason, $d.DecidedAt)
+        Write-Host ('  {0,5:N1} sn: decision={1} reason={2} decided_at={3}' -f $watch.Elapsed.TotalSeconds, $d.Kind, $d.Reason, $d.DecidedAt)
     }
     if ($d.Kind -in 'approved', 'rejected') { $final = $d; break }
     Start-Sleep -Milliseconds 500
@@ -57,7 +57,7 @@ Check (Write-DbVerdict 'ilk cevap none' ($seen -join ' -> ') ($seen.Count -gt 0 
 Check (Write-DbVerdict 'geriye gitmeden bir karara ulaşır' ($seen -join ' -> ') ($monotone -and $null -ne $final))
 if ($final) {
     $reasonOk = ($final.Kind -eq 'approved' -and -not $final.Reason) -or ($final.Kind -eq 'rejected' -and $final.Reason)
-    Check (Write-DbVerdict 'decidedAt dolu, reason yalnızca rejected iken dolu' "decision=$($final.Kind) reason='$($final.Reason)' decidedAt=$($final.DecidedAt)" `
+    Check (Write-DbVerdict 'decided_at dolu, reason yalnızca rejected iken dolu' "decision=$($final.Kind) reason='$($final.Reason)' decided_at=$($final.DecidedAt)" `
         ($null -ne $final.DecidedAt -and $reasonOk))
 }
 $missing = Get-Invoice 'YOK-FATURA-1'
@@ -122,7 +122,7 @@ Check (Write-DbVerdict '20 faturanın hepsinde karar görünüyor' "$withDecisio
 Check (Write-DbVerdict 'serviste Gönderildi / İşleme Alındı kalanlar = haberi gönderilmeyenler' "kalan $($stuck.Count), haberi gönderilmeyen $($lost.Count)" `
     ($stuckIsLost -and $lost.Count -gt 0))
 Check (Write-DbVerdict 'haberi ulaşan faturalarda servisin durumu ve sebebi ERP kararıyla aynı' "$agree / $(20 - $stuck.Count)" ($agree -eq (20 - $stuck.Count)))
-Check (Write-DbVerdict 'decidedAt = veritabanındaki karar zamanı' "$timesOk / 20" ($timesOk -eq 20))
+Check (Write-DbVerdict 'decided_at = veritabanındaki karar zamanı' "$timesOk / 20" ($timesOk -eq 20))
 
 Restart-Simulator
 Write-Result $allPassed 'karar, haberi hiç gönderilmemiş olsa da zamanı gelince görünüyor; servisin durumuyla uyumlu'

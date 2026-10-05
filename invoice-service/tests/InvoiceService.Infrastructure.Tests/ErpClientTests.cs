@@ -295,7 +295,7 @@ public class ErpClientTests
     public async Task A_lookup_returns_the_erps_decision()
     {
         var (client, _) = Create((_, _) => Reply(HttpStatusCode.OK,
-            """{"invoiceNumber":"FTR-000001","registered":true,"erpReference":"ERP-1","recordCount":1,"records":[],"decision":"rejected","reason":"Mükerrer fatura","decidedAt":"2026-10-05T09:00:00+00:00"}"""));
+            """{"invoiceNumber":"FTR-000001","registered":true,"erpReference":"ERP-1","recordCount":1,"records":[],"decision":"rejected","reason":"Mükerrer fatura","decided_at":"2026-10-05T09:00:00+00:00"}"""));
 
         var result = await client.FindAsync("FTR-000001", CancellationToken.None);
 

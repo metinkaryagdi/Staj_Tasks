@@ -153,7 +153,7 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
                 return ErpDecision.None;
 
             var reason = root.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : null;
-            DateTimeOffset? decidedAt = root.TryGetProperty("decidedAt", out var d) && d.ValueKind == JsonValueKind.String
+            DateTimeOffset? decidedAt = root.TryGetProperty("decided_at", out var d) && d.ValueKind == JsonValueKind.String
                                         && d.TryGetDateTimeOffset(out var at) ? at : null;
             return new ErpDecision(kind.GetString()!, reason, decidedAt);
         }

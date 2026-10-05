@@ -50,7 +50,7 @@ Content-Type: application/json
   "invoiceDate": "2026-09-29"
 }
 
-### 6) The invoice's decision: the lookup also returns decision (none, received, approved, rejected), reason and decidedAt
+### 6) The invoice's decision: the lookup also returns decision (none, received, approved, rejected), reason and decided_at
 GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}
 
 ### 7) The records received in a time range, one page at a time ([from, to), pageSize at most 500)

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ErpSimulator.Api.Invoices;
 
 public sealed record InvoiceAcceptedResponse(string ErpReference, string InvoiceNumber, DateTimeOffset ReceivedAt);
@@ -24,7 +26,7 @@ public sealed record InvoiceLookupResponse(
     IReadOnlyList<InvoiceRecordResponse> Records,
     string Decision,
     string? Reason,
-    DateTimeOffset? DecidedAt);
+    [property: JsonPropertyName("decided_at")] DateTimeOffset? DecidedAt);
 
 /// <summary>One ERP record in the list; a duplicated invoice number is listed once per record.</summary>
 public sealed record InvoiceListItemResponse(

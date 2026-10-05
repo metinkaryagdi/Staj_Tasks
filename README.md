@@ -42,7 +42,7 @@ Her uygulamanın yalnızca kendi veritabanının bağlantı bilgisi vardır; iki
 | Endpoint | Davranış |
 |---|---|
 | `POST /api/v1/invoices` | Body: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Seçilen davranışa göre cevap verir (aşağıda). Eksik/geçersiz alan `400`; tutarda virgülden sonra en fazla iki basamak. |
-| `GET /api/v1/invoices/{invoiceNumber}` | `200` + `registered`, `erpReference` (ilk kayıt), `recordCount`, `records[]`, `decision` (`none` / `received` / `approved` / `rejected`), `reason` (yalnızca `rejected`), `decidedAt`. Karar ilk kaydın event'lerinden türetilir; event'i hiç gönderilmemiş olsa bile zamanı gelince görünür. Kayıt yoksa `404`. Hata üretmez. |
+| `GET /api/v1/invoices/{invoiceNumber}` | `200` + `registered`, `erpReference` (ilk kayıt), `recordCount`, `records[]`, `decision` (`none` / `received` / `approved` / `rejected`), `reason` (yalnızca `rejected`), `decided_at`. Karar ilk kaydın event'lerinden türetilir; event'i hiç gönderilmemiş olsa bile zamanı gelince görünür. Kayıt yoksa `404`. Hata üretmez. |
 | `GET /api/v1/invoices?from=…&to=…&page=1&pageSize=100` | `receivedAt`'i `[from, to)` içinde kalan kayıtlar, `(receivedAt, id)` sıralı ve sayfalı: `{page, pageSize, totalCount, items[]}`. `from` ve `to` zorunlu, `from < to`; `pageSize` en çok 500 (üstü `400`). Çift kayıtlar ayrı satırdır. |
 
 ```json
@@ -262,18 +262,17 @@ maddeleri sırayla çalıştırır; 1. madde `gun3` ve `gun4` listeleridir).
 
 ### Son doğrulama — 5 Ekim 2026
 
-Gün 3 listesi son kodla koşuldu ve 7/7 geçti (22,1 dk). Gün 4 listesi (8/8) daha önceki bir koşuda koşuldu; o koşudan
-sonra yalnızca yorumlar, bir sabit adı ve planlayıcının bir kuralı değişti, gönderim yoluna dokunulmadı; Gün 4
-yeniden koşulmadı. Gün 3'ün daha önceki bir koşusunda 4. madde, beklemeyi iki log damgasından ölçtüğü için,
+Gün 3 listesi 7/7 (22,1 dk), Gün 4 listesi 8/8 geçti; ikisi de son değişikliklerden önceki koşulardır. Sonrasında
+yalnızca yorumlar, bir sabit adı, planlayıcının bir kuralı ve ERP cevabındaki karar alanının adı (`decided_at`)
+değişti; Gün 3 ve Gün 4 yeniden koşulmadı. Gün 3'ün daha önceki bir koşusunda 4. madde, beklemeyi iki log damgasından ölçtüğü için,
 planlanandan 87 ms kısa ölçülmüştü, 50 ms toleransı 37 ms aşmıştı; tolerans değiştirilmeden yeniden koşularda geçti. Gün 5 listesi
-(2-9) ve ek test, kod incelemesinden sonraki son hâlde koşuldu ve hepsi geçti; sonrasında yalnızca yorumlar
-kısaltıldı. Birim testler: Invoice Service 281, ERP Simulator 103, hepsi geçti. Bunlar bu koşuların sonuçlarıdır;
+(2-9) ve ek test son hâlde koşuldu ve geçti; yalnızca 2. madde ilk koşuda kaldı (aşağıda), kalıntısız yeniden koşuda geçti. Birim testler: Invoice Service 281, ERP Simulator 103, hepsi geçti. Bunlar bu koşuların sonuçlarıdır;
 başka koşullarda aynı sonucun çıkacağını göstermez.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
 | 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 | Gün 3 7/7 (son kodla), Gün 4 8/8 (daha önceki koşuda; ayrıntı yukarıdaki notta) |
-| 2 | 500 fatura, varsayılan oranlar, haberler bitince mutabakat | 30 fatura takılı kalmıştı (karar event'i gönderilmeyen 30'la aynı); 30'u düzeltildi, kalan 0 |
+| 2 | 500 fatura, varsayılan oranlar, haberler bitince mutabakat | 30 fatura takılı kalmıştı (karar event'i gönderilmeyen 30'la aynı); 30'u düzeltildi, kalan 0. Bir koşuda, hemen öncesinde çalışan başka bir testin bıraktığı 6 takılı fatura da düzeltildiği için düzeltilen sayısı 36 çıktı (500 faturalık küme yine 30/30); kalıntısız yeniden koşuda 30/30 geçti |
 | 3 | ERP Simulator'a elle eklenen, serviste olmayan fatura | `Serviste Yok` raporlandı; iki tarafta değişiklik yok. `POST` `202` + `Location`, liste sırası ve `404` de doğrulandı |
 | 4 | ERP'de tutarı elle değiştirilen fatura | `Alan Farkı` (1250.50 / 1260.50) raporlandı; değişiklik yok |
 | 5 | Elle ikinci gönderim (çift kayıt) | `ERP Çift Kayıt` raporlandı; aynı fatura serviste `Başarısız` olsa da yalnızca raporlandı, fatura ve `erp_outbox` değişmedi |
@@ -299,7 +298,7 @@ altındadır (Git'e dahil değildir).
   da kararıyla ilerletilmez, yalnızca raporlanır. ERP'de birden fazla kaydı olan fatura da geri getirilmez ve karar
   almaz, yalnızca raporlanır: hangi kaydın doğru olduğu bilinmez.
 - **Yorum gerektirenler:** `decision` ilk event zamanı gelince `received`, karar zamanı gelince `approved` / `rejected`
-  döner; alan adı `decidedAt`'tır (istenen `decided_at` yerine mevcut JSON adlandırmasına, camelCase, uyuldu); `pageSize` 500'ü aşarsa `400` döner; `ERP Kaydı Yok` istenen türlerin
+  döner; `pageSize` 500'ü aşarsa `400` döner; `ERP Kaydı Yok` istenen türlerin
   dışında eklenmiş bir türdür; `Başarısız` olup ERP'de birden fazla kaydı olan faturada çift kayıt kuralına öncelik
   verilir: yalnızca `ERP Çift Kayıt` raporlanır, fatura düzeltilmez.
 - **Ölçek:** düzeltmeler ve karar sorguları sıralıdır; çalışma listesi sayfalanmaz. Her çalışma penceredeki bütün
