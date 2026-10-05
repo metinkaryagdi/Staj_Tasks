@@ -265,7 +265,7 @@ maddeleri sırayla çalıştırır; 1. madde `gun3` ve `gun4` listeleridir).
 Gün 3 listesi son kodla koşuldu ve 7/7 geçti (22,1 dk). Gün 4 listesi (8/8) daha önceki bir koşuda koşuldu; o koşudan
 sonra yalnızca yorumlar, bir sabit adı ve planlayıcının bir kuralı değişti, gönderim yoluna dokunulmadı; Gün 4
 yeniden koşulmadı. Gün 3'ün daha önceki bir koşusunda 4. madde, beklemeyi iki log damgasından ölçtüğü için,
-planlanan beklemenin 87 ms altında kalmıştı (eşik 50 ms); yeniden koşularda geçti, eşik gevşetilmedi. Gün 5 listesi
+planlanandan 87 ms kısa ölçülmüştü, 50 ms toleransı 37 ms aşmıştı; tolerans değiştirilmeden yeniden koşularda geçti. Gün 5 listesi
 (2-9) ve ek test, kod incelemesinden sonraki son hâlde koşuldu ve hepsi geçti; sonrasında yalnızca yorumlar
 kısaltıldı. Birim testler: Invoice Service 281, ERP Simulator 103, hepsi geçti. Bunlar bu koşuların sonuçlarıdır;
 başka koşullarda aynı sonucun çıkacağını göstermez.
@@ -291,7 +291,7 @@ altındadır (Git'e dahil değildir).
 
 - **Pencere:** servis tarafı son `LookbackHours` saatte oluşan faturalar ve ERP Simulator'ın listelediği numaralardır;
   pencerenin dışına kaçmış eski bir takılı fatura bir daha görülmez.
-- **Aralık:** testler aralığı 1 dk'ya çeker; 1 dk'da mutabakat karar event'i gelmemiş faturaları da düzeltir ve Gün 4'ün
+- **Aralık:** zamanlanmış çalışmanın ve iki kopyanın sınandığı 7. ve 8. maddede aralık ortam değişkeniyle 1 dk'ya çekilir; 1 dk'da mutabakat karar event'i gelmemiş faturaları da düzeltir ve Gün 4'ün
   3. maddesinin sayımını (kalan fatura = karar event'i gönderilmeyen fatura) değiştirir.
 - **9. madde:** ERP Simulator kapatılmadı, `docker pause` ile donduruldu; kesinti çalışmanın ERP'den ilk okumasında
   oluştu. Karar sorgusu aşamasındaki kesinti yalnızca unit testle doğrulandı.
@@ -299,16 +299,17 @@ altındadır (Git'e dahil değildir).
   da kararıyla ilerletilmez, yalnızca raporlanır. ERP'de birden fazla kaydı olan fatura da geri getirilmez ve karar
   almaz, yalnızca raporlanır: hangi kaydın doğru olduğu bilinmez.
 - **Yorum gerektirenler:** `decision` ilk event zamanı gelince `received`, karar zamanı gelince `approved` / `rejected`
-  döner; alan adları camelCase'tir (`decidedAt`); `pageSize` 500'ü aşarsa `400` döner; `ERP Kaydı Yok` istenen türlerin
-  dışında eklenmiş bir türdür; `Başarısız` ve çift kayıtlı bir fatura iki bulgu türüne birden girer, düzeltmemek
-  (yalnızca raporlamak) seçildi.
+  döner; alan adı `decidedAt`'tır (istenen `decided_at` yerine mevcut JSON adlandırmasına, camelCase, uyuldu); `pageSize` 500'ü aşarsa `400` döner; `ERP Kaydı Yok` istenen türlerin
+  dışında eklenmiş bir türdür; `Başarısız` olup ERP'de birden fazla kaydı olan faturada çift kayıt kuralına öncelik
+  verilir: yalnızca `ERP Çift Kayıt` raporlanır, fatura düzeltilmez.
 - **Ölçek:** düzeltmeler ve karar sorguları sıralıdır; çalışma listesi sayfalanmaz. Her çalışma penceredeki bütün
   faturaları ve ERP kayıtlarını belleğe alır; test ölçeğinde (binlerce fatura) sorun olmadı, çok büyük hacimde ayrıca
   ele alınması gerekir.
 - **Kilit:** bağlantı canlı tutulur (keepalive) ama ağ gerçekten kopmuşsa kilit düşer ve ikinci bir çalışma başlayabilir;
   bunu yakalayan ek bir kontrol yoktur.
-- **Test kapsamı:** SQL store'ları, advisory lock ve endpoint'ler otomatik testle değil `manual-tests/gun5/`
-  script'leriyle (docker gerekir) doğrulanır; birim testler bunların yerine bellek içi sahteleri kullanır. Event ile
+- **Test kapsamı:** Uygulama kuralları birim testlerle (bellek içi sahtelerle); SQL store'ları, advisory lock, endpoint'ler
+  ve seçili eşzamanlılık senaryoları gerçek PostgreSQL kullanan `manual-tests/gun5/` script'leriyle (docker gerekir)
+  doğrulanır; bütün eşzamanlılık ihtimalleri denenmemiştir. Event ile
   mutabakat yarışı canlı denendi (`ek-haber-yarisi.ps1`); resend ile mutabakat yarışı denenmedi, yalnızca kod
   okumasıyla (resend satırı güncellediği için lock tutulurken bekler) değerlendirildi.
 
