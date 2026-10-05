@@ -382,7 +382,11 @@ Bunlar bu koşunun sonuçlarıdır; başka koşullarda aynı sonucun çıkacağ�
   ilerletilmez, yalnızca raporlanır.
 - **Yorum gerektirenler:** `decision` ilk event zamanı gelince `received`, karar zamanı gelince `approved` / `rejected` döner; alan adları
   camelCase'tir (`decidedAt`); `pageSize` 500'ü aşarsa `400` döner; `ERP Kaydı Yok` türü görevdeki tabloda yoktur.
-- **Ölçek:** düzeltmeler ve karar sorguları sıralıdır; çalışma listesi sayfalanmaz.
+- **Ölçek:** düzeltmeler ve karar sorguları sıralıdır; çalışma listesi sayfalanmaz. Her çalışma penceredeki bütün faturaları ve ERP kayıtlarını
+  belleğe alır; test ölçeğinde (binlerce fatura) sorun olmadı, çok büyük hacimde ayrıca ele alınması gerekir.
+- **Kilit:** bağlantı canlı tutulur (keepalive) ama ağ gerçekten kopmuşsa kilit düşer ve ikinci bir çalışma başlayabilir; bunu yakalayan ek bir kontrol yoktur.
+- **Test kapsamı:** SQL store'ları, advisory lock ve endpoint'ler otomatik testle değil `manual-tests/gun5/` script'leriyle (docker gerekir) doğrulanır;
+  birim testler bunların yerine bellek içi sahteleri kullanır.
 
 ---
 
