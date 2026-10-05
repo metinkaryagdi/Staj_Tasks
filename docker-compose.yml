@@ -37,7 +37,7 @@ services:
       Simulator__LateResponseDelaySeconds:
       Simulator__RetryAfterFormat:
       Simulator__IdempotentInvoices:
-      # Optional overrides of the event problem rates (e.g. all 0 for checklist 2), passed through like the ones above.
+      # Optional overrides of the event problem rates (e.g. all 0 for a run without event problems), passed through like the ones above.
       Webhooks__Enabled:
       Webhooks__ApprovalRate:
       Webhooks__FirstEventMinSeconds:
@@ -91,7 +91,7 @@ services:
       # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
       # Optional overrides of the reconciliation settings, passed through from the shell only when set there
-      # (e.g. IntervalMinutes=1 for the Gün 5 checklist).
+      # (e.g. IntervalMinutes=1 to see the scheduled runs quickly).
       Reconciliation__IntervalMinutes:
       Reconciliation__LookbackHours:
       Reconciliation__StuckAfterMinutes:
@@ -104,8 +104,8 @@ services:
       invoice-db:
         condition: service_healthy
 
-  # A second copy of the invoice service on the same database, only for the two-copies test
-  # (manual-tests/gun3/7-iki-kopya.ps1). It is in a profile, so a plain `docker compose up` does not start it:
+  # A second copy of the invoice service on the same database, only for the two-copies tests (manual-tests).
+  # It is in a profile, so a plain `docker compose up` does not start it:
   #   docker compose --profile iki-kopya up -d invoice-service-2
   invoice-service-2:
     build: ./invoice-service
@@ -116,7 +116,7 @@ services:
       # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
       # Optional overrides of the reconciliation settings, passed through from the shell only when set there
-      # (e.g. IntervalMinutes=1 for the Gün 5 checklist).
+      # (e.g. IntervalMinutes=1 to see the scheduled runs quickly).
       Reconciliation__IntervalMinutes:
       Reconciliation__LookbackHours:
       Reconciliation__StuckAfterMinutes:

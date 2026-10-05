@@ -39,7 +39,7 @@ public class ShippedSettingsTests
     }
 
     [Fact]
-    public void Shipped_settings_follow_the_task_rules()
+    public void Shipped_settings_are_valid_and_have_the_intended_values()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
         var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
@@ -57,11 +57,11 @@ public class ShippedSettingsTests
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
         var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
         Assert.True(Validates(configuration));
-        Assert.True(configuration.GetValue<int>("ErpWebhooks:ResponseBudgetMilliseconds") < WebhookOptionsValidator.TaskResponseLimitMilliseconds);
+        Assert.True(configuration.GetValue<int>("ErpWebhooks:ResponseBudgetMilliseconds") < WebhookOptionsValidator.ResponseLimitMilliseconds);
     }
 
     [Fact]
-    public void Shipped_reconciliation_settings_follow_the_task_rules()
+    public void Shipped_reconciliation_settings_are_valid_and_have_the_intended_values()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
         var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();

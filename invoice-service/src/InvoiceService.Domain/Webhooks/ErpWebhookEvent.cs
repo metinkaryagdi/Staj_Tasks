@@ -34,7 +34,7 @@ public sealed class ErpWebhookEvent
 
     /// <summary>
     /// Added column: why the event was Yok Sayıldı (one of <see cref="Webhooks.IgnoreReason"/>); null otherwise.
-    /// Checklist 3 counts "ignored because it would move the status back" separately from other ignored events.
+    /// Lets "ignored because it would move the status back" be counted separately from other ignored events.
     /// </summary>
     public string? IgnoreReason { get; set; }
 

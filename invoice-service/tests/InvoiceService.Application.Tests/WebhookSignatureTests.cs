@@ -153,7 +153,7 @@ public class WebhookSignatureTests
     [Theory]
     [InlineData(null, "2000")]   // missing
     [InlineData("0", "2000")]
-    [InlineData("5000", "2000")] // the task's limit itself leaves no time for the answer
+    [InlineData("5000", "2000")] // the response limit itself leaves no time for the answer
     [InlineData("6000", "2000")]
     [InlineData("4000", null)]   // missing
     [InlineData("4000", "0")]

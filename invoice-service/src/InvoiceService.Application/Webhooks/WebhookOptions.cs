@@ -32,8 +32,8 @@ public sealed class WebhookOptionsValidator(IConfiguration configuration) : IVal
         [nameof(WebhookOptions.Secret), nameof(WebhookOptions.ToleranceSeconds), nameof(WebhookOptions.MaxBodyBytes),
          nameof(WebhookOptions.ResponseBudgetMilliseconds), nameof(WebhookOptions.LockTimeoutMilliseconds)];
 
-    /// <summary>The task: the service answers every event within 5 seconds.</summary>
-    public const int TaskResponseLimitMilliseconds = 5000;
+    /// <summary>The service must answer every event within 5 seconds; the response budget has to stay below it.</summary>
+    public const int ResponseLimitMilliseconds = 5000;
 
     /// <summary>HMAC-SHA256's own output size; a shorter key is easier to guess.</summary>
     public const int MinSecretBytes = 32;
@@ -58,8 +58,8 @@ public sealed class WebhookOptionsValidator(IConfiguration configuration) : IVal
             errors.Add($"ErpWebhooks:ToleranceSeconds must be greater than 0 (was {options.ToleranceSeconds}).");
         if (options.MaxBodyBytes <= 0)
             errors.Add($"ErpWebhooks:MaxBodyBytes must be greater than 0 (was {options.MaxBodyBytes}).");
-        if (options.ResponseBudgetMilliseconds <= 0 || options.ResponseBudgetMilliseconds >= TaskResponseLimitMilliseconds)
-            errors.Add($"ErpWebhooks:ResponseBudgetMilliseconds must be greater than 0 and less than {TaskResponseLimitMilliseconds} " +
+        if (options.ResponseBudgetMilliseconds <= 0 || options.ResponseBudgetMilliseconds >= ResponseLimitMilliseconds)
+            errors.Add($"ErpWebhooks:ResponseBudgetMilliseconds must be greater than 0 and less than {ResponseLimitMilliseconds} " +
                 $"(was {options.ResponseBudgetMilliseconds}).");
         if (options.LockTimeoutMilliseconds <= 0 || options.LockTimeoutMilliseconds >= options.ResponseBudgetMilliseconds)
             errors.Add("ErpWebhooks:LockTimeoutMilliseconds must be greater than 0 and less than ResponseBudgetMilliseconds " +

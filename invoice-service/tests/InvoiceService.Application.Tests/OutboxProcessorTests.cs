@@ -165,7 +165,7 @@ public class OutboxProcessorTests
         Assert.Equal(Scenario.Start, _s.Events.Events["e-1"].ProcessedAt);
     }
 
-    // The manual-tests/gun3 scripts read check= from the log: these names must not change.
+    // The manual-tests scripts read check= from the log: these names must not change.
     [Theory]
     [InlineData(SendPath.First, "first")]
     [InlineData(SendPath.Found, "found")]

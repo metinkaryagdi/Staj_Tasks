@@ -47,7 +47,7 @@ public sealed class InvoiceEventApplier(ILogger<InvoiceEventApplier> logger)
             afterSend ? "applied-after-send" : "stored", erpEvent.EventId, erpEvent.EventType, erpEvent.InvoiceNumber, erpEvent.Status,
             before, invoice.Status, erpEvent.IgnoreReason ?? "-", erpEvent.ErpReference, invoice.ErpReference ?? "-"
         ];
-        // The task asks for a warning when the reference does not match.
+        // A reference mismatch is a warning: the event is not about the record the service sent.
         if (erpEvent.IgnoreReason == IgnoreReason.ReferenceMismatch)
             logger.LogWarning(message, args);
         else

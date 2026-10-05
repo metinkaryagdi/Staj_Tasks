@@ -12,7 +12,7 @@ public sealed class WebhookOptions
 
     /// <summary>
     /// Off: a saved invoice gets no events at all. For tests that send hand-made events and must not get the
-    /// simulator's own ones in between; the task's behavior is on.
+    /// simulator's own ones in between. Normally on: every saved invoice gets its events.
     /// </summary>
     public bool Enabled { get; set; }
 
@@ -27,7 +27,7 @@ public sealed class WebhookOptions
 
     /// <summary>
     /// Time from the start of a failed send to the start of the next one; its length is the number of retries
-    /// (task: 5, 10, 20, 40, 80).
+    /// (each wait twice the one before: 5, 10, 20, 40, 80).
     /// </summary>
     public int[] RetryDelaysSeconds { get; set; } = [];
 
@@ -73,7 +73,7 @@ public sealed class WebhookProblems
     /// <summary>Per invoice: one of its events is sent again later with an old timestamp and a signature valid for it.</summary>
     public double ReplayRate { get; set; }
 
-    /// <summary>How old the replayed event's timestamp is, in seconds (task: 10 minutes).</summary>
+    /// <summary>How old the replayed event's timestamp is, in seconds (10 minutes: older than the service's timestamp tolerance, so the service rejects the replay).</summary>
     public int ReplayAgeSeconds { get; set; }
 }
 

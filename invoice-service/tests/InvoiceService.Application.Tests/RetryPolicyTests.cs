@@ -8,7 +8,7 @@ public class RetryPolicyTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 1, 7, 0, 0, TimeSpan.Zero);
 
-    /// <summary>The shipped settings: the task's 10 attempts and 60 s, our 1 s jitter.</summary>
+    /// <summary>The shipped settings: 10 attempts, 60 s cap, 1 s jitter.</summary>
     private static readonly RetryPolicy Policy = new(new OutboxOptions { MaxAttempts = 10, MaxBackoffSeconds = 60, MaxJitterMilliseconds = 1000 });
 
     private static ErpSendResult Result(int? status, RetryConditionHeaderValue? retryAfter = null, bool accepted = false) =>

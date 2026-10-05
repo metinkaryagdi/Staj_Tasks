@@ -60,7 +60,7 @@ public class WebhookPlannerTests
     }
 
     [Fact]
-    public void Timing_stays_within_the_task_ranges()
+    public void Timing_stays_within_the_configured_ranges()
     {
         var planner = Planner();
         for (var i = 0; i < 2000; i++)
@@ -93,7 +93,7 @@ public class WebhookPlannerTests
     }
 
     [Fact]
-    public void Payload_has_the_task_fields_in_snake_case()
+    public void Payload_has_the_documented_fields_in_snake_case()
     {
         var e = Planner().Plan(Invoice(7), SavedAt)[0];
         using var body = JsonDocument.Parse(e.Payload);
