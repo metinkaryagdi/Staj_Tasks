@@ -105,8 +105,13 @@ public sealed class FakeInvoiceStore : IInvoiceStore
         return Task.CompletedTask;
     }
 
+    /// <summary>Invoices whose lock fails, like a transaction chosen as the deadlock victim.</summary>
+    public HashSet<string> FailLock { get; } = [];
+
     public Task<Invoice?> LockAsync(string invoiceNumber, CancellationToken ct) =>
-        Task.FromResult(Invoices.GetValueOrDefault(invoiceNumber));
+        FailLock.Contains(invoiceNumber)
+            ? throw new InvalidOperationException("deadlock detected")
+            : Task.FromResult(Invoices.GetValueOrDefault(invoiceNumber));
 }
 
 public sealed class FakeOutboxStore : IOutboxStore

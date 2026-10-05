@@ -38,8 +38,18 @@ public sealed class ReconciliationRunner(
                 ct.ThrowIfCancellationRequested();
                 // A new scope for each fix: its own DbContext, so one invoice's change never lingers into the next.
                 await using var scope = scopes.CreateAsyncScope();
-                if (await scope.ServiceProvider.GetRequiredService<FixApplier>().ApplyAsync(run.Id, finding))
-                    fixedCount++;
+                try
+                {
+                    if (await scope.ServiceProvider.GetRequiredService<FixApplier>().ApplyAsync(run.Id, finding))
+                        fixedCount++;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Its transaction is rolled back; the invoice stays as it was and the next run tries again. One failing
+                    // fix (a deadlock victim, a lost connection) must not stop the fixes after it.
+                    logger.LogWarning("Reconciliation fix skipped run={RunId} invoice={InvoiceNumber} type={FindingType}: {Message}",
+                        run.Id, finding.InvoiceNumber, finding.FindingType, ex.Message);
+                }
             }
 
             await store.FinishRunAsync(

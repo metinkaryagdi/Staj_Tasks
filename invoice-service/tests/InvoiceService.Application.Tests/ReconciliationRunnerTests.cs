@@ -174,6 +174,26 @@ public class ReconciliationRunnerTests
     }
 
     [Fact]
+    public async Task A_fix_that_fails_is_skipped_and_the_other_fixes_and_the_run_go_on()
+    {
+        AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-1");
+        AddInvoice("F-2", InvoiceStatus.Sent, reference: "ERP-2");
+        _s.Invoices.FailLock.Add("F-1");
+        _s.Erp.ListResult = new ErpListResult(true, [Erp("F-1", "ERP-1"), Erp("F-2", "ERP-2")], null);
+        _s.Erp.LookupResults.Enqueue(Decided(ErpDecisionKind.Approved, "ERP-1"));
+        _s.Erp.LookupResults.Enqueue(Decided(ErpDecisionKind.Approved, "ERP-2"));
+
+        var run = await RunAsync();
+
+        Assert.Equal(ReconciliationStatus.Completed, run.Status);
+        Assert.Null(run.Error);
+        Assert.Equal(1, run.FixedCount);
+        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-1"].Status);
+        Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices["F-2"].Status);
+        Assert.Equal(["F-2"], _s.Reconciliation.Findings.Select(f => f.InvoiceNumber));
+    }
+
+    [Fact]
     public async Task Each_fix_gets_a_scope_of_its_own()
     {
         AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-1");
