@@ -287,4 +287,100 @@ public class ErpClientTests
 
         Assert.Equal(ErpLookup.Unknown, result.Lookup);
     }
+
+    // --- Karar ve liste (mutabakat) ------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_lookup_returns_the_erps_decision()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.OK,
+            """{"invoiceNumber":"FTR-000001","registered":true,"erpReference":"ERP-1","recordCount":1,"records":[],"decision":"rejected","reason":"Mükerrer fatura","decidedAt":"2026-10-05T09:00:00+00:00"}"""));
+
+        var result = await client.FindAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(ErpLookup.Found, result.Lookup);
+        Assert.Equal(ErpDecisionKind.Rejected, result.Decision!.Kind);
+        Assert.Equal("Mükerrer fatura", result.Decision.Reason);
+        Assert.Equal(new DateTimeOffset(2026, 10, 5, 9, 0, 0, TimeSpan.Zero), result.Decision.DecidedAt);
+    }
+
+    [Fact]
+    public async Task A_lookup_without_decision_fields_has_no_decision()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.OK, """{"erpReference":"ERP-1"}"""));
+
+        var result = await client.FindAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(ErpLookup.Found, result.Lookup);
+        Assert.Equal(ErpDecisionKind.None, result.Decision!.Kind);
+    }
+
+    private static string ListPage(int total, params string[] numbers) =>
+        $$"""{"page":1,"pageSize":2,"totalCount":{{total}},"items":[{{string.Join(",", numbers.Select(n =>
+            $$"""{"invoiceNumber":"{{n}}","erpReference":"ERP-{{n}}","customerCode":"C-001","amount":100.50,"currency":"TRY","invoiceDate":"2026-10-05","receivedAt":"2026-10-05T09:00:00+00:00"}"""))}}]}""";
+
+    [Fact]
+    public async Task The_list_reads_every_page_and_asks_for_the_largest_page_size()
+    {
+        var urls = new List<string>();
+        var (client, handler) = Create((request, _) =>
+        {
+            urls.Add(request.RequestUri!.PathAndQuery);
+            return Reply(HttpStatusCode.OK, request.RequestUri.Query.Contains("page=1") ? ListPage(3, "A", "B") : ListPage(3, "C"));
+        });
+
+        var result = await client.ListAsync(
+            new DateTimeOffset(2026, 10, 4, 12, 0, 0, TimeSpan.FromHours(3)), new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero),
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(["A", "B", "C"], result.Records.Select(r => r.InvoiceNumber));
+        Assert.Equal(100.50m, result.Records[0].Amount);
+        Assert.Equal(2, handler.Calls);
+        Assert.All(urls, url => Assert.Contains("pageSize=500", url));
+        Assert.Contains("from=2026-10-04T12%3A00%3A00.0000000%2B03%3A00", urls[0]);
+    }
+
+    [Fact]
+    public async Task An_empty_range_is_a_successful_empty_list()
+    {
+        var (client, handler) = Create((_, _) => Reply(HttpStatusCode.OK, ListPage(0)));
+
+        var result = await client.ListAsync(DateTimeOffset.UnixEpoch, DateTimeOffset.UtcNow, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(result.Records);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task A_failing_second_page_fails_the_whole_list_and_returns_no_records()
+    {
+        var (client, _) = Create((request, _) => request.RequestUri!.Query.Contains("page=1")
+            ? Reply(HttpStatusCode.OK, ListPage(3, "A", "B"))
+            : Reply(HttpStatusCode.InternalServerError, "{}"));
+
+        var result = await client.ListAsync(DateTimeOffset.UnixEpoch, DateTimeOffset.UtcNow, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(result.Records);
+        Assert.Contains("500", result.Error);
+        Assert.Contains("sayfa 2", result.Error);
+    }
+
+    [Fact]
+    public async Task A_list_that_cannot_be_reached_or_read_fails()
+    {
+        var (unreachable, _) = Create((_, _) => throw new HttpRequestException("connection refused"));
+        var (timedOut, _) = Create(async (_, ct) => { await Task.Delay(Timeout.Infinite, ct); return null!; }, TimeSpan.FromMilliseconds(50));
+        var (garbage, _) = Create((_, _) => Reply(HttpStatusCode.OK, "not json"));
+
+        foreach (var client in new[] { unreachable, timedOut, garbage })
+        {
+            var result = await client.ListAsync(DateTimeOffset.UnixEpoch, DateTimeOffset.UtcNow, CancellationToken.None);
+
+            Assert.False(result.Succeeded);
+            Assert.NotNull(result.Error);
+        }
+    }
 }

@@ -179,6 +179,13 @@ public sealed class FakeErpGateway : IErpGateway
     public Queue<ErpSendResult> SendResults { get; } = new();
     public Queue<ErpLookupResult> LookupResults { get; } = new();
     public List<string> Calls { get; } = [];
+    public ErpListResult ListResult { get; set; } = new(true, [], null);
+
+    public Task<ErpListResult> ListAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        Calls.Add("LIST");
+        return Task.FromResult(ListResult);
+    }
 
     public Task<ErpSendResult> SendAsync(Invoice invoice, CancellationToken ct)
     {

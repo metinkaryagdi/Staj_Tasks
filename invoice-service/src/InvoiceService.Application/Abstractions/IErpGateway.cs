@@ -23,8 +23,36 @@ public enum ErpLookup
     Unknown
 }
 
-/// <summary>Outcome of asking the ERP whether it already has an invoice.</summary>
-public sealed record ErpLookupResult(ErpLookup Lookup, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed);
+public static class ErpDecisionKind
+{
+    public const string None = "none";
+    public const string Received = "received";
+    public const string Approved = "approved";
+    public const string Rejected = "rejected";
+}
+
+/// <param name="Kind">One of <see cref="ErpDecisionKind"/>.</param>
+/// <param name="Reason">The rejection reason; only when rejected.</param>
+public sealed record ErpDecision(string Kind, string? Reason = null, DateTimeOffset? DecidedAt = null)
+{
+    public static readonly ErpDecision None = new(ErpDecisionKind.None);
+}
+
+/// <summary>
+/// Outcome of asking the ERP whether it already has an invoice. <see cref="Decision"/> is the ERP's decision about it
+/// (<see cref="ErpDecision.None"/> when the ERP has not decided or did not say); only set when <see cref="Lookup"/> is Found.
+/// </summary>
+public sealed record ErpLookupResult(
+    ErpLookup Lookup, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed, ErpDecision? Decision = null);
+
+/// <summary>One record the ERP has; an invoice number with duplicates has one per record.</summary>
+public sealed record ErpRecord(
+    string InvoiceNumber, string ErpReference, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate,
+    DateTimeOffset ReceivedAt);
+
+/// <param name="Records">Every record in the range, oldest first; empty unless <see cref="Succeeded"/>.</param>
+/// <param name="Error">Why the list could not be read completely; null when it succeeded.</param>
+public sealed record ErpListResult(bool Succeeded, IReadOnlyList<ErpRecord> Records, string? Error);
 
 /// <summary>
 /// The way out to the ERP. One call is exactly one request: deciding whether and when to try again is not done by the
@@ -40,4 +68,10 @@ public interface IErpGateway
     /// is not a clear yes or no is <see cref="ErpLookup.Unknown"/>.
     /// </summary>
     Task<ErpLookupResult> FindAsync(string invoiceNumber, CancellationToken ct);
+
+    /// <summary>
+    /// Every record the ERP received in [<paramref name="from"/>, <paramref name="to"/>), all pages. A page that cannot be read
+    /// fails the whole call: a partial list would look like records the ERP does not have.
+    /// </summary>
+    Task<ErpListResult> ListAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
 }

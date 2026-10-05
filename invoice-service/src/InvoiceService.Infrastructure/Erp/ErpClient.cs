@@ -15,6 +15,9 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
 {
     private const int MaxBodyInError = 500;
 
+    /// <summary>The most records the ERP returns per page.</summary>
+    private const int ListPageSize = 500;
+
     public async Task<ErpSendResult> SendAsync(Invoice invoice, CancellationToken ct)
     {
         var request = new ErpInvoiceRequest(
@@ -85,10 +88,71 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
                 return new ErpLookupResult(ErpLookup.NotFound, null, status, null, watch.Elapsed);
 
             if (response.StatusCode == HttpStatusCode.OK && ReadErpReference(body) is { } reference)
-                return new ErpLookupResult(ErpLookup.Found, reference, status, null, watch.Elapsed);
+                return new ErpLookupResult(ErpLookup.Found, reference, status, null, watch.Elapsed, ReadDecision(body));
 
             return new ErpLookupResult(ErpLookup.Unknown, null, status,
                 $"ERP'ye faturanın kaydı sorulamadı: GET {status} {response.ReasonPhrase} döndü: {Describe(body)}", watch.Elapsed);
+        }
+    }
+
+    public async Task<ErpListResult> ListAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        var records = new List<ErpRecord>();
+        for (var page = 1; ; page++)
+        {
+            var url = $"api/v1/invoices?from={Uri.EscapeDataString(from.ToString("O"))}&to={Uri.EscapeDataString(to.ToString("O"))}" +
+                      $"&page={page}&pageSize={ListPageSize}";
+            try
+            {
+                using var response = await http.GetAsync(url, ct);
+                if (response.StatusCode != HttpStatusCode.OK)
+                    return ListFailed($"GET {(int)response.StatusCode} {response.ReasonPhrase} döndü (sayfa {page}).");
+
+                var body = await response.Content.ReadFromJsonAsync<ErpListPage>(JsonSerializerOptions.Web, ct);
+                if (body?.Items is null)
+                    return ListFailed($"Sayfa {page} okunamadı: cevap beklenen biçimde değil.");
+
+                records.AddRange(body.Items.Select(i => new ErpRecord(
+                    i.InvoiceNumber, i.ErpReference, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.ReceivedAt)));
+                if (body.Items.Count == 0 || records.Count >= body.TotalCount)
+                    return new ErpListResult(true, records, null);
+            }
+            catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return ListFailed($"{http.Timeout.TotalSeconds:0} saniye içinde cevap vermedi (zaman aşımı, sayfa {page}).");
+            }
+            catch (HttpRequestException ex)
+            {
+                return ListFailed($"ERP'ye ulaşılamadı (sayfa {page}): {ex.Message}");
+            }
+            catch (JsonException)
+            {
+                return ListFailed($"Sayfa {page} okunamadı: cevap JSON değil.");
+            }
+        }
+    }
+
+    private static ErpListResult ListFailed(string error) => new(false, [], $"ERP kayıtları listelenemedi: {error}");
+
+    /// <summary>The decision fields of a lookup answer; none when they are missing.</summary>
+    private static ErpDecision ReadDecision(string body)
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(body);
+            var root = json.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("decision", out var kind) || kind.ValueKind != JsonValueKind.String)
+                return ErpDecision.None;
+
+            var reason = root.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : null;
+            DateTimeOffset? decidedAt = root.TryGetProperty("decidedAt", out var d) && d.ValueKind == JsonValueKind.String
+                                        && d.TryGetDateTimeOffset(out var at) ? at : null;
+            return new ErpDecision(kind.GetString()!, reason, decidedAt);
+        }
+        catch (JsonException)
+        {
+            return ErpDecision.None;
         }
     }
 
@@ -138,6 +202,12 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
 
         return body.Length <= MaxBodyInError ? body : body[..MaxBodyInError] + "...";
     }
+
+    private sealed record ErpListPage(int TotalCount, List<ErpListItem>? Items);
+
+    private sealed record ErpListItem(
+        string InvoiceNumber, string ErpReference, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate,
+        DateTimeOffset ReceivedAt);
 
     private sealed record ErpInvoiceRequest(
         string InvoiceNumber, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate);

@@ -52,6 +52,9 @@ public static class InvoiceStatus
     public const string Failed = "Başarısız";
 
     public static readonly string[] All = [Pending, Sent, Processing, Approved, Rejected, Failed];
+
+    /// <summary>The statuses that mean the ERP has accepted the invoice.</summary>
+    public static readonly string[] ErpHasIt = [Sent, Processing, Approved, Rejected];
 }
 
 public static class InvoiceNumber
