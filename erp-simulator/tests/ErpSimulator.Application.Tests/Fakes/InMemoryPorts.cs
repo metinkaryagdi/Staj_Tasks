@@ -58,6 +58,12 @@ public sealed class FakeErpInvoiceStore : IErpInvoiceStore
         Deliveries.AddRange(planEvents(invoice));
         return Task.CompletedTask;
     }
+
+    public Task<InvoicePage> ListReceivedAsync(DateTimeOffset from, DateTimeOffset to, int skip, int take, CancellationToken ct)
+    {
+        var range = Records.Where(r => r.ReceivedAt >= from && r.ReceivedAt < to).OrderBy(r => r.ReceivedAt).ThenBy(r => r.Id).ToList();
+        return Task.FromResult(new InvoicePage(range.Skip(skip).Take(take).ToList(), range.Count));
+    }
 }
 
 public sealed class FakeDeliveryStore : IWebhookDeliveryStore

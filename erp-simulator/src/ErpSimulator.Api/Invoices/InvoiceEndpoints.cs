@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.AspNetCore.Mvc;
 using ErpSimulator.Application.Invoices;
 using ErpSimulator.Application.Simulation;
 using ErpSimulator.Domain.Invoices;
@@ -26,6 +27,16 @@ public static class InvoiceEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        group.MapGet("/", ListInvoices)
+            .WithName("ListInvoices")
+            .WithSummary("List the invoices recorded in a time range")
+            .WithDescription(
+                "Every record whose receivedAt is in [from, to), ordered by receivedAt then id, one page at a time " +
+                "(page starts at 1; pageSize defaults to 100, at most 500, above that is a 400). A duplicated invoice number " +
+                "is listed once per record. No faults are injected here. Write a '+' in a time offset as %2B.")
+            .Produces<InvoiceListResponse>()
+            .ProducesValidationProblem();
 
         group.MapGet("/{invoiceNumber}", GetInvoice)
             .WithName("GetInvoice")
@@ -88,6 +99,25 @@ public static class InvoiceEndpoints
             default:
                 throw new InvalidOperationException($"Unknown behavior {decision.Behavior}");
         }
+    }
+
+    private static async Task<IResult> ListInvoices(
+        [FromQuery(Name = "from")] DateTimeOffset? rangeStart,
+        [FromQuery(Name = "to")] DateTimeOffset? rangeEnd,
+        InvoiceListing listing,
+        CancellationToken ct,
+        int page = 1,
+        int pageSize = 100)
+    {
+        var result = await listing.ListAsync(new InvoiceListRequest(rangeStart, rangeEnd, page, pageSize), ct);
+        if (result.Errors is not null)
+            return Results.ValidationProblem(result.Errors);
+
+        var items = result.Page!.Items
+            .Select(i => new InvoiceListItemResponse(
+                i.InvoiceNumber, i.ErpReference, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.ReceivedAt))
+            .ToList();
+        return Results.Ok(new InvoiceListResponse(page, pageSize, result.Page.TotalCount, items));
     }
 
     private static async Task<IResult> GetInvoice(string invoiceNumber, InvoiceLookup lookup, CancellationToken ct)

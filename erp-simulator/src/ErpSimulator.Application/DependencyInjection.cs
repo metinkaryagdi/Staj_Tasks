@@ -25,6 +25,7 @@ public static class DependencyInjection
 
         services.AddScoped<SubmitInvoiceHandler>();
         services.AddScoped<InvoiceLookup>();
+        services.AddScoped<InvoiceListing>();
         services.AddScoped<WebhookSender>();
 
         return services;

@@ -43,4 +43,12 @@ public sealed class ErpInvoiceStore(ErpDbContext db) : IErpInvoiceStore
         await transaction.CommitAsync(CancellationToken.None);
         await transaction.DisposeAsync();
     }
+
+    public async Task<InvoicePage> ListReceivedAsync(DateTimeOffset from, DateTimeOffset to, int skip, int take, CancellationToken ct)
+    {
+        var range = db.Invoices.AsNoTracking().Where(i => i.ReceivedAt >= from && i.ReceivedAt < to);
+        var total = await range.CountAsync(ct);
+        var items = await range.OrderBy(i => i.ReceivedAt).ThenBy(i => i.Id).Skip(skip).Take(take).ToListAsync(ct);
+        return new InvoicePage(items, total);
+    }
 }

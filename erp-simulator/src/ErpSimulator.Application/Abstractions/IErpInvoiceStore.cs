@@ -3,6 +3,10 @@ using ErpSimulator.Domain.Webhooks;
 
 namespace ErpSimulator.Application.Abstractions;
 
+/// <param name="Items">The requested page.</param>
+/// <param name="TotalCount">All records in the range, not only this page.</param>
+public sealed record InvoicePage(IReadOnlyList<ErpInvoice> Items, int TotalCount);
+
 /// <summary>Storage of the ERP's invoice records (the invoices table).</summary>
 public interface IErpInvoiceStore
 {
@@ -20,4 +24,10 @@ public interface IErpInvoiceStore
     /// Not cancellable: once the ERP decides to save, a client disconnect must not undo it.
     /// </summary>
     Task SaveAsync(ErpInvoice invoice, Func<ErpInvoice, IEnumerable<WebhookDelivery>> planEvents);
+
+    /// <summary>
+    /// The records received in [<paramref name="from"/>, <paramref name="to"/>), ordered by received_at then id (so a page
+    /// does not change while records are added later), not tracked.
+    /// </summary>
+    Task<InvoicePage> ListReceivedAsync(DateTimeOffset from, DateTimeOffset to, int skip, int take, CancellationToken ct);
 }

@@ -25,3 +25,16 @@ public sealed record InvoiceLookupResponse(
     string Decision,
     string? Reason,
     DateTimeOffset? DecidedAt);
+
+/// <summary>One ERP record in the list; a duplicated invoice number is listed once per record.</summary>
+public sealed record InvoiceListItemResponse(
+    string InvoiceNumber,
+    string ErpReference,
+    string CustomerCode,
+    decimal Amount,
+    string Currency,
+    DateOnly InvoiceDate,
+    DateTimeOffset ReceivedAt);
+
+/// <param name="TotalCount">All records in the range, not only this page.</param>
+public sealed record InvoiceListResponse(int Page, int PageSize, int TotalCount, IReadOnlyList<InvoiceListItemResponse> Items);
