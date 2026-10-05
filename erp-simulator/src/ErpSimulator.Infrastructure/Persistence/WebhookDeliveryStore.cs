@@ -44,6 +44,11 @@ public sealed class WebhookDeliveryStore(ErpDbContext db) : IWebhookDeliveryStor
         WaitingReplays(eventId).ExecuteUpdateAsync(s => s
             .SetProperty(d => d.Status, DeliveryStatus.Skipped), CancellationToken.None);
 
+    public async Task<IReadOnlyList<WebhookDelivery>> ListForInvoiceAsync(long invoiceId, CancellationToken ct) =>
+        await db.WebhookDeliveries.AsNoTracking()
+            .Where(d => d.InvoiceId == invoiceId && (d.Kind == DeliveryKind.Normal || d.Kind == DeliveryKind.LostDecision))
+            .ToListAsync(ct);
+
     private IQueryable<WebhookDelivery> WaitingReplays(string eventId) =>
         db.WebhookDeliveries.Where(d => d.EventId == eventId
             && d.Kind == DeliveryKind.Replay && d.Status == DeliveryStatus.Waiting);

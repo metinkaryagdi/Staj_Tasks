@@ -66,6 +66,10 @@ public sealed class FakeDeliveryStore : IWebhookDeliveryStore
     public List<(long Id, string Status, int Attempt, DateTimeOffset NextDue, int? Http, string? Error, DateTimeOffset? CompletedAt)> Recorded { get; } = [];
     public List<string> Released { get; } = [];
     public List<string> Skipped { get; } = [];
+    public List<WebhookDelivery> Planned { get; } = [];
+
+    public Task<IReadOnlyList<WebhookDelivery>> ListForInvoiceAsync(long invoiceId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<WebhookDelivery>>(Planned.Where(d => d.InvoiceId == invoiceId).ToList());
 
     public Task<DateTimeOffset?> NextDueAtAsync(long[] busy, CancellationToken ct) => Task.FromResult<DateTimeOffset?>(null);
 

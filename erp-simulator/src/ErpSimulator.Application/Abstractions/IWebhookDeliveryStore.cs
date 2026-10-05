@@ -24,4 +24,7 @@ public interface IWebhookDeliveryStore
 
     /// <summary>The event's waiting replays become Skipped: the event they repeat was never delivered.</summary>
     Task SkipReplaysAsync(string eventId);
+
+    /// <summary>The rows planned for the record that carry the ERP's own events (Normal and LostDecision), not tracked.</summary>
+    Task<IReadOnlyList<WebhookDelivery>> ListForInvoiceAsync(long invoiceId, CancellationToken ct);
 }

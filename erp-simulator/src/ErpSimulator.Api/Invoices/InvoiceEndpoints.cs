@@ -32,7 +32,9 @@ public static class InvoiceEndpoints
             .WithSummary("Look up an invoice by invoice number")
             .WithDescription(
                 "Returns the ERP reference(s) recorded for the invoice number. No faults are injected here. " +
-                "erpReference is the first record; records lists all of them when duplicates exist.")
+                "erpReference is the first record; records lists all of them when duplicates exist. " +
+                "decision (none, received, approved, rejected) is the first record's, with reason (rejected only) and decidedAt; " +
+                "it shows once its time has come, even if the event was never sent.")
             .Produces<InvoiceLookupResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound);
 
@@ -90,7 +92,8 @@ public static class InvoiceEndpoints
 
     private static async Task<IResult> GetInvoice(string invoiceNumber, InvoiceLookup lookup, CancellationToken ct)
     {
-        var records = (await lookup.RecordsAsync(invoiceNumber, ct))
+        var found = await lookup.FindAsync(invoiceNumber, ct);
+        var records = found.Records
             .Select(i => new InvoiceRecordResponse(
                 i.ErpReference, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.ReceivedAt))
             .ToList();
@@ -103,8 +106,10 @@ public static class InvoiceEndpoints
                 detail: $"No ERP record for invoice '{invoiceNumber}'.");
         }
 
+        var decision = found.Decision;
         return Results.Ok(new InvoiceLookupResponse(
-            invoiceNumber, true, records[0].ErpReference, records.Count, records));
+            invoiceNumber, true, records[0].ErpReference, records.Count, records,
+            decision.Kind, decision.Reason, decision.DecidedAt));
     }
 
     private static IResult Accepted(ErpInvoice invoice) =>
