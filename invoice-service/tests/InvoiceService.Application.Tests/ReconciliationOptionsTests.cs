@@ -50,7 +50,7 @@ public class ReconciliationOptionsTests
     [InlineData("Reconciliation:IntervalMinutes", "2147483647")]
     [InlineData("Reconciliation:LookbackHours", "8761")]
     [InlineData("Reconciliation:LookbackHours", "2147483647")]
-    public void A_value_above_what_the_timer_and_the_dates_can_take_is_refused_and_named(string key, string value)
+    public void A_value_above_the_chosen_limit_is_refused_and_named(string key, string value)
     {
         var result = Validate(Settings((key, value)));
 

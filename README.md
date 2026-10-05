@@ -275,7 +275,7 @@ değişmemiştir.
 ### Ayarlar
 
 [`invoice-service/src/InvoiceService.Api/appsettings.json`](invoice-service/src/InvoiceService.Api/appsettings.json) — her
-değerin yanında ne işe yaradığı ve görevden mi geldiği, uygulama tercihi mi olduğu yorum olarak yazılı. Hepsi zorunludur;
+değerin yanında ne işe yaradığı ve neden o değerde olduğu yorum olarak yazılı. Hepsi zorunludur;
 eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar. Değişiklikten sonra `docker compose up -d --build invoice-service`.
 
 | Ayar | Değer | Kaynak |

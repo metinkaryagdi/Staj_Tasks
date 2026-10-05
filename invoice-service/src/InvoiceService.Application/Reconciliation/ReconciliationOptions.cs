@@ -22,10 +22,10 @@ public sealed class ReconciliationOptions
 
 public sealed class ReconciliationOptionsValidator(IConfiguration configuration) : IValidateOptions<ReconciliationOptions>
 {
-    /// <summary>One week. The timer cannot wait much longer than this and a run every week is not a reconciliation.</summary>
+    /// <summary>One week: a chosen limit; with a longer wait between runs differences would stay unseen for too long.</summary>
     public const int MaxIntervalMinutes = 10_080;
 
-    /// <summary>One year. A window this long is already more than the database is asked for; beyond it the date arithmetic overflows.</summary>
+    /// <summary>One year: a chosen limit; a longer window would read most of the database in every run.</summary>
     public const int MaxLookbackHours = 8_760;
 
     public static readonly string[] RequiredKeys =

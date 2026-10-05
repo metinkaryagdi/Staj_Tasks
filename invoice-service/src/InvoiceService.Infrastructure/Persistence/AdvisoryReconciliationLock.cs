@@ -4,11 +4,9 @@ using Npgsql;
 namespace InvoiceService.Infrastructure.Persistence;
 
 /// <summary>
-/// A PostgreSQL advisory lock held on a connection of its own for as long as a run lasts. Every copy of the service uses
-/// the same database and the same key, so only one of them can hold it. Pooling is off, so closing the connection ends the
-/// session, and the database releases the lock: a copy that stops or crashes never leaves it held. The connection does
-/// nothing else while a run lasts, so it is kept alive: an idle-timeout on the way to the database would end the session
-/// and release the lock while the run goes on.
+/// A PostgreSQL advisory lock held on a connection of its own while a run lasts; every copy uses the same key, so only one
+/// holds it. Pooling is off, so closing the connection releases it, and the idle connection is kept alive so an idle-timeout
+/// cannot release it during a run. Why: ARCHITECTURE.md.
 /// </summary>
 public sealed class AdvisoryReconciliationLock(IConfiguration configuration) : IReconciliationLock
 {
