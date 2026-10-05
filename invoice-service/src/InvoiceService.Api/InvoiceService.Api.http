@@ -41,3 +41,12 @@ Content-Type: application/json
   "currency": "lira",
   "invoiceDate": "2026-09-30"
 }
+
+### 7) Start a reconciliation run now (202 with the run; 409 while another run is going)
+POST {{baseUrl}}/api/v1/reconciliation-runs
+
+### 8) The runs, newest first (without findings)
+GET {{baseUrl}}/api/v1/reconciliation-runs
+
+### 9) One run with its findings (replace 1 with a run id from 7 or 8)
+GET {{baseUrl}}/api/v1/reconciliation-runs/1

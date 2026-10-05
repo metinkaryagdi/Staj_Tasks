@@ -50,5 +50,14 @@ Content-Type: application/json
   "invoiceDate": "2026-09-29"
 }
 
-### 6) OpenAPI document (also browsable at {{baseUrl}}/swagger)
+### 6) The invoice's decision: the lookup also returns decision (none, received, approved, rejected), reason and decidedAt
+GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}
+
+### 7) The records received in a time range, one page at a time ([from, to), pageSize at most 500)
+GET {{baseUrl}}/api/v1/invoices?from=2026-10-05T00:00:00Z&to=2026-10-06T00:00:00Z&page=1&pageSize=100
+
+### 8) Page size above 500 is a 400 (not cut)
+GET {{baseUrl}}/api/v1/invoices?from=2026-10-05T00:00:00Z&to=2026-10-06T00:00:00Z&pageSize=501
+
+### 9) OpenAPI document (also browsable at {{baseUrl}}/swagger)
 GET {{baseUrl}}/openapi/v1.json
