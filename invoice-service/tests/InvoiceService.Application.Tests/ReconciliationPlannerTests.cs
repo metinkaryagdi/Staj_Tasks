@@ -212,6 +212,23 @@ public class ReconciliationPlannerTests
         Assert.Contains("ERP-1, ERP-2", finding.Details);
     }
 
+    [Theory]
+    [InlineData(InvoiceStatus.Failed)]
+    [InlineData(InvoiceStatus.Sent)]
+    [InlineData(InvoiceStatus.Processing)]
+    public void An_invoice_the_erp_has_twice_is_only_reported_even_when_it_would_otherwise_be_fixed(string status)
+    {
+        // Failed, or stuck for ten minutes: with one ERP record it would be recovered or take the ERP's decision.
+        var snapshot = Snapshot([Invoice("F-1", status)], [Erp("F-1", "ERP-1"), Erp("F-1", "ERP-2")]);
+
+        var plan = Plan(snapshot, ("F-1", Decided(ErpDecisionKind.Approved)));
+
+        var finding = Assert.Single(plan.Findings);
+        Assert.Equal(FindingType.DuplicateInErp, finding.FindingType);
+        Assert.Null(finding.Fix);
+        Assert.Empty(Planner.InvoicesToAsk(snapshot));
+    }
+
     [Fact]
     public void A_duplicated_record_the_service_does_not_have_is_reported_as_missing_and_as_duplicated()
     {

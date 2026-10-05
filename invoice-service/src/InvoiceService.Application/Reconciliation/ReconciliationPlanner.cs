@@ -79,9 +79,12 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
         return new ReconciliationPlan(pairs.Count, findings);
     }
 
-    /// <summary>Başarısız and in the ERP, or Gönderildi / İşleme Alındı for too long: the ERP's decision may move it.</summary>
+    /// <summary>
+    /// Başarısız and in the ERP, or Gönderildi / İşleme Alındı for too long: the ERP's decision may move it. Not when the ERP has
+    /// several records of it: which one is the right one is not known, so that invoice is only reported.
+    /// </summary>
     private bool WantsDecision(Invoice invoice, IReadOnlyList<ErpRecord> records, DateTimeOffset now) =>
-        records.Count > 0 && Differences(invoice, records[0]).Count == 0 &&
+        records.Count == 1 && Differences(invoice, records[0]).Count == 0 &&
         (invoice.Status == InvoiceStatus.Failed
          || (invoice.Status is InvoiceStatus.Sent or InvoiceStatus.Processing && now - invoice.UpdatedAt > StuckAfter));
 
