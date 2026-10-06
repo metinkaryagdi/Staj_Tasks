@@ -396,9 +396,14 @@ tr.row-selected td {
   gap: 12px;
   padding: 10px 14px;
   margin: 10px 0;
+  min-height: 54px;
   background: var(--surface);
-  border: 1px solid var(--primary);
+  border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.bulkbar:has(button) {
+  border-color: var(--primary);
 }
 
 .pager {

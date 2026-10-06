@@ -119,31 +119,36 @@ export function InvoiceListPage() {
       {report && <BulkReport results={report} onDismiss={() => setReport(null)} />}
       {resend.isError && <Notice kind="error">{describeResendError(resend.error)}</Notice>}
 
-      {selected.size > 0 && (
-        <div className="bulkbar">
-          <span>{tr.invoices.selectedCount(selected.size, maxSelection)}</span>
-          {confirming ? (
-            <>
-              <strong>{tr.invoices.bulkConfirm(selected.size)}</strong>
-              <button type="button" className="primary" disabled={resend.isPending} onClick={() => resend.mutate([...selected])}>
-                {resend.isPending ? tr.invoices.bulkSending : tr.common.yes}
-              </button>
-              <button type="button" disabled={resend.isPending} onClick={() => setConfirming(false)}>
-                {tr.common.cancel}
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="button" className="primary" onClick={() => setConfirming(true)}>
-                {tr.invoices.bulkResend}
-              </button>
-              <button type="button" onClick={clearSelection}>
-                {tr.invoices.clearSelection}
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      {/* Çubuk hep yerinde durur: ilk seçimde ortaya çıkıp tabloyu aşağı kaydırırsa hızlı tıklayan yanlış satırı seçer. */}
+      <div className="bulkbar">
+        {selected.size === 0 ? (
+          <span className="muted">{tr.invoices.nothingSelected}</span>
+        ) : (
+          <>
+            <span>{tr.invoices.selectedCount(selected.size, maxSelection)}</span>
+            {confirming ? (
+              <>
+                <strong>{tr.invoices.bulkConfirm(selected.size)}</strong>
+                <button type="button" className="primary" disabled={resend.isPending} onClick={() => resend.mutate([...selected])}>
+                  {resend.isPending ? tr.invoices.bulkSending : tr.common.yes}
+                </button>
+                <button type="button" disabled={resend.isPending} onClick={() => setConfirming(false)}>
+                  {tr.common.cancel}
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="primary" onClick={() => setConfirming(true)}>
+                  {tr.invoices.bulkResend}
+                </button>
+                <button type="button" onClick={clearSelection}>
+                  {tr.invoices.clearSelection}
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
       {limitReached && <Notice kind="info">{tr.invoices.selectionLimit(maxSelection)}</Notice>}
 
       <QueryState query={list}>

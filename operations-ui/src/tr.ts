@@ -61,6 +61,7 @@ export const tr = {
     previous: 'Önceki',
     next: 'Sonraki',
     selectAllFailed: 'Bu sayfadaki Başarısız faturaların hepsini seç',
+    nothingSelected: 'Toplu yeniden göndermek için Başarısız faturaların kutusunu işaretleyin.',
     selectedCount: (count: number, max: number) => `${count} fatura seçili (en fazla ${max})`,
     selectionLimit: (max: number) => `Tek seferde en fazla ${max} fatura seçilebilir.`,
     clearSelection: 'Seçimi temizle',
@@ -179,9 +180,9 @@ export function describeError(error: unknown): string {
     case 'server':
       return `Fatura Servisi bir hata verdi (HTTP ${error.status}). Bir süre sonra kendiliğinden yeniden denenecek.`
     default:
-      return error.status === 404
-        ? 'Bu numaralı bir fatura bulunamadı.'
-        : `Fatura Servisi isteği kabul etmedi (HTTP ${error.status}).`
+      if (error.code === 'invoice_not_found') return 'Bu numaralı bir fatura bulunamadı.'
+      if (error.status === 404) return 'Aranan kayıt bulunamadı.'
+      return `Fatura Servisi isteği kabul etmedi (HTTP ${error.status}).`
   }
 }
 

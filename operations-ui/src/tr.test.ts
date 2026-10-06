@@ -9,6 +9,11 @@ describe('hata mesajları', () => {
     expect(message).not.toContain('unreachable')
   })
 
+  it('olmayan faturayı ve olmayan başka kaydı ayrı ayrı söyler', () => {
+    expect(describeError(new ApiError('rejected', 404, 'invoice_not_found'))).toContain('fatura bulunamadı')
+    expect(describeError(new ApiError('rejected', 404))).toBe('Aranan kayıt bulunamadı.')
+  })
+
   it('başkası yeniden göndermişse fatura durumunu söyler', () => {
     const message = describeResendError(new ApiError('rejected', 409, 'invoice_not_failed', 'Bekliyor'))
     expect(message).toContain('"Bekliyor"')
