@@ -75,6 +75,7 @@ export const tr = {
     bulkRefused: (count: number) => `${count} fatura kuyruğa alınamadı.`,
     refusedReason: 'Neden',
     dismiss: 'Kapat',
+    watchQueue: 'Bekleme sırasını izle',
     selectOnlyFailed: 'Yalnızca Başarısız faturalar seçilebilir.',
   },
   details: {

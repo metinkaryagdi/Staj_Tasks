@@ -282,9 +282,17 @@ function BulkReport({ results, onDismiss }: { results: ResendItem[]; onDismiss: 
           </table>
         </>
       )}
-      <button type="button" onClick={onDismiss}>
-        {tr.invoices.dismiss}
-      </button>
+      <div className="actions">
+        {/* Kuyruğa alınanlar Bekliyor durumundadır: bağlantı listeyi o durumla açar. */}
+        {queued > 0 && (
+          <Link to="/faturalar?durum=Bekliyor" onClick={onDismiss}>
+            {tr.invoices.watchQueue}
+          </Link>
+        )}
+        <button type="button" onClick={onDismiss}>
+          {tr.invoices.dismiss}
+        </button>
+      </div>
     </Notice>
   )
 }

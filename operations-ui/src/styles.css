@@ -380,6 +380,13 @@ tr.row-selected td {
   border-color: #b3cdfb;
 }
 
+.notice .actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+
 .notice table.inner {
   background: var(--surface);
   margin: 6px 0 10px;
