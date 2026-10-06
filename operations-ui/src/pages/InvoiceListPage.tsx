@@ -212,6 +212,7 @@ function InvoiceTable({ invoices, selected, onToggle, onSelectPage }: TableProps
             <th className="num">{tr.invoices.columns.attempts}</th>
             <th>{tr.invoices.columns.lastError}</th>
             <th>{tr.invoices.columns.updatedAt}</th>
+            <th>{tr.invoices.columns.detail}</th>
           </tr>
         </thead>
         <tbody>
@@ -229,9 +230,7 @@ function InvoiceTable({ invoices, selected, onToggle, onSelectPage }: TableProps
                     />
                   )}
                 </td>
-                <td>
-                  <Link to={`/faturalar/${encodeURIComponent(invoice.invoiceNumber)}`}>{invoice.invoiceNumber}</Link>
-                </td>
+                <td>{invoice.invoiceNumber}</td>
                 <td>{invoice.customerCode}</td>
                 <td className="num">{formatAmount(invoice.amount, invoice.currency)}</td>
                 <td>
@@ -242,6 +241,9 @@ function InvoiceTable({ invoices, selected, onToggle, onSelectPage }: TableProps
                   {invoice.lastError ?? emptyValue}
                 </td>
                 <td>{formatDateTime(invoice.updatedAt)}</td>
+                <td>
+                  <Link to={`/faturalar/${encodeURIComponent(invoice.invoiceNumber)}`}>{tr.invoices.detailLink}</Link>
+                </td>
               </tr>
             )
           })}

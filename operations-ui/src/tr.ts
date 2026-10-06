@@ -5,7 +5,7 @@ import { apiUrl } from './config'
 
 export const tr = {
   appTitle: 'Fatura Operasyon Ekranı',
-  nav: { summary: 'Özet', invoices: 'Faturalar', reconciliation: 'Mutabakat' },
+  nav: { summary: 'Özet', invoices: 'Fatura Listesi', reconciliation: 'Mutabakat' },
   common: {
     loading: 'Yükleniyor…',
     lastRefresh: 'Son yenileme',
@@ -39,7 +39,7 @@ export const tr = {
     openReconciliation: 'Mutabakat sayfasına git',
   },
   invoices: {
-    title: 'Faturalar',
+    title: 'Fatura Listesi',
     statusFilter: 'Durum',
     allStatuses: 'Tüm durumlar',
     search: 'Fatura numarası ara',
@@ -54,7 +54,9 @@ export const tr = {
       attempts: 'Deneme Sayısı',
       lastError: 'Son Hata',
       updatedAt: 'Son Güncelleme',
+      detail: 'Detay',
     },
+    detailLink: 'Fatura Detayı',
     noMatch: 'Bu süzgece uyan fatura yok.',
     totalCount: (count: number) => `${count} fatura`,
     page: (page: number, pages: number) => `Sayfa ${page} / ${Math.max(pages, 1)}`,
