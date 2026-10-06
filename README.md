@@ -321,6 +321,9 @@ donduruldu. Bütün geçici ayarlar sonunda varsayılana döndü.
 - **Takılı faturaların hangileri olduğu** listeden süzülemez; Özet yalnızca sayısını gösterir. Takılı sayısı `Gönderildi` /
   `İşleme Alındı`'da 2 dakikadan uzun kalan faturalardır; kuyrukta (`Bekliyor`) uzun kalan fatura bu sayıya girmez.
 - **Müdahaleyi kimin yaptığı** kaydedilmez (resend, mutabakat başlatma).
+- **ERP'nin hiç karar vermediği fatura:** ERP `decision: none` dediğinde mutabakat bulgu üretmez; fatura takılı sayısında kalır, nedeni
+  ekranda görünmez. Gün 4'te önerilen "karar yine alınamazsa uyarıyla elle takibe alma" adımı uygulanmadı. Gün 3 script'leri simülatörü
+  haberler kapalı çalıştırdığı için oluşturdukları faturalar da bu durumda kalır.
 - **Detay tek anlık görüntü değildir:** dört ayrı okumadır; okuma sırasında değişen fatura bir bölümde yeni, diğerinde eski görünebilir.
 - **Listedeki "Deneme Sayısı"** faturanın ömür boyu sayacıdır; detaydaki outbox denemesi resend'de sıfırlanır.
 - **Ekranın adresi:** servis adresi derlemede gömülür, CORS yalnızca `http://localhost:5100`'e açıktır; başka adreste çalıştırmak
