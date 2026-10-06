@@ -34,6 +34,9 @@ public interface IReconciliationStore
     /// <summary>In the order they were found.</summary>
     Task<IReadOnlyList<ReconciliationFinding>> ListFindingsAsync(long runId, CancellationToken ct);
 
+    /// <summary>The findings about this invoice from every run, newest first.</summary>
+    Task<IReadOnlyList<ReconciliationFinding>> ListFindingsOfInvoiceAsync(string invoiceNumber, CancellationToken ct);
+
     /// <summary>
     /// Invoices created at or after <paramref name="since"/>, and every <see cref="InvoiceStatus.Unsettled"/> invoice
     /// however old, not tracked.

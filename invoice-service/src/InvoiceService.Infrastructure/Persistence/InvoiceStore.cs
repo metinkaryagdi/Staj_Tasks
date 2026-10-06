@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Invoices;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Outbox;
 using Microsoft.EntityFrameworkCore;
@@ -28,14 +29,35 @@ public sealed class InvoiceStore(InvoiceDbContext db) : IInvoiceStore
     public Task<Invoice> GetAsync(string invoiceNumber, CancellationToken ct) =>
         db.Invoices.AsNoTracking().SingleAsync(i => i.InvoiceNumber == invoiceNumber, ct);
 
-    public async Task<IReadOnlyList<Invoice>> ListAsync(string? status, CancellationToken ct)
+    public async Task<InvoicePage> ListPageAsync(string? status, string? search, int skip, int take, CancellationToken ct)
     {
         var query = db.Invoices.AsNoTracking();
         if (status is not null)
             query = query.Where(i => i.Status == status);
+        if (search is not null)
+            query = query.Where(i => EF.Functions.ILike(i.InvoiceNumber, "%" + EscapeLike(search) + "%", "\\"));
 
-        return await query.OrderBy(i => i.InvoiceNumber).ToListAsync(ct);
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.InvoiceNumber)
+            .Skip(skip).Take(take)
+            .ToListAsync(ct);
+        return new InvoicePage(items, total);
     }
+
+    public async Task<IReadOnlyDictionary<string, int>> CountByStatusAsync(CancellationToken ct) =>
+        await db.Invoices.AsNoTracking()
+            .GroupBy(i => i.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Status, g => g.Count, ct);
+
+    public Task<int> CountStuckAsync(DateTimeOffset olderThan, CancellationToken ct) =>
+        db.Invoices.AsNoTracking().CountAsync(
+            i => (i.Status == InvoiceStatus.Sent || i.Status == InvoiceStatus.Processing) && i.UpdatedAt < olderThan, ct);
+
+    /// <summary>The characters that mean something in a LIKE pattern are searched for as themselves.</summary>
+    private static string EscapeLike(string text) =>
+        text.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     public Task<int> MarkPendingIfFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct) =>
         db.Invoices

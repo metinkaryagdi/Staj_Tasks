@@ -13,7 +13,7 @@ namespace InvoiceService.Application.Reconciliation;
 /// </summary>
 public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> options)
 {
-    private TimeSpan StuckAfter => TimeSpan.FromMinutes(options.Value.StuckAfterMinutes);
+    private TimeSpan StuckAfter => options.Value.StuckAfter;
 
     private TimeSpan UnknownEventAfter => TimeSpan.FromMinutes(options.Value.UnknownEventAfterMinutes);
 

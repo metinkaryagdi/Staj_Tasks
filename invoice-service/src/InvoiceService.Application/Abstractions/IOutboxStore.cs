@@ -1,4 +1,5 @@
 using InvoiceService.Application.Outbox;
+using InvoiceService.Domain.Outbox;
 
 namespace InvoiceService.Application.Abstractions;
 
@@ -28,6 +29,9 @@ public interface IOutboxStore
     /// it if it is missing.
     /// </summary>
     Task ResetAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
+
+    /// <summary>The invoice's entry, not tracked; null if it has none (invoices that failed before the outbox existed).</summary>
+    Task<ErpOutboxEntry?> FindAsync(string invoiceNumber, CancellationToken ct);
 
     /// <summary>
     /// Makes the invoice's entry Tamamlandı if it is Başarısız: the invoice got to the ERP after all, so the two agree.

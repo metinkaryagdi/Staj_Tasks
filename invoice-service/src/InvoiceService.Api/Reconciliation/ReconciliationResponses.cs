@@ -18,10 +18,10 @@ public sealed record ReconciliationRunResponse(
 }
 
 public sealed record ReconciliationFindingResponse(
-    long Id, string InvoiceNumber, string FindingType, string Action, string Details, DateTimeOffset CreatedAt)
+    long Id, long RunId, string InvoiceNumber, string FindingType, string Action, string Details, DateTimeOffset CreatedAt)
 {
     public static ReconciliationFindingResponse From(ReconciliationFinding f) => new(
-        f.Id, f.InvoiceNumber, f.FindingType, f.Action, f.Details, f.CreatedAt);
+        f.Id, f.RunId, f.InvoiceNumber, f.FindingType, f.Action, f.Details, f.CreatedAt);
 }
 
 /// <summary>A run with what it found.</summary>

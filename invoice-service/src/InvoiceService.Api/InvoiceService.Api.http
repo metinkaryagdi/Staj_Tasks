@@ -25,8 +25,14 @@ GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}
 ### 3) Queue a failed invoice again (202; 409 if it is not Başarısız)
 POST {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}/resend
 
-### 4) Invoices still waiting to be sent (status: Bekliyor, Gönderildi or Başarısız; without it, all)
-GET {{baseUrl}}/api/v1/invoices?status=Bekliyor
+### 4) One page of invoices, newest first (status, search = part of the number, page, pageSize 1-100)
+GET {{baseUrl}}/api/v1/invoices?status=Bekliyor&search=FTR-0001&page=1&pageSize=20
+
+### 4a) How many invoices are in each status, and how many are stuck
+GET {{baseUrl}}/api/v1/invoices/summary
+
+### 4b) The invoice with its erp_outbox entry, its events and its findings
+GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}/details
 
 ### 5) The same invoice on the ERP side
 GET http://localhost:5080/api/v1/invoices/{{invoiceNumber}}

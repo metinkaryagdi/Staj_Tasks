@@ -27,6 +27,12 @@ public sealed class WebhookEventStore(InvoiceDbContext db) : IWebhookEventStore
             RETURNING (xmax = 0) AS "Value"
             """).ToListAsync(ct)).Single();
 
+    public async Task<IReadOnlyList<ErpWebhookEvent>> ListByInvoiceAsync(string invoiceNumber, CancellationToken ct) =>
+        await db.ErpWebhookEvents.AsNoTracking()
+            .Where(e => e.InvoiceNumber == invoiceNumber)
+            .OrderBy(e => e.ReceivedAt).ThenBy(e => e.OccurredAt)
+            .ToListAsync(ct);
+
     public Task<ErpWebhookEvent> GetAsync(string eventId, CancellationToken ct) =>
         db.ErpWebhookEvents.AsNoTracking().SingleAsync(e => e.EventId == eventId, ct);
 

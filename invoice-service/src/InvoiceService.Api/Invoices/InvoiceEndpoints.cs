@@ -33,12 +33,30 @@ public static class InvoiceEndpoints
 
         group.MapGet("/", ListInvoices)
             .WithName("ListInvoices")
-            .WithSummary("Invoices, optionally filtered by status")
+            .WithSummary("One page of invoices, newest first")
             .WithDescription(
-                "status=Bekliyor, Gönderildi, İşleme Alındı, Onaylandı, Reddedildi or Başarısız; without it every invoice is listed. Ordered by invoice number. " +
-                "Used by the tests to wait until the queue is empty (no Bekliyor left).")
-            .Produces<InvoiceResponse[]>()
+                "status=Bekliyor, Gönderildi, İşleme Alındı, Onaylandı, Reddedildi or Başarısız narrows the list; search is part " +
+                "of the invoice number (any case). page starts at 1 (default 1), pageSize is 1 to 100 (default 20). The response " +
+                "carries the page and the total number of invoices the filters match.")
+            .Produces<InvoiceListResponse>()
             .ProducesValidationProblem();
+
+        group.MapGet("/summary", Summary)
+            .WithName("InvoiceSummary")
+            .WithSummary("How many invoices are in each status, and how many are stuck")
+            .WithDescription(
+                "Every status is listed, with 0 when no invoice is in it. Stuck: Gönderildi or İşleme Alındı for longer than " +
+                "Reconciliation:StuckAfterMinutes, the same rule the reconciliation uses to ask the ERP for the decision.")
+            .Produces<InvoiceSummaryResponse>();
+
+        group.MapGet("/{invoiceNumber}/details", GetDetails)
+            .WithName("GetInvoiceDetails")
+            .WithSummary("The invoice with its erp_outbox entry, its events and its reconciliation findings")
+            .WithDescription(
+                "Four reads, not one snapshot: a change made while the response is built can show in one part and not in another. " +
+                "outbox is null for an invoice without an entry. 404 if the invoice does not exist.")
+            .Produces<InvoiceDetailsResponse>()
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/{invoiceNumber}", GetInvoice)
             .WithName("GetInvoice")
@@ -74,19 +92,39 @@ public static class InvoiceEndpoints
         };
     }
 
-    private static async Task<IResult> ListInvoices(string? status, InvoiceQueries queries, CancellationToken ct)
+    private static async Task<IResult> ListInvoices(
+        string? status, string? search, int? page, int? pageSize, InvoiceQueries queries, CancellationToken ct)
     {
-        var statuses = InvoiceStatus.All;
-        if (status is not null && !statuses.Contains(status))
-        {
-            return Results.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["status"] = [$"Must be one of: {string.Join(", ", statuses)}."]
-            });
-        }
+        var errors = new Dictionary<string, string[]>();
+        if (status is not null && !InvoiceStatus.All.Contains(status))
+            errors["status"] = [$"Must be one of: {string.Join(", ", InvoiceStatus.All)}."];
+        if (page is < 1)
+            errors["page"] = ["Must be 1 or greater."];
+        if (pageSize is < 1 or > InvoiceQueries.MaxPageSize)
+            errors["pageSize"] = [$"Must be between 1 and {InvoiceQueries.MaxPageSize}."];
+        if (errors.Count > 0)
+            return Results.ValidationProblem(errors);
 
-        var invoices = await queries.ListAsync(status, ct);
-        return Results.Ok(invoices.Select(InvoiceResponse.From));
+        var currentPage = page ?? 1;
+        var size = pageSize ?? InvoiceQueries.DefaultPageSize;
+        var result = await queries.ListAsync(status, search, currentPage, size, ct);
+        return Results.Ok(new InvoiceListResponse(
+            result.Items.Select(InvoiceResponse.From).ToList(), currentPage, size, result.TotalCount,
+            (result.TotalCount + size - 1) / size));
+    }
+
+    private static async Task<IResult> Summary(InvoiceQueries queries, CancellationToken ct)
+    {
+        var summary = await queries.SummaryAsync(ct);
+        return Results.Ok(new InvoiceSummaryResponse(
+            summary.Counts.Select(c => new StatusCountResponse(c.Status, c.Count)).ToList(),
+            summary.Total, summary.StuckCount, summary.StuckAfterMinutes));
+    }
+
+    private static async Task<IResult> GetDetails(string invoiceNumber, InvoiceQueries queries, CancellationToken ct)
+    {
+        var details = await queries.DetailsAsync(invoiceNumber, ct);
+        return details is null ? NotFound(invoiceNumber) : Results.Ok(InvoiceDetailsResponse.From(details));
     }
 
     private static async Task<IResult> GetInvoice(string invoiceNumber, InvoiceQueries queries, CancellationToken ct)

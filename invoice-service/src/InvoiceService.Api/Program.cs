@@ -15,6 +15,7 @@ builder.Services.AddInvoiceInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<OutboxWorker>();
 builder.Services.AddHostedService<ReconciliationWorker>();
 
+builder.Services.AddOperationsUiCors(builder.Configuration);
 builder.Services.AddProblemDetails();
 builder.Services.AddInvoiceOpenApi();
 
@@ -23,6 +24,7 @@ var app = builder.Build();
 await app.MigrateDatabaseAsync();
 app.LogErpSettings();
 
+app.UseCors(CorsExtensions.PolicyName);
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 

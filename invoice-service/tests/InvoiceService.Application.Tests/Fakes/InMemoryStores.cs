@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Invoices;
 using Microsoft.Extensions.DependencyInjection;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Webhooks;
@@ -94,9 +95,23 @@ public sealed class FakeInvoiceStore : IInvoiceStore
 
     public Task<Invoice> GetAsync(string invoiceNumber, CancellationToken ct) => Task.FromResult(Invoices[invoiceNumber]);
 
-    public Task<IReadOnlyList<Invoice>> ListAsync(string? status, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<Invoice>>(
-            Invoices.Values.Where(i => status is null || i.Status == status).OrderBy(i => i.InvoiceNumber).ToList());
+    public Task<InvoicePage> ListPageAsync(string? status, string? search, int skip, int take, CancellationToken ct)
+    {
+        var matching = Invoices.Values
+            .Where(i => (status is null || i.Status == status)
+                        && (search is null || i.InvoiceNumber.Contains(search, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.InvoiceNumber)
+            .ToList();
+        return Task.FromResult(new InvoicePage(matching.Skip(skip).Take(take).ToList(), matching.Count));
+    }
+
+    public Task<IReadOnlyDictionary<string, int>> CountByStatusAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyDictionary<string, int>>(
+            Invoices.Values.GroupBy(i => i.Status).ToDictionary(g => g.Key, g => g.Count()));
+
+    public Task<int> CountStuckAsync(DateTimeOffset olderThan, CancellationToken ct) =>
+        Task.FromResult(Invoices.Values.Count(i =>
+            i.Status is InvoiceStatus.Sent or InvoiceStatus.Processing && i.UpdatedAt < olderThan));
 
     public Task<int> MarkPendingIfFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
     {
@@ -139,6 +154,12 @@ public sealed class FakeOutboxStore : IOutboxStore
     public List<(long Id, string Status, string? Error, DateTimeOffset NextAttemptAt, DateTimeOffset? ProcessedAt)> Outcomes { get; } = [];
     public List<string> Resets { get; } = [];
     public List<string> Completed { get; } = [];
+
+    /// <summary>The entries <see cref="FindAsync"/> knows, by invoice number.</summary>
+    public Dictionary<string, ErpOutboxEntry> Entries { get; } = [];
+
+    public Task<ErpOutboxEntry?> FindAsync(string invoiceNumber, CancellationToken ct) =>
+        Task.FromResult(Entries.GetValueOrDefault(invoiceNumber));
 
     public Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
     {
@@ -202,6 +223,10 @@ public sealed class FakeWebhookEventStore : IWebhookEventStore
         e.IgnoreReason = IgnoreReason.UnknownInvoice;
         return Task.FromResult(true);
     }
+
+    public Task<IReadOnlyList<ErpWebhookEvent>> ListByInvoiceAsync(string invoiceNumber, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ErpWebhookEvent>>(Events.Values
+            .Where(e => e.InvoiceNumber == invoiceNumber).OrderBy(e => e.ReceivedAt).ThenBy(e => e.OccurredAt).ToList());
 
     public Task<ErpWebhookEvent> GetAsync(string eventId, CancellationToken ct) => Task.FromResult(Events[eventId]);
 
@@ -320,6 +345,10 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
 
     public Task<IReadOnlyList<ReconciliationFinding>> ListFindingsAsync(long runId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ReconciliationFinding>>(Findings.Where(f => f.RunId == runId).ToList());
+
+    public Task<IReadOnlyList<ReconciliationFinding>> ListFindingsOfInvoiceAsync(string invoiceNumber, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ReconciliationFinding>>(
+            Findings.Where(f => f.InvoiceNumber == invoiceNumber).OrderByDescending(f => f.Id).ToList());
 
     public Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(DateTimeOffset since, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values

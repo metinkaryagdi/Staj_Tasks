@@ -21,6 +21,9 @@ public sealed class ReconciliationOptions
     /// </summary>
     public int StuckAfterMinutes { get; set; }
 
+    /// <summary><see cref="StuckAfterMinutes"/> as a time span; the one definition of "stuck" the planner and the summary share.</summary>
+    public TimeSpan StuckAfter => TimeSpan.FromMinutes(StuckAfterMinutes);
+
     /// <summary>A waiting event for an invoice the service does not know is ignored after this many minutes.</summary>
     public int UnknownEventAfterMinutes { get; set; }
 }

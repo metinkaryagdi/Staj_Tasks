@@ -51,6 +51,12 @@ public sealed class ReconciliationStore(InvoiceDbContext db) : IReconciliationSt
     public async Task<IReadOnlyList<ReconciliationFinding>> ListFindingsAsync(long runId, CancellationToken ct) =>
         await db.ReconciliationFindings.AsNoTracking().Where(f => f.RunId == runId).OrderBy(f => f.Id).ToListAsync(ct);
 
+    public async Task<IReadOnlyList<ReconciliationFinding>> ListFindingsOfInvoiceAsync(string invoiceNumber, CancellationToken ct) =>
+        await db.ReconciliationFindings.AsNoTracking()
+            .Where(f => f.InvoiceNumber == invoiceNumber)
+            .OrderByDescending(f => f.Id)
+            .ToListAsync(ct);
+
     public async Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(DateTimeOffset since, CancellationToken ct) =>
         await db.Invoices.AsNoTracking()
             .Where(i => i.CreatedAt >= since || InvoiceStatus.Unsettled.Contains(i.Status))

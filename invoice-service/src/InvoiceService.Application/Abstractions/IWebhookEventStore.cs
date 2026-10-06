@@ -19,6 +19,9 @@ public interface IWebhookEventStore
     /// </summary>
     Task<bool> InsertOrCountAsync(ErpWebhookRequest request, string payload, DateTimeOffset now, CancellationToken ct);
 
+    /// <summary>Every event of the invoice, in the order they reached the service, not tracked.</summary>
+    Task<IReadOnlyList<ErpWebhookEvent>> ListByInvoiceAsync(string invoiceNumber, CancellationToken ct);
+
     /// <summary>Not tracked; the event must exist.</summary>
     Task<ErpWebhookEvent> GetAsync(string eventId, CancellationToken ct);
 

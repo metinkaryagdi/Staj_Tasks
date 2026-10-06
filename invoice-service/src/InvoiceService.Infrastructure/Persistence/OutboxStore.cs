@@ -74,6 +74,9 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
                 claim_token = NULL
             """, ct);
 
+    public Task<ErpOutboxEntry?> FindAsync(string invoiceNumber, CancellationToken ct) =>
+        db.ErpOutbox.AsNoTracking().SingleOrDefaultAsync(o => o.InvoiceNumber == invoiceNumber, ct);
+
     public async Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct) =>
         await db.ErpOutbox
             .Where(o => o.InvoiceNumber == invoiceNumber && o.Status == OutboxStatus.Failed)
