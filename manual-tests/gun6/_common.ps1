@@ -42,3 +42,49 @@ function Post-Api([string]$Path, [string]$Json = $null) { Receive-Api (Start-Api
 
 # {"invoiceNumbers": [...]} gövdesi.
 function ConvertTo-ResendBody([string[]]$Numbers) { (@{ invoiceNumbers = @($Numbers) } | ConvertTo-Json -Compress) }
+
+# Gün 3'ün aynı adlı fonksiyonunun sayfalı sürümü (GET /invoices artık {items, ...} döner): o durumdaki faturaların
+# numaraları. Bu dosyayı yükleyen script'lerde Wait-QueueDrained gibi yardımcılar bunu kullanır.
+function Get-ServiceInvoiceNumbers([string]$Status) {
+    $numbers = @()
+    $page = 1
+    do {
+        $r = Get-Api "/api/v1/invoices?status=$([Uri]::EscapeDataString($Status))&page=$page&pageSize=100"
+        if ($r.Status -ne 200) { throw "GET /invoices?status=$Status&page=$page -> $($r.Status): $($r.Body)" }
+        $numbers += @($r.Json.items | ForEach-Object { $_.invoiceNumber })
+        $page++
+    } while ($page -le $r.Json.totalPages)
+    $numbers
+}
+
+# Zaman damgasını (API'den gelen metin ya da DateTime) saniye hassasiyetinde UTC metnine çevirir; veritabanıyla karşılaştırmak için.
+function ConvertTo-UtcSeconds($Value) {
+    if ($null -eq $Value -or $Value -eq '') { return '' }
+    $utc = if ($Value -is [datetime]) { $Value.ToUniversalTime() }
+           else { [DateTimeOffset]::Parse([string]$Value, [Globalization.CultureInfo]::InvariantCulture).UtcDateTime }
+    $utc.ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+}
+
+# SQL tarafında aynı biçim. (Çift tırnak kullanılmaz: PowerShell docker'a geçerken siler.)
+function Get-SqlUtcSeconds([string]$Column) { "to_char($Column AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')" }
+
+# Özet sayılarını veritabanıyla karşılaştırmak için: fatura sürekli değişiyorsa iki okuma arasında sayılar kayabilir. Veritabanı
+# API'den önce ve sonra aynı çıkana kadar tekrar eder, böylece karşılaştırılan an gerçekten aynı an olur.
+function Get-StableSummary([int]$Attempts = 20) {
+    $statuses = @('Bekliyor', 'Gönderildi', 'İşleme Alındı', 'Onaylandı', 'Reddedildi', 'Başarısız')
+    for ($i = 0; $i -lt $Attempts; $i++) {
+        $stuckMinutes = (Get-Api '/api/v1/invoices/summary').Json.stuckAfterMinutes
+        $sql = "SELECT status, count(*) FROM invoices GROUP BY status ORDER BY status;"
+        $stuckSql = "SELECT count(*) FROM invoices WHERE status IN ('Gönderildi','İşleme Alındı') AND updated_at < now() - interval '$stuckMinutes minutes';"
+        $before = (@(Get-ServiceRows $sql) -join ';') + '|' + (@(Get-ServiceRows $stuckSql) -join '')
+        $api = Get-Api '/api/v1/invoices/summary'
+        $after = (@(Get-ServiceRows $sql) -join ';') + '|' + (@(Get-ServiceRows $stuckSql) -join '')
+        if ($before -eq $after) {
+            $db = @{}
+            foreach ($row in @(Get-ServiceRows "SELECT status, count(*) FROM invoices GROUP BY status;")) { $p = $row -split '\|'; $db[$p[0]] = [int]$p[1] }
+            return [pscustomobject]@{ Api = $api.Json; Db = $db; DbStuck = [int](@(Get-ServiceRows $stuckSql)[0]); Statuses = $statuses }
+        }
+        Start-Sleep -Seconds 1
+    }
+    throw "Özet sayıları $Attempts denemede durağan bir ana denk gelmedi (faturalar sürekli değişiyor)."
+}
