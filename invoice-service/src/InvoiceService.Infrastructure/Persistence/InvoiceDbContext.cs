@@ -139,9 +139,10 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             {
                 t.HasCheckConstraint("ck_reconciliation_findings_finding_type", InList("finding_type", FindingType.All));
                 t.HasCheckConstraint("ck_reconciliation_findings_action", InList("action", FindingAction.All));
-                // Only the types the run fixes can be Düzeltildi; the others are only reported.
+                // Only the types the run fixes can be Düzeltildi; the others are only reported. A fixable type is also
+                // Raporlandı when its fix failed.
                 t.HasCheckConstraint("ck_reconciliation_findings_fixed_types",
-                    $"(action = '{FindingAction.Fixed}') = ({InList("finding_type", FindingType.Fixable)})");
+                    $"action <> '{FindingAction.Fixed}' OR ({InList("finding_type", FindingType.Fixable)})");
             });
 
             entity.HasKey(e => e.Id);

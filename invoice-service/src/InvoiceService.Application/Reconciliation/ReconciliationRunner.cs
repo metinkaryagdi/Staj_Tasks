@@ -49,9 +49,13 @@ public sealed class ReconciliationRunner(
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     // Its transaction is rolled back; the invoice stays as it was and the next run tries again. One
-                    // failing fix (a deadlock victim, a lost connection) must not stop the fixes after it.
+                    // failing fix (a deadlock victim, a lost connection) must not stop the fixes after it. The innermost
+                    // exception carries the reason (an EF exception only says to look at it).
+                    var reason = ex.GetBaseException().Message;
                     logger.LogWarning("Reconciliation fix skipped run={RunId} invoice={InvoiceNumber} type={FindingType}: {Message}",
-                        run.Id, finding.InvoiceNumber, finding.FindingType, ex.Message);
+                        run.Id, finding.InvoiceNumber, finding.FindingType, reason);
+                    if (await ReportUnfixedAsync(run.Id, finding, reason))
+                        reportedCount++;
                 }
             }
 
@@ -140,6 +144,31 @@ public sealed class ReconciliationRunner(
         }
 
         return planner.Plan(snapshot, decisions);
+    }
+
+    /// <summary>
+    /// Records a fix that failed as a finding that was only reported, with the reason, so the report shows it. In a scope
+    /// of its own, and a failure to record it is only logged: the other fixes go on.
+    /// </summary>
+    private async Task<bool> ReportUnfixedAsync(long runId, PlannedFinding finding, string reason)
+    {
+        try
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<IReconciliationStore>().AddFinding(new ReconciliationFinding
+            {
+                RunId = runId, InvoiceNumber = finding.InvoiceNumber, FindingType = finding.FindingType,
+                Action = FindingAction.Reported, Details = $"Düzeltme uygulanamadı: {reason}", CreatedAt = time.GetUtcNow()
+            });
+            await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().SaveChangesAsync(CancellationToken.None);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Reconciliation could not record the failed fix run={RunId} invoice={InvoiceNumber}: {Message}",
+                runId, finding.InvoiceNumber, ex.GetBaseException().Message);
+            return false;
+        }
     }
 
     private ReconciliationFinding ToEntity(long runId, PlannedFinding finding) => new()

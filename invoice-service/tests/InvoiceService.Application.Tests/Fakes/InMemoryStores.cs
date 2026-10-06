@@ -266,6 +266,9 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
     public List<ReconciliationFinding> Findings { get; } = [];
     public bool FailToStart { get; set; }
 
+    /// <summary>Findings this says yes to cannot be recorded, like a database that refuses them.</summary>
+    public Func<ReconciliationFinding, bool>? RefuseFinding { get; set; }
+
     public Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, CancellationToken ct)
     {
         if (FailToStart)
@@ -303,6 +306,8 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
 
     public void AddFinding(ReconciliationFinding finding)
     {
+        if (RefuseFinding?.Invoke(finding) == true)
+            throw new InvalidOperationException("finding refused");
         finding.Id = Findings.Count + 1;
         Findings.Add(finding);
     }

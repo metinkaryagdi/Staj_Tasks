@@ -63,6 +63,7 @@ public sealed class Scenario
         type == typeof(FixApplier) ? FixApplier()
         : type == typeof(ReconciliationRunner) ? ReconciliationRunner()
         : type == typeof(IReconciliationStore) ? Reconciliation
+        : type == typeof(IUnitOfWork) ? UnitOfWork
         : null);
 
     public ReconciliationRunner ReconciliationRunner() => new(
