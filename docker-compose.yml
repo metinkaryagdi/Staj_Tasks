@@ -108,6 +108,18 @@ services:
       invoice-db:
         condition: service_healthy
 
+  # Operasyon ekranı: tarayıcıda çalışan statik uygulama (nginx). Yalnızca Fatura Servisi'nin API'siyle konuşur; istekleri
+  # kullanıcının tarayıcısı yaptığı için servise host üzerindeki adresinden gider (VITE_API_URL), container ağından değil.
+  operations-ui:
+    build:
+      context: ./operations-ui
+      args:
+        # Fatura Servisi'nin tarayıcıdan görünen adresi; derleme sırasında koda gömülür. Değiştirince
+        # `docker compose up -d --build operations-ui`.
+        VITE_API_URL: http://localhost:5090
+    ports:
+      - "5100:80"
+
   # A second copy of the invoice service on the same database, only for the two-copies tests (manual-tests).
   # It is in a profile, so a plain `docker compose up` does not start it:
   #   docker compose --profile iki-kopya up -d invoice-service-2
