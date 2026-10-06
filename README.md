@@ -1,14 +1,15 @@
 # Staj_Tasks
 
-Fatura entegrasyonu üzerine staj projesi: Invoice Service ve ona hata üreterek cevap veren, sonra faturanın sonucunu
-imzalı webhook'larla bildiren ERP Simulator.
+Fatura entegrasyonu üzerine staj projesi: Invoice Service, ona hata üreterek cevap veren ve faturanın sonucunu imzalı
+webhook'larla bildiren ERP Simulator, ve sistemi izleyip müdahale etmek için operasyon ekranı.
 
 | Uygulama | Klasör | Ne yapar |
 |---|---|---|
 | ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; her isteğe seed'li rastgele bir hata davranışı uygular; kaydettiği faturalar için Invoice Service'e imzalı webhook gönderir (bilerek sorunlu) |
 | Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir; ERP'den gelen webhook event'lerini doğrulayıp faturaya işler; belirli aralıklarla kendi kayıtlarını ERP'ninkiyle karşılaştırır (mutabakat), düzeltebildiğini düzeltir, düzeltemediğini raporlar |
+| Operasyon Ekranı | `operations-ui/` | Faturaların ve mutabakatın durumunu veritabanına bakmadan gösterir; Başarısız faturaları tek tek ya da toplu yeniden kuyruğa alır, mutabakatı başlatır. Yalnızca Invoice Service'in API'siyle konuşur |
 
-İki uygulama da Domain / Application / Infrastructure / Api olarak dört katmana ayrılmıştır; katmanlar, port'lar,
+İki .NET uygulaması Domain / Application / Infrastructure / Api olarak dört katmana ayrılmıştır; katmanlar, port'lar,
 akışlar ve tasarım kararları [ARCHITECTURE.md](ARCHITECTURE.md)'de.
 
 Her günün teslim edilen hali bir git tag'idir; README yalnızca uygulamaları ve **bugünün** işini anlatır
@@ -26,6 +27,7 @@ docker compose up -d --build
 | ERP veritabanı | `localhost:5433` — db `erp_simulator`, kullanıcı `erp`, şifre `erp` |
 | Invoice Service | http://localhost:5090 (Swagger: http://localhost:5090/swagger) |
 | Fatura veritabanı | `localhost:5434` — db `invoice_service`, kullanıcı `invoice`, şifre `invoice` |
+| Operasyon Ekranı | http://localhost:5100 |
 
 Her uygulamanın yalnızca kendi veritabanının bağlantı bilgisi vardır; iki uygulama birbirine yalnızca HTTP ile ulaşır.
 Şema EF Core migration ile açılışta oluşur. Docker içinde her uygulama `appsettings.json`'ın üzerine
@@ -135,11 +137,14 @@ yeniden kuyruğa alır. Durum değerleri ve alanlar veritabanında check constra
 
 | Endpoint | Davranış |
 |---|---|
-| `POST /api/v1/invoices` | Body: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura `Bekliyor` durumunda ve `erp_outbox` kaydıyla aynı transaction'da yazılır, `202`. ERP Simulator bu istekte çağrılmaz. Geçersiz body `400` (tutarda virgülden sonra en fazla iki basamak), hiçbir şey kaydedilmez. |
-| `POST /api/v1/invoices/{invoiceNumber}/resend` | Yalnızca `Başarısız` fatura için: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen), faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409`, yoksa `404`. Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
-| `GET /api/v1/invoices?status=Bekliyor` | O durumdaki faturalar; `status` verilmezse hepsi, geçersizse `400`. |
+| `POST /api/v1/invoices` | Body: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura `Bekliyor` durumunda ve `erp_outbox` kaydıyla aynı transaction'da yazılır, `202`. ERP Simulator bu istekte çağrılmaz. Geçersiz body `400` (tutar 0'dan büyük, en fazla 999.999.999.999,99, virgülden sonra en fazla iki basamak), hiçbir şey kaydedilmez. |
+| `POST /api/v1/invoices/{invoiceNumber}/resend` | Yalnızca `Başarısız` fatura için: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen), faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409` (`code: invoice_not_failed`, `currentStatus`), yoksa `404` (`code: invoice_not_found`). Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
+| `POST /api/v1/invoices/resend` | Body `{"invoiceNumbers": [...]}`, 1-100 numara (aksi `400`). Her fatura tekli resend'in kurallarıyla, kendi transaction'ında; tekrarlanan numara bir kez. Her zaman `200` + fatura başına sonuç: `queued`, `not_found`, `not_failed` (+ `currentStatus`), `error`. |
+| `GET /api/v1/invoices` | Sayfalı liste, en yeni üstte: `status` (geçersizse `400`), `search` (numaranın bir parçası, büyük/küçük harf fark etmez), `page` (1'den), `pageSize` (1-100, varsayılan 20). Cevap `{items, page, pageSize, totalCount, totalPages}`. |
+| `GET /api/v1/invoices/summary` | Her durumdaki fatura sayısı (0 olanlar dahil), toplam ve takılı sayısı (`Gönderildi` / `İşleme Alındı`'da `StuckAfterMinutes`'tan uzun kalan). |
 | `GET /api/v1/invoices/{invoiceNumber}` | Faturanın servisteki hali (`200`, `rejectReason` dahil) ya da `404`. |
-| `POST /api/v1/reconciliation-runs` | Mutabakatı elle başlatır: `202` + `Location` + çalışma (`Çalışıyor`); çalışma arka planda sürer. Başka bir çalışma sürüyorsa (zamanlanmış, elle ya da servisin diğer kopyasında) `409`. |
+| `GET /api/v1/invoices/{invoiceNumber}/details` | Fatura, `erp_outbox` kaydı, haberleri (geliş sırasıyla) ve mutabakat bulguları (en yeni üstte) tek cevapta; yoksa `404`. |
+| `POST /api/v1/reconciliation-runs` | Mutabakatı elle başlatır: `202` + `Location` + çalışma (`Çalışıyor`); çalışma arka planda sürer. Başka bir çalışma sürüyorsa (zamanlanmış, elle ya da servisin diğer kopyasında) `409` (`code: reconciliation_running`). |
 | `GET /api/v1/reconciliation-runs` | Çalışmalar, en yeniden eskiye (bulgusuz). |
 | `GET /api/v1/reconciliation-runs/{id}` | `{ run, findings[] }` ya da `404`. |
 | `POST /api/v1/erp-webhooks` | ERP webhook event'i. İmza header'ları yok/yanlış ya da timestamp 5 dk'dan eski veya ileri: `401`, kaydedilmez. İmza doğru ama body geçersiz: `400`; 64 KB'tan büyük body: `413`. Event 4 sn içinde işlenemezse `503` (ERP tekrar gönderir). Aksi halde `200` + `{eventId, status, repeat}`. |
@@ -212,7 +217,8 @@ hiçbir fatura değişmemiştir.
 [`appsettings.json`](invoice-service/src/InvoiceService.Api/appsettings.json): her değerin yanında ne işe yaradığı ve
 neden o değerde olduğu yazılı. Hepsi zorunludur; eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar.
 Değişiklikten sonra `docker compose up -d --build invoice-service`. Docker'da ERP adresi `appsettings.Docker.json`'dadır.
-`ErpWebhooks:Secret`, ERP Simulator'daki `Webhooks:Secret` ile aynı olmalıdır.
+`ErpWebhooks:Secret`, ERP Simulator'daki `Webhooks:Secret` ile aynı olmalıdır. `Cors:AllowedOrigins` operasyon ekranının
+adresidir (`http://localhost:5100`); ekran başka bir adresten açılacaksa buraya eklenir.
 
 Mutabakat ayarları: `IntervalMinutes` 60, `LookbackHours` 24, `StuckAfterMinutes` 2, `UnknownEventAfterMinutes` 60.
 Testler aralığı `Reconciliation__IntervalMinutes` ortam değişkeniyle 1'e çeker (`docker-compose.yml`'de geçişi var).
@@ -228,11 +234,36 @@ docker compose --profile iki-kopya up -d invoice-service-2
 
 ---
 
+## Operasyon Ekranı
+
+React + TypeScript (Vite), nginx ile sunulur. Tarayıcı doğrudan Invoice Service'in API'sine gider; adres derlemede
+`VITE_API_URL` ile verilir (`docker-compose.yml`, varsayılan `http://localhost:5090`). Ekrandaki bütün metinler
+[`src/tr.ts`](operations-ui/src/tr.ts)'dedir.
+
+| Sayfa | İçerik |
+|---|---|
+| Özet | Her durumdaki fatura sayısı, takılı fatura sayısı, son mutabakat çalışmasının durumu ve bulgu sayıları |
+| Fatura Listesi | Durum süzgeci, numarayla arama, sayfalama (20/50/100). Kolonlar: fatura no, müşteri kodu, tutar, durum, deneme sayısı (toplam), son hata, son güncelleme, detay bağlantısı. Başarısız faturalar seçilip (en fazla 100) toplu yeniden gönderilir; sonuçta kaçının kuyruğa alındığı, kaçının alınamadığı ve nedeni görünür |
+| Fatura Detayı | Fatura bilgileri, `erp_outbox` kaydı, gelen bütün haberler, faturanın mutabakat bulguları; Başarısız faturada "Yeniden Gönder" |
+| Mutabakat | Çalışmalar, seçili çalışmanın bulguları (Raporlanan ve Düzeltilen ayrı), "Mutabakatı Şimdi Çalıştır" |
+
+- Her sayfa 10 saniyede bir kendiliğinden yenilenir ve son yenileme zamanını yazar.
+- Invoice Service'e ulaşılamazsa sayfa çökmez: "Fatura Servisi'ne ulaşılamıyor" mesajı gösterilir; daha önce veri geldiyse son
+  bilinen veri uyarıyla kalır. Servis açılınca bir sonraki yenilemede kendiliğinden toparlanır.
+- Reddedilen müdahalede (fatura bu arada başkası tarafından yeniden gönderildiyse, mutabakat zaten çalışıyorsa) servisin `code`
+  alanına göre ne olduğunu anlatan Türkçe mesaj gösterilir.
+
+Geliştirme: `npm install --prefix operations-ui`, `npm run dev --prefix operations-ui` (http://localhost:5100);
+testler `npm test --prefix operations-ui`.
+
+---
+
 ## Testler
 
 | Ne | Komut |
 |---|---|
-| Unit testler | `dotnet test erp-simulator` ve `dotnet test invoice-service` |
+| Unit testler | `dotnet test erp-simulator`, `dotnet test invoice-service`, `npm test --prefix operations-ui` |
+| Gün 6 kontrol listesi (script'li maddeler) ve ekrandan yapılan maddelerin adımları | [`manual-tests/gun6/`](manual-tests/gun6/README.md) |
 | Gün 5 kontrol listesi (2-9. maddeler; 1. madde Gün 3 ve Gün 4 listeleridir), adım ve ek test | [`manual-tests/gun5/`](manual-tests/gun5/) |
 | Gün 4 kontrol listesi, adım ve ek testleri | [`manual-tests/gun4/`](manual-tests/gun4/) |
 | Gün 3 kontrol listesi | [`manual-tests/gun3/`](manual-tests/gun3/README.md) |
@@ -250,77 +281,53 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 5 — Mutabakat
+## Gün 6 — Operasyon Ekranı
 
-Bugünün işi: Invoice Service belirli aralıklarla kendi kayıtlarını ERP Simulator'la karşılaştırıyor, düzeltebildiğini
-düzeltiyor, düzeltemediğini raporluyor ([Mutabakat](#mutabakat)). ERP Simulator bunun için `GET /api/v1/invoices/{n}`
-cevabında faturanın kararını döndürüyor ve kayıtlarını `GET /api/v1/invoices?from&to` ile sayfalı listeliyor
-([Endpoint'ler](#endpointler)). İki yeni tablo eklendi (`reconciliation_runs`, `reconciliation_findings`), `ignore_reason`'a
-`Fatura Yok` eklendi. Önce kod sadeleştirildi: iki uygulama katmanlı yapıya alındı, açıklamalar kısaltıldı
-([ARCHITECTURE.md](ARCHITECTURE.md)). Sonradan iki düzeltme eklendi: durumu kesinleşmemiş faturalar yaşlarına bakılmadan
-her çalışmada kontrol ediliyor, düzeltmesi hata veren fatura nedeniyle birlikte bulgu olarak kaydediliyor.
+Bugünün işi: repoya üçüncü uygulama olarak operasyon ekranı eklendi ([Operasyon Ekranı](#operasyon-ekranı)). Invoice Service'e
+ekranın ihtiyaç duyduğu uç noktalar eklendi: sayfalı ve aramalı liste, özet, detay, toplu resend; 409/404 cevaplarına `code`
+alanı; ekranın adresine CORS ([Endpoint'ler](#endpointler-1)). Kabul testinden sonra iki sınır düzeltildi: liste int'i aşan
+sayfa numarasında `500` yerine `400` dönüyor; tutar en fazla 999.999.999.999,99 (üstü `500` yerine `400`, fatura numarası boşa
+harcanmıyor, ekranda kuruşuna kadar doğru görünüyor). Görevin başındaki iki mutabakat düzeltmesi Gün 5'te yapılmıştı
+([gun-5](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-5)).
 
-Kontrol listesi ve ek testler: [`manual-tests/gun5/`](manual-tests/gun5/) (`.\manual-tests\gun5\kontrol-listesi.ps1` 2-9.
-maddeleri sırayla çalıştırır; 1. madde `gun3` ve `gun4` listeleridir).
+Kontrol listesi: [`manual-tests/gun6/`](manual-tests/gun6/README.md) (3, 4, 5 ve 8. maddelerin script'leri; 6, 7, 9 ve 10.
+maddelerin ekranda adımları; 1 ve 2. maddeler `gun5\ek-eski-takili-fatura.ps1` ve `gun5\ek-duzeltme-hatasi.ps1`).
 
-### Son doğrulama — 5-6 Ekim 2026
+### Son doğrulama — 6 Ekim 2026
 
-Gün 3 listesi (7/7, 21,9 dk), Gün 4 listesi (8/8, 9,3 dk), Gün 5 listesi (2-9, 17,6 dk) ve ek testler 6 Ekim'de son kodla
-koşuldu ve hepsi geçti. Gün 3'ün daha önceki bir koşusunda 4. madde, beklemeyi iki log damgasından ölçtüğü için,
-planlanandan 87 ms kısa ölçülmüştü, 50 ms toleransı 37 ms aşmıştı; tolerans değiştirilmeden yeniden koşularda geçti.
-Birim testler: Invoice Service 292, ERP Simulator 103, hepsi geçti. Bunlar bu koşuların sonuçlarıdır; başka koşullarda aynı
-sonucun çıkacağını göstermez.
+On madde gerçek PostgreSQL, HTTP ve tarayıcıyla koşuldu ve hepsi geçti; her maddede sonuç veritabanıyla karşılaştırıldı.
+Birim testler: Invoice Service 315, operasyon ekranı 18, hepsi geçti. Bunlar bu koşuların sonuçlarıdır.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
-| 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 | Gün 3 7/7, Gün 4 8/8 (son kodla) |
-| 2 | 500 fatura, varsayılan oranlar, haberler bitince mutabakat | 30 fatura takılı kalmıştı (karar event'i gönderilmeyen 30'la aynı); 30'u düzeltildi, kalan 0 |
-| 3 | ERP Simulator'a elle eklenen, serviste olmayan fatura | `Serviste Yok` raporlandı; iki tarafta değişiklik yok. `POST` `202` + `Location`, liste sırası ve `404` de doğrulandı |
-| 4 | ERP'de tutarı elle değiştirilen fatura | `Alan Farkı` (1250.50 / 1260.50) raporlandı; değişiklik yok |
-| 5 | Elle ikinci gönderim (çift kayıt) | `ERP Çift Kayıt` raporlandı; aynı fatura serviste `Başarısız` olsa da yalnızca raporlandı, fatura ve `erp_outbox` değişmedi |
-| 6 | Serviste elle `Başarısız` yapılan, referansı boşaltılan fatura | `Başarısız Ama ERP Kayıtlı` düzeltildi: `Gönderildi`, ERP'deki referans, `erp_outbox` `Tamamlandı` |
-| 7 | Tanınmayan faturaya geçerli imzalı event, eşik 1 dk | Zamanlanmış çalışma 125 sn sonra `Yok Sayıldı` (`Fatura Yok`) yaptı; fatura oluşmadı |
-| 8 | Servisin iki kopyası + elle başlatma | Kilit başka oturumdayken iki kopya da `409`; 30 eşzamanlı istekte 1 `202`, 29 `409`; çalışma aralıkları üst üste binmedi |
-| 9 | Mutabakat sürerken ERP Simulator ulaşılamaz | Çalışma `Başarısız` (10 sn zaman aşımı), hiçbir fatura değişmedi; sonraki çalışma 5 faturanın 5'ini düzeltti |
+| 1 | 25 saat geriye çekilmiş, karar haberi gelmemiş fatura | 24 saatlik pencerenin dışındaki `İşleme Alındı`, `Gönderildi` ve `Başarısız` (ERP'de kayıtlı) faturaların üçü de ERP'nin kararıyla düzeldi; kesinleşmiş eski faturaya dokunulmadı |
+| 2 | Düzeltmesi hata veren fatura | Geçici bir trigger bir faturanın güncellemesini hataya düşürdü: fatura `Raporlandı` ("Düzeltme uygulanamadı: ..."), değişmedi; diğeri düzeldi; trigger kalkınca sonraki çalışma düzeltti |
+| 3 | Varsayılan oranlarla 1000 fatura, Özet = veritabanı | Durum sayıları, toplam, takılı sayısı ve son çalışma veritabanıyla aynı; yenileme 10 sn. Kalan 57 fatura karar haberi gönderilmeyen 57 faturayla aynı; mutabakat 57'sini düzeltti |
+| 4 | Liste: durum süzgeci, arama, sayfalama | 4132 faturanın tamamı, altı durum, tam/kısmi arama, süzgeç + arama, ilk/orta/son sayfa veritabanıyla aynı; sayfa boyutu 101 ve geçersiz değerler `400` |
+| 5 | Detay = veritabanı | Üç faturada fatura, outbox, haberler ve bulgular alan alan aynı |
+| 6 | Ekrandan yeniden gönderme | Sayfa yenilendikçe önce `Bekliyor`, sonra `Gönderildi` (ardından `Onaylandı`) |
+| 7 | Aynı faturayı iki tarayıcıdan aynı anda yeniden gönderme | İki ayrı tarayıcı (uygulamanın tarayıcısı ve ayrı profilli bir Edge penceresi) aynı anda bastı, istekler 1 ms arayla gitti: biri kuyruğa aldı, diğeri "Bu fatura artık Başarısız durumda değil, şu an "Bekliyor" durumunda..." mesajını gördü; fatura bir kez kuyruğa alındı |
+| 8 | 20 Başarısız faturanın toplu yeniden gönderimi | Ekranda "20 fatura kuyruğa alındı"; API cevabı ve veritabanı aynı. 100 seçim sınırı ekranda, 101 numaranın reddi API'de |
+| 9 | Mutabakat sürerken ikinci basış | `409` ve "Mutabakat zaten çalışıyor..." mesajı; tek çalışma |
+| 10 | Invoice Service durunca | Dört sayfa çökmedi, hata mesajı gösterdi (veri yüklüyse son bilinen veriyle); servis açılınca elle yenilemeden toparlandı |
 
-**Ek testler:**
-- `ek-haber-yarisi.ps1`: fatura satırı 8 sn kilitliyken mutabakat başlatıldı ve kararın event'i servise gönderildi. Event iki
-  kez `503` (lock-timeout) aldı, sonra `200`; fatura tek kez doğru karara ilerledi. İki sıra da görüldü (mutabakat önce: ilk
-  koşuda, event önce: sonraki koşularda), ikisinde de sonuç tutarlıydı.
-- `ek-eski-takili-fatura.ps1`: 3 gün öncesine alınan `Gönderildi`'de takılı fatura ERP'nin kararını aldı, `Başarısız` fatura
-  geri geldi ve kararı aldı, kesinleşmiş eski faturaya dokunulmadı.
-- `ek-duzeltme-hatasi.ps1`: veritabanı trigger'ı bir faturanın güncellemesini hataya düşürdü; çalışma `Tamamlandı`, o fatura
-  nedeniyle (`Düzeltme uygulanamadı: ...`) `Raporlandı` ve değişmedi, diğeri düzeltildi; trigger kalkınca sonraki çalışma düzeltti.
-
-Yerel ham çıktılar `manual-tests/output/` altındadır (Git'e dahil değildir).
+Testte izlenen yol: 1. maddede `Gönderildi` ve `Başarısız` eski faturalar SQL ile üretildi (Gün 5'in 6. maddesindeki yöntem);
+6. maddede `Bekliyor`'u ve `Gönderildi`'yi ekranda görebilmek için simülatör geçici olarak meşgul moda ve ilk haber 40 sn
+gecikmeye alındı; 9. maddede çalışma 0,3 sn sürdüğü için ikinci basış çalışma sürerken yapılabilsin diye simülatör ~4 sn
+donduruldu. Bütün geçici ayarlar sonunda varsayılana döndü.
 
 ### Bilinen sınırlar
 
-- **Pencere:** kesinleşmiş (`Onaylandı`, `Reddedildi`) faturalar yalnızca son `LookbackHours` saatte oluşmuşsa karşılaştırılır.
-  Kesinleşmemiş faturalar yaşına bakılmadan her çalışmada kontrol edilir; pencerenin dışındakiler için ERP Simulator'a
-  tek tek sorulur, bu yüzden uzun bir kesintiden sonra takılı kalan fatura kaçmaz. Çok sayıda eski `Başarısız` fatura
-  birikirse her çalışmada o kadar sorgu atılır.
-- **Aralık:** zamanlanmış çalışmanın ve iki kopyanın sınandığı 7. ve 8. maddede aralık ortam değişkeniyle 1 dk'ya çekilir; 1 dk'da mutabakat karar event'i gelmemiş faturaları da düzeltir ve Gün 4'ün
-  3. maddesinin sayımını (kalan fatura = karar event'i gönderilmeyen fatura) değiştirir.
-- **9. madde:** ERP Simulator kapatılmadı, `docker pause` ile donduruldu; kesinti çalışmanın ERP'den ilk okumasında
-  oluştu. Karar sorgusu aşamasındaki kesinti yalnızca unit testle doğrulandı.
-- **Düzeltilmeyenler:** içeriği (tutar, para birimi, müşteri kodu, referans) ERP'den farklı fatura ERP'nin referansıyla ya
-  da kararıyla ilerletilmez, yalnızca raporlanır. ERP'de birden fazla kaydı olan fatura da geri getirilmez ve karar
-  almaz, yalnızca raporlanır: hangi kaydın doğru olduğu bilinmez.
-- **Yorum gerektirenler:** `decision` ilk event zamanı gelince `received`, karar zamanı gelince `approved` / `rejected`
-  döner; `pageSize` 500'ü aşarsa `400` döner; `ERP Kaydı Yok` istenen türlerin
-  dışında eklenmiş bir türdür; `Başarısız` olup ERP'de birden fazla kaydı olan faturada çift kayıt kuralına öncelik
-  verilir: yalnızca `ERP Çift Kayıt` raporlanır, fatura düzeltilmez.
-- **Ölçek:** düzeltmeler ve karar sorguları sıralıdır; çalışma listesi sayfalanmaz. Her çalışma penceredeki bütün
-  faturaları ve ERP kayıtlarını belleğe alır; test ölçeğinde (binlerce fatura) sorun olmadı, çok büyük hacimde ayrıca
-  ele alınması gerekir.
-- **Kilit:** bağlantı canlı tutulur (keepalive) ama ağ gerçekten kopmuşsa kilit düşer ve ikinci bir çalışma başlayabilir;
-  bunu yakalayan ek bir kontrol yoktur.
-- **Test kapsamı:** Uygulama kuralları birim testlerle (bellek içi sahtelerle); SQL store'ları, advisory lock, endpoint'ler
-  ve seçili eşzamanlılık senaryoları gerçek PostgreSQL kullanan `manual-tests/gun5/` script'leriyle (docker gerekir)
-  doğrulanır; bütün eşzamanlılık ihtimalleri denenmemiştir. Event ile
-  mutabakat yarışı canlı denendi (`ek-haber-yarisi.ps1`); resend ile mutabakat yarışı denenmedi, yalnızca kod
-  okumasıyla (resend satırı güncellediği için lock tutulurken bekler) değerlendirildi.
+- **Takılı faturaların hangileri olduğu** listeden süzülemez; Özet yalnızca sayısını gösterir. Takılı sayısı `Gönderildi` /
+  `İşleme Alındı`'da 2 dakikadan uzun kalan faturalardır; kuyrukta (`Bekliyor`) uzun kalan fatura bu sayıya girmez.
+- **Müdahaleyi kimin yaptığı** kaydedilmez (resend, mutabakat başlatma).
+- **Detay tek anlık görüntü değildir:** dört ayrı okumadır; okuma sırasında değişen fatura bir bölümde yeni, diğerinde eski görünebilir.
+- **Listedeki "Deneme Sayısı"** faturanın ömür boyu sayacıdır; detaydaki outbox denemesi resend'de sıfırlanır.
+- **Ekranın adresi:** servis adresi derlemede gömülür, CORS yalnızca `http://localhost:5100`'e açıktır; başka adreste çalıştırmak
+  için `VITE_API_URL` ve `Cors:AllowedOrigins` değiştirilip yeniden derlenir.
+- **Test kapsamı:** yeni sorgular (sayfalama, arama, özet, detay) birim testlerde bellek içi sahtelerle, gerçek PostgreSQL'de
+  `manual-tests/gun6/` script'leriyle doğrulandı. Mutabakatın sınırları için bkz. [ARCHITECTURE.md](ARCHITECTURE.md) ve
+  [gun-5](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-5) README'si.
 
 ---
 
@@ -333,3 +340,4 @@ Yerel ham çıktılar `manual-tests/output/` altındadır (Git'e dahil değildir
 | `gun-3` | Güvenli Gönderim | [tree/gun-3](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-3) |
 | `gun-4` | ERP'den Gelen Haberler | [tree/gun-4](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-4) |
 | `gun-5` | Mutabakat | [tree/gun-5](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-5) |
+| `gun-6` | Operasyon Ekranı | [tree/gun-6](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-6) |

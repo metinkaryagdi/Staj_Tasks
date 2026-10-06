@@ -1,7 +1,9 @@
 # Mimari
 
 İki uygulama da (Invoice Service ve ERP Simulator) aynı katmanlı yapıdadır: her biri dört projeye bölünmüştür ve
-projeler arasındaki referanslar tek yönlüdür.
+projeler arasındaki referanslar tek yönlüdür. Üçüncü uygulama olan operasyon ekranı (`operations-ui`) tarayıcıda çalışan
+küçük bir React uygulamasıdır; katmanlara bölünmemiştir ve yalnızca Invoice Service'in HTTP API'sini kullanır
+(bkz. [Operasyon Ekranı](#operasyon-ekranı)).
 
 ## Katmanlar ve bağımlılık kuralı
 
@@ -36,7 +38,8 @@ invoice-service/
     InvoiceService.Application/
       Abstractions/    IErpGateway, IInvoiceStore, IOutboxStore, IWebhookEventStore, IReconciliationStore, IReconciliationLock,
                        IUnitOfWork, IDatabaseFailureClassifier
-      Invoices/        CreateInvoiceHandler, ResendInvoiceHandler, InvoiceQueries, CreateInvoiceRequest
+      Invoices/        CreateInvoiceHandler, ResendInvoiceHandler, ResendInvoicesHandler, InvoiceQueries,
+                       InvoiceReadModels, CreateInvoiceRequest
       Outbox/          OutboxProcessor, ClaimedEntry, ErpSendStrategy, OutboxOutcomeWriter, RetryPolicy, OutboxOptions
       Webhooks/        WebhookEventProcessor, InvoiceEventApplier, ErpWebhookRequest, WebhookSignature, WebhookOptions
       Reconciliation/  ReconciliationService, ReconciliationRunner, ReconciliationPlanner, ReconciliationPlan, FixApplier,
@@ -48,11 +51,11 @@ invoice-service/
       Erp/             ErpClient (IErpGateway), ErpOptions
       DependencyInjection.cs
     InvoiceService.Api/
-      Invoices/        InvoiceEndpoints, InvoiceResponse
+      Invoices/        InvoiceEndpoints, InvoiceResponse, InvoiceReadResponses, BulkResendResponses
       Webhooks/        WebhookEndpoints, WebhookRequestReader
       Reconciliation/  ReconciliationEndpoints, ReconciliationResponses
       Workers/         OutboxWorker, ReconciliationWorker
-      Startup/         LoggingExtensions, OpenApiExtensions, DatabaseMigrator, SettingsLogger
+      Startup/         LoggingExtensions, OpenApiExtensions, DatabaseMigrator, SettingsLogger, CorsExtensions
       Program.cs
   tests/
     InvoiceService.Domain.Tests / .Application.Tests / .Infrastructure.Tests / .Api.Tests
@@ -63,11 +66,11 @@ invoice-service/
 | Port | Ne için | Uygulaması |
 |---|---|---|
 | `IErpGateway` | ERP'ye faturayı gönder (`SendAsync`), faturayı ve kararını sor (`FindAsync`), aralıktaki kayıtları listele (`ListAsync`) | `ErpClient` |
-| `IInvoiceStore` | `invoices` tablosu: numara üret, fatura + outbox kaydını birlikte yaz, oku, koşullu güncelle, satır kilidi | `InvoiceStore` |
-| `IOutboxStore` | `erp_outbox`: `FOR UPDATE SKIP LOCKED` ile kayıt al, claim hâlâ bizde mi, sonucu claim'e göre yaz, sıfırla | `OutboxStore` |
-| `IWebhookEventStore` | `erp_webhook_events`: bir kez sakla (`ON CONFLICT`), oku, bekleyenleri kilitle, `SET LOCAL` süre limitleri | `WebhookEventStore` |
+| `IInvoiceStore` | `invoices` tablosu: numara üret, fatura + outbox kaydını birlikte yaz, oku, sayfalı liste ve arama, durum başına sayı ve takılı sayısı, koşullu güncelle, satır kilidi | `InvoiceStore` |
+| `IOutboxStore` | `erp_outbox`: `FOR UPDATE SKIP LOCKED` ile kayıt al, claim hâlâ bizde mi, sonucu claim'e göre yaz, sıfırla, faturanın kaydını oku | `OutboxStore` |
+| `IWebhookEventStore` | `erp_webhook_events`: bir kez sakla (`ON CONFLICT`), oku, faturanın haberlerini listele, bekleyenleri kilitle, `SET LOCAL` süre limitleri | `WebhookEventStore` |
 | `IUnitOfWork` | Transaction sınırı: aynı DI scope'undaki store'lar aynı transaction'a katılır | `UnitOfWork` |
-| `IReconciliationStore` | `reconciliation_runs` / `reconciliation_findings`; mutabakatın okuduğu fatura ve haber listeleri | `ReconciliationStore` |
+| `IReconciliationStore` | `reconciliation_runs` / `reconciliation_findings`; mutabakatın okuduğu fatura ve haber listeleri; bir faturanın bulguları | `ReconciliationStore` |
 | `IReconciliationLock` | Aynı anda tek mutabakat: bırakılana kadar tutulan kilit; başkasındaysa `null` | `AdvisoryReconciliationLock` |
 | `IDatabaseFailureClassifier` | Veritabanı hatası `lock_timeout` / `statement_timeout` mu (webhook'ta 503 için) | `PostgresFailureClassifier` |
 
@@ -111,6 +114,14 @@ ERP'ye ulaşılamazsa çalışma Başarısız olur ve hiçbir fatura değişmemi
 Bekliyor'a döner ve outbox kaydı sıfırlanır (tek transaction); sonuç `Queued` / `NotFound` / `NotFailed` → `202` /
 `404` / `409`.
 
+**Toplu yeniden gönderme** — `POST /api/v1/invoices/resend` → `ResendInvoicesHandler`: 1–100 numara; tekrarlanan numara
+bir kez işlenir; her numara sırayla `ResendInvoiceHandler`'dan (kendi transaction'ıyla) geçer, böylece tekli resend'in
+kuralları ve aynı anda iki resend'e karşı koşullu UPDATE aynen geçerlidir. Bir faturanın hatası diğerlerini durdurmaz;
+cevap her fatura için ayrı sonuçtur (`queued`, `not_found`, `not_failed` + şu anki durum, `error`).
+
+**Ekranın okumaları** — `InvoiceQueries`: sayfalı liste ve arama (`ListPageAsync`), özet (`CountByStatusAsync`,
+`CountStuckAsync`), detay (fatura, outbox kaydı, haberler ve bulgular; dört ayrı okuma, tek anlık görüntü değil).
+
 ## ERP Simulator
 
 ```
@@ -147,6 +158,26 @@ kaydı ve `WebhookPlanner`'ın planladığı event'leri tek transaction'da yazar
 **Webhook gönderimi** — `WebhookDispatcher` (Api) yalnızca döngüdür: zamanı gelen satırları alır, aynı anda en fazla
 `MaxConcurrentSends` gönderir. Her satır için `WebhookSender` imzalar (fake: yanlış anahtar, replay: eski timestamp),
 `IWebhookTransport` ile gönderir, sonucu ve bekleyen replay'leri tek transaction'da yazar.
+
+## Operasyon Ekranı
+
+```
+operations-ui/
+  src/
+    api/          client (fetch, hata türleri), endpoints, queries (TanStack Query tanımları), types
+    pages/        SummaryPage, InvoiceListPage, InvoiceDetailPage, ReconciliationPage
+    components/   Layout, QueryState, Notice, StatusBadge, RefreshStamp, ErrorBoundary
+    tr.ts         ekrandaki bütün metinler ve hata mesajları
+    selection.ts  toplu seçim (en fazla 100)
+    config.ts     servis adresi, yenileme aralığı, zaman aşımı
+  Dockerfile      node ile derler, nginx ile sunar
+  nginx.conf
+```
+
+Sayfalar tarayıcıdan doğrudan Invoice Service'e gider (`VITE_API_URL`, derlemede gömülür). Her sorgu
+TanStack Query ile 10 saniyede bir yenilenir; bir hata, varsa son bilinen veriyle birlikte uyarı olarak gösterilir ve bir
+sonraki yenileme başarılı olunca kendiliğinden kalkar. Reddedilen müdahalede servis cevabındaki `code` alanı
+(`invoice_not_failed`, `invoice_not_found`, `reconciliation_running`) Türkçe mesaja çevrilir.
 
 ## Tasarım kararları
 
@@ -243,6 +274,20 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Idempotent modda benzersiz indeks yerine kilit** (fatura numarasından üretilen PostgreSQL advisory lock): mevcut
   çift kayıtlar geçerli kalır ve ayar yeniden kapatılabilir.
 
+### Operasyon ekranı
+
+- **Tarayıcı servise doğrudan gider, CORS açılır.** Ekranın adresi (`Cors:AllowedOrigins`, varsayılan `http://localhost:5100`) dışında bir
+  sayfanın isteğine izin verilmez; yalnızca GET, POST ve `Content-Type`. Boş ya da geçersiz origin servisin açılmasını engeller.
+- **Yenileme yeniden denemenin yerini tutar.** Kütüphanenin kendi yeniden denemesi kapalıdır: gizli bir sekmede beklemeye alındığı için hata
+  hiç görünmeyip sayfa "Yükleniyor"da kalabiliyordu. Sekme arka planda da yenilenir.
+- **Hata türü üçe ayrılır:** ulaşılamadı (cevap yok, zaman aşımı ya da tarayıcının engellemesi), sunucu hatası (5xx), reddedildi (4xx,
+  `code` ile). Cevap alınamayan bir müdahalede mesaj işlemin yapılıp yapılmadığının belli olmadığını söyler.
+- **Süzgeç, arama ve sayfa adreste tutulur** (`?durum=&ara=&sayfa=&boyut=`); yenileyince ya da geri dönünce aynı liste açılır.
+- **`index.html` önbelleğe alınmaz**, dosya adı içerik özeti taşıyan `assets/` uzun süre saklanır; yeni sürüm kurulunca tarayıcı eski
+  sayfanın aradığı dosyayı istemez.
+- **Tutar üst sınırı** (`CreateInvoiceRequest.MaxAmount`, 999.999.999.999,99): veritabanı sütununa sığar ve JSON sayısı olarak ekranda
+  kuruşuna kadar doğru görünür.
+
 ## Testler
 
 | Proje | Ne test eder |
@@ -250,11 +295,13 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 | `*.Domain.Tests` | Saf kurallar: durum geçişleri, fatura numarası biçimi |
 | `*.Application.Tests` | Politikalar ve doğrulamalar (`RetryPolicy`, imza, ayarlar, istek doğrulama, `BehaviorSelector`, `WebhookPlanner`) ve **use case'ler port'ların bellek içi sahteleriyle** (`Fakes/`): veritabanı ve HTTP olmadan gönderim akışı, yeniden gönderme, webhook işleme, simülatörün davranışları ve webhook gönderimi |
 | `*.Infrastructure.Tests` | `ErpClient` (sahte `HttpMessageHandler` ile), ERP ayarları, migration'ların modeli hâlâ tarif ettiği (veritabanı gerekmez) |
-| `InvoiceService.Api.Tests` | Projeyle gelen `appsettings.json` değerleri |
+| `InvoiceService.Api.Tests` | Projeyle gelen `appsettings.json` değerleri, CORS origin doğrulaması |
+| `operations-ui` (vitest) | Toplu seçim sınırı, API istemcisinin hata türleri, Türkçe hata mesajları |
 
 ```bash
 dotnet test invoice-service
 dotnet test erp-simulator
+npm test --prefix operations-ui
 ```
 
 ## Bilinçli uzlaşmalar
