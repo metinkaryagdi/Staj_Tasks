@@ -1,0 +1,50 @@
+import { postJson, request } from './client'
+import type {
+  Invoice,
+  InvoiceDetails,
+  InvoiceList,
+  InvoiceQuery,
+  InvoiceSummary,
+  ReconciliationRun,
+  ReconciliationRunDetail,
+  ResendItem,
+} from './types'
+
+const invoices = '/api/v1/invoices'
+const runs = '/api/v1/reconciliation-runs'
+
+export function getSummary() {
+  return request<InvoiceSummary>(`${invoices}/summary`)
+}
+
+export function getInvoices(query: InvoiceQuery) {
+  const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) })
+  if (query.status) params.set('status', query.status)
+  if (query.search) params.set('search', query.search)
+  return request<InvoiceList>(`${invoices}?${params}`)
+}
+
+export function getInvoiceDetails(invoiceNumber: string) {
+  return request<InvoiceDetails>(`${invoices}/${encodeURIComponent(invoiceNumber)}/details`)
+}
+
+export function resendInvoice(invoiceNumber: string) {
+  return postJson<Invoice>(`${invoices}/${encodeURIComponent(invoiceNumber)}/resend`)
+}
+
+export async function resendInvoices(invoiceNumbers: string[]) {
+  const response = await postJson<{ results: ResendItem[] }>(`${invoices}/resend`, { invoiceNumbers })
+  return response.results
+}
+
+export function getRuns() {
+  return request<ReconciliationRun[]>(runs)
+}
+
+export function getRunDetail(id: number) {
+  return request<ReconciliationRunDetail>(`${runs}/${id}`)
+}
+
+export function startRun() {
+  return postJson<ReconciliationRun>(runs)
+}
