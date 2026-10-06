@@ -257,24 +257,27 @@ düzeltiyor, düzeltemediğini raporluyor ([Mutabakat](#mutabakat)). ERP Simulat
 cevabında faturanın kararını döndürüyor ve kayıtlarını `GET /api/v1/invoices?from&to` ile sayfalı listeliyor
 ([Endpoint'ler](#endpointler)). İki yeni tablo eklendi (`reconciliation_runs`, `reconciliation_findings`), `ignore_reason`'a
 `Fatura Yok` eklendi. Önce kod sadeleştirildi: iki uygulama katmanlı yapıya alındı, açıklamalar kısaltıldı
-([ARCHITECTURE.md](ARCHITECTURE.md)).
+([ARCHITECTURE.md](ARCHITECTURE.md)). Sonradan iki düzeltme eklendi: durumu kesinleşmemiş faturalar yaşlarına bakılmadan
+her çalışmada kontrol ediliyor, düzeltmesi hata veren fatura nedeniyle birlikte bulgu olarak kaydediliyor.
 
-Kontrol listesi ve ek test: [`manual-tests/gun5/`](manual-tests/gun5/) (`.\manual-tests\gun5\kontrol-listesi.ps1` 2-9.
+Kontrol listesi ve ek testler: [`manual-tests/gun5/`](manual-tests/gun5/) (`.\manual-tests\gun5\kontrol-listesi.ps1` 2-9.
 maddeleri sırayla çalıştırır; 1. madde `gun3` ve `gun4` listeleridir).
 
-### Son doğrulama — 5 Ekim 2026
+### Son doğrulama — 5-6 Ekim 2026
 
-Gün 3 listesi 7/7 (22,1 dk), Gün 4 listesi 8/8 geçti; ikisi de son değişikliklerden önceki koşulardır. Sonrasında
-yalnızca yorumlar, bir sabit adı, planlayıcının bir kuralı ve ERP cevabındaki karar alanının adı (`decided_at`)
-değişti; Gün 3 ve Gün 4 yeniden koşulmadı. Gün 3'ün daha önceki bir koşusunda 4. madde, beklemeyi iki log damgasından ölçtüğü için,
-planlanandan 87 ms kısa ölçülmüştü, 50 ms toleransı 37 ms aşmıştı; tolerans değiştirilmeden yeniden koşularda geçti. Gün 5 listesi
-(2-9) ve ek test son hâlde koşuldu ve geçti; yalnızca 2. madde ilk koşuda kaldı (aşağıda), kalıntısız yeniden koşuda geçti. Birim testler: Invoice Service 281, ERP Simulator 103, hepsi geçti. Bunlar bu koşuların sonuçlarıdır;
-başka koşullarda aynı sonucun çıkacağını göstermez.
+Gün 3 listesi 7/7, Gün 4 listesi 8/8 geçti (5 Ekim). O koşulardan sonra kodda yalnızca yorumlar, bir sabit adı, planlayıcının
+bir kuralı, ERP cevabındaki karar alanının adı (`decided_at`) ve 6 Ekim'deki iki düzeltme değişti; Gün 3 ve Gün 4 yeniden
+koşulmadı. 6 Ekim'deki düzeltmelerin gönderim yoluna dokunan tek yeri, `ErpClient`'ın "bu fatura ERP'de var mı" cevabından
+kayıtları da okuması (okunamazsa kayıtlar boş sayılır, gönderim kararı değişmez). Gün 3'ün daha önceki bir koşusunda 4. madde,
+beklemeyi iki log damgasından ölçtüğü için, planlanandan 87 ms kısa ölçülmüştü, 50 ms toleransı 37 ms aşmıştı; tolerans
+değiştirilmeden yeniden koşularda geçti. Gün 5 listesi (2-9, 17,6 dk) ve ek testler 6 Ekim'de son kodla koşuldu ve hepsi geçti.
+Birim testler: Invoice Service 292, ERP Simulator 103, hepsi geçti. Bunlar bu koşuların sonuçlarıdır; başka koşullarda aynı
+sonucun çıkacağını göstermez.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
-| 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 | Gün 3 7/7 (son kodla), Gün 4 8/8 (daha önceki koşuda; ayrıntı yukarıdaki notta) |
-| 2 | 500 fatura, varsayılan oranlar, haberler bitince mutabakat | 30 fatura takılı kalmıştı (karar event'i gönderilmeyen 30'la aynı); 30'u düzeltildi, kalan 0. Bir koşuda, hemen öncesinde çalışan başka bir testin bıraktığı 6 takılı fatura da düzeltildiği için düzeltilen sayısı 36 çıktı (500 faturalık küme yine 30/30); kalıntısız yeniden koşuda 30/30 geçti |
+| 1 | Sadeleştirmeden sonra Gün 3 ve Gün 4 | Gün 3 7/7, Gün 4 8/8 (ikisi de son değişikliklerden önceki koşular; ayrıntı yukarıdaki notta) |
+| 2 | 500 fatura, varsayılan oranlar, haberler bitince mutabakat | 30 fatura takılı kalmıştı (karar event'i gönderilmeyen 30'la aynı); 30'u düzeltildi, kalan 0 |
 | 3 | ERP Simulator'a elle eklenen, serviste olmayan fatura | `Serviste Yok` raporlandı; iki tarafta değişiklik yok. `POST` `202` + `Location`, liste sırası ve `404` de doğrulandı |
 | 4 | ERP'de tutarı elle değiştirilen fatura | `Alan Farkı` (1250.50 / 1260.50) raporlandı; değişiklik yok |
 | 5 | Elle ikinci gönderim (çift kayıt) | `ERP Çift Kayıt` raporlandı; aynı fatura serviste `Başarısız` olsa da yalnızca raporlandı, fatura ve `erp_outbox` değişmedi |
@@ -283,10 +286,16 @@ başka koşullarda aynı sonucun çıkacağını göstermez.
 | 8 | Servisin iki kopyası + elle başlatma | Kilit başka oturumdayken iki kopya da `409`; 30 eşzamanlı istekte 1 `202`, 29 `409`; çalışma aralıkları üst üste binmedi |
 | 9 | Mutabakat sürerken ERP Simulator ulaşılamaz | Çalışma `Başarısız` (10 sn zaman aşımı), hiçbir fatura değişmedi; sonraki çalışma 5 faturanın 5'ini düzeltti |
 
-**Ek test** (`ek-haber-yarisi.ps1`): fatura satırı 8 sn kilitliyken mutabakat başlatıldı ve kararın event'i servise
-gönderildi. Event iki kez `503` (lock-timeout) aldı, sonra `200`; fatura tek kez doğru karara ilerledi. İki koşuda iki
-farklı sıra görüldü (mutabakat önce: ilk koşuda, event önce: son koşuda), ikisinde de sonuç tutarlıydı. Yerel ham çıktılar `manual-tests/output/`
-altındadır (Git'e dahil değildir).
+**Ek testler:**
+- `ek-haber-yarisi.ps1`: fatura satırı 8 sn kilitliyken mutabakat başlatıldı ve kararın event'i servise gönderildi. Event iki
+  kez `503` (lock-timeout) aldı, sonra `200`; fatura tek kez doğru karara ilerledi. İki sıra da görüldü (mutabakat önce: ilk
+  koşuda, event önce: sonraki koşularda), ikisinde de sonuç tutarlıydı.
+- `ek-eski-takili-fatura.ps1`: 3 gün öncesine alınan `Gönderildi`'de takılı fatura ERP'nin kararını aldı, `Başarısız` fatura
+  geri geldi ve kararı aldı, kesinleşmiş eski faturaya dokunulmadı.
+- `ek-duzeltme-hatasi.ps1`: veritabanı trigger'ı bir faturanın güncellemesini hataya düşürdü; çalışma `Tamamlandı`, o fatura
+  nedeniyle (`Düzeltme uygulanamadı: ...`) `Raporlandı` ve değişmedi, diğeri düzeltildi; trigger kalkınca sonraki çalışma düzeltti.
+
+Yerel ham çıktılar `manual-tests/output/` altındadır (Git'e dahil değildir).
 
 ### Bilinen sınırlar
 
