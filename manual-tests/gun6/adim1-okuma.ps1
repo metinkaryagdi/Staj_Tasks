@@ -74,8 +74,9 @@ Check (Write-DbVerdict "arama '%' (joker değil, düz karakter): 0 fatura" "$($p
 
 # --- C) Detay ------------------------------------------------------------------------------------------------------
 Write-DbHeader 'Fatura Servisi' 'C) /invoices/{no}/details: outbox, haberler, bulgular'
-$withEvents = @(Get-ServiceRows "SELECT invoice_number FROM erp_webhook_events GROUP BY invoice_number HAVING count(*) >= 2 ORDER BY max(received_at) DESC LIMIT 1;")
-$withFindings = @(Get-ServiceRows "SELECT invoice_number FROM reconciliation_findings ORDER BY id DESC LIMIT 1;")
+# Yalnızca serviste olan faturalar: serviste olmayan bir faturanın (örn. "Serviste Yok" bulgusu) detayı yoktur, 404 doğrudur.
+$withEvents = @(Get-ServiceRows "SELECT e.invoice_number FROM erp_webhook_events e JOIN invoices i USING (invoice_number) GROUP BY e.invoice_number HAVING count(*) >= 2 ORDER BY max(e.received_at) DESC LIMIT 1;")
+$withFindings = @(Get-ServiceRows "SELECT f.invoice_number FROM reconciliation_findings f JOIN invoices i USING (invoice_number) ORDER BY f.id DESC LIMIT 1;")
 $candidates = @($withEvents + $withFindings | Where-Object { $_ } | Select-Object -Unique)
 if ($candidates.Count -eq 0) { $candidates = @($dbFirst[0]) }
 foreach ($number in $candidates) {
