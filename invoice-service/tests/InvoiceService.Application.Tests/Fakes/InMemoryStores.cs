@@ -250,6 +250,11 @@ public sealed class FakeErpGateway : IErpGateway
     public static ErpSendResult Accepted(string reference) => new(true, reference, 202, null, TimeSpan.Zero);
     public static ErpSendResult ServerError() => new(false, null, 500, "ERP 500", TimeSpan.Zero);
     public static ErpLookupResult Found(string reference) => new(ErpLookup.Found, reference, 200, null, TimeSpan.Zero);
+
+    /// <summary>The ERP has the invoice: its records and its decision, as a lookup answer carries them.</summary>
+    public static ErpLookupResult FoundWith(ErpDecision decision, params ErpRecord[] records) =>
+        new(ErpLookup.Found, records[0].ErpReference, 200, null, TimeSpan.Zero, decision, records);
+
     public static ErpLookupResult NotFound() => new(ErpLookup.NotFound, null, 404, null, TimeSpan.Zero);
     public static ErpLookupResult Unknown() => new(ErpLookup.Unknown, null, null, "ERP'ye ulaşılamadı", TimeSpan.Zero);
 }
@@ -311,8 +316,9 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
     public Task<IReadOnlyList<ReconciliationFinding>> ListFindingsAsync(long runId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ReconciliationFinding>>(Findings.Where(f => f.RunId == runId).ToList());
 
-    public Task<IReadOnlyList<Invoice>> InvoicesCreatedSinceAsync(DateTimeOffset since, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values.Where(i => i.CreatedAt >= since).ToList());
+    public Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(DateTimeOffset since, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values
+            .Where(i => i.CreatedAt >= since || InvoiceStatus.Unsettled.Contains(i.Status)).ToList());
 
     public Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values.Where(i => numbers.Contains(i.InvoiceNumber)).ToList());

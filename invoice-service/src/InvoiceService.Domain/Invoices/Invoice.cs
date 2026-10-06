@@ -55,6 +55,9 @@ public static class InvoiceStatus
 
     /// <summary>The statuses that mean the ERP has accepted the invoice.</summary>
     public static readonly string[] ErpHasIt = [Sent, Processing, Approved, Rejected];
+
+    /// <summary>Neither final nor waiting in the outbox: reconciliation checks these however old they are.</summary>
+    public static readonly string[] Unsettled = [Sent, Processing, Failed];
 }
 
 public static class InvoiceNumber

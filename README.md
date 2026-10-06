@@ -183,8 +183,8 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar. Retry kuralları (`Re
 ### Mutabakat
 
 `ReconciliationWorker` ayardaki aralıkta çalışır (varsayılan 60 dk; ilk çalışma servis açıldıktan bir aralık sonra); aynı iş
-`POST /api/v1/reconciliation-runs` ile elle de başlar. Çalışma son `LookbackHours` saatin faturalarını ERP Simulator'ın
-kayıtlarıyla karşılaştırır. Önce her şeyi okur, sonra yazar: ERP Simulator'a ulaşılamazsa çalışma `Başarısız` olur ve
+`POST /api/v1/reconciliation-runs` ile elle de başlar. Çalışma son `LookbackHours` saatte oluşan faturaları ve durumu kesinleşmemiş
+(`Gönderildi`, `İşleme Alındı`, `Başarısız`) bütün faturaları, yaşına bakmadan, ERP Simulator'ın kayıtlarıyla karşılaştırır. Önce her şeyi okur, sonra yazar: ERP Simulator'a ulaşılamazsa çalışma `Başarısız` olur ve
 hiçbir fatura değişmemiştir.
 
 | Bulgu türü | Eylem |
@@ -288,8 +288,10 @@ altındadır (Git'e dahil değildir).
 
 ### Bilinen sınırlar
 
-- **Pencere:** servis tarafı son `LookbackHours` saatte oluşan faturalar ve ERP Simulator'ın listelediği numaralardır;
-  pencerenin dışına kaçmış eski bir takılı fatura bir daha görülmez.
+- **Pencere:** kesinleşmiş (`Onaylandı`, `Reddedildi`) faturalar yalnızca son `LookbackHours` saatte oluşmuşsa karşılaştırılır.
+  Kesinleşmemiş faturalar yaşına bakılmadan her çalışmada kontrol edilir; pencerenin dışındakiler için ERP Simulator'a
+  tek tek sorulur, bu yüzden uzun bir kesintiden sonra takılı kalan fatura kaçmaz. Çok sayıda eski `Başarısız` fatura
+  birikirse her çalışmada o kadar sorgu atılır.
 - **Aralık:** zamanlanmış çalışmanın ve iki kopyanın sınandığı 7. ve 8. maddede aralık ortam değişkeniyle 1 dk'ya çekilir; 1 dk'da mutabakat karar event'i gelmemiş faturaları da düzeltir ve Gün 4'ün
   3. maddesinin sayımını (kalan fatura = karar event'i gönderilmeyen fatura) değiştirir.
 - **9. madde:** ERP Simulator kapatılmadı, `docker pause` ile donduruldu; kesinti çalışmanın ERP'den ilk okumasında

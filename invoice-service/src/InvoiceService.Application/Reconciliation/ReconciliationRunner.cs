@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Reconciliation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -85,7 +86,7 @@ public sealed class ReconciliationRunner(
         // The service's side is read before the ERP's, and the ERP's list runs up to a moment taken after that
         // reading: an invoice that is Gönderildi in the service's data was accepted by the ERP before then, so it is
         // in the list.
-        var invoices = (await store.InvoicesCreatedSinceAsync(since, ct)).ToList();
+        var invoices = (await store.InvoicesToCheckAsync(since, ct)).ToList();
         var unknownEvents = await store.WaitingEventsOfUnknownInvoicesAsync(ct);
 
         var listed = await erp.ListAsync(since, time.GetUtcNow(), ct);
@@ -98,11 +99,37 @@ public sealed class ReconciliationRunner(
         if (others.Count > 0)
             invoices.AddRange(await store.InvoicesByNumberAsync(others, ct));
 
-        var snapshot = new ReconciliationSnapshot(now, invoices, listed.Records, unknownEvents);
-
+        var records = listed.Records.ToList();
         var decisions = new Dictionary<string, ErpDecision>();
+
+        // An unsettled invoice older than the window is not in the ERP's list: ask the ERP for it, so a long outage of
+        // the runs cannot leave it unseen. The answer also carries the decision.
+        var listedNumbers = records.Select(r => r.InvoiceNumber).ToHashSet();
+        foreach (var old in invoices.Where(i => i.CreatedAt < since && InvoiceStatus.Unsettled.Contains(i.Status)
+                                                && !listedNumbers.Contains(i.InvoiceNumber)))
+        {
+            var found = await erp.FindAsync(old.InvoiceNumber, ct);
+            switch (found.Lookup)
+            {
+                case ErpLookup.Found when found.Records is not null:
+                    records.AddRange(found.Records);
+                    decisions[old.InvoiceNumber] = found.Decision ?? ErpDecision.None;
+                    break;
+                case ErpLookup.NotFound:
+                    break;
+                default:
+                    throw new ReconciliationFailedException(
+                        $"{old.InvoiceNumber} için ERP'den kayıt alınamadı: {found.Error ?? "cevaptaki kayıtlar okunamadı"}");
+            }
+        }
+
+        var snapshot = new ReconciliationSnapshot(now, invoices, records, unknownEvents);
+
         foreach (var number in planner.InvoicesToAsk(snapshot))
         {
+            if (decisions.ContainsKey(number))
+                continue;
+
             var found = await erp.FindAsync(number, ct);
             if (found.Lookup != ErpLookup.Found)
             {

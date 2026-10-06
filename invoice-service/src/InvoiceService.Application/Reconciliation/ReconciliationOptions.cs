@@ -10,7 +10,10 @@ public sealed class ReconciliationOptions
     /// <summary>Minutes between scheduled runs; the first one starts this long after the service does.</summary>
     public int IntervalMinutes { get; set; }
 
-    /// <summary>How far back a run looks: invoices created in the last this many hours.</summary>
+    /// <summary>
+    /// How far back a run looks: invoices created in the last this many hours. Invoices that are not final
+    /// (Gönderildi, İşleme Alındı, Başarısız) are checked however old they are.
+    /// </summary>
     public int LookbackHours { get; set; }
 
     /// <summary>

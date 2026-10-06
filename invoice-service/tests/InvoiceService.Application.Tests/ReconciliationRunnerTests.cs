@@ -99,6 +99,110 @@ public class ReconciliationRunnerTests
         Assert.Equal(1, run.CheckedCount);
     }
 
+    // --- Pencerenin dışında kalmış, kesinleşmemiş faturalar
+    // ---------------------------------------------------------------------------------------
+
+    private static ErpRecord OldErp(string number, string reference) =>
+        new(number, reference, "C-001", 10.50m, "TRY", new DateOnly(2026, 10, 1), Now.AddHours(-100));
+
+    [Fact]
+    public async Task An_unsettled_invoice_older_than_the_window_is_asked_for_and_fixed()
+    {
+        AddInvoice("F-OLD", InvoiceStatus.Sent, minutesInStatus: 100 * 60, reference: "ERP-1", createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(
+            new ErpDecision(ErpDecisionKind.Approved, null, Now.AddHours(-90)), OldErp("F-OLD", "ERP-1")));
+
+        var run = await RunAsync();
+
+        Assert.Equal(ReconciliationStatus.Completed, run.Status);
+        Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices["F-OLD"].Status);
+        Assert.Equal(1, run.FixedCount);
+        Assert.Equal(FindingType.StuckInvoice, Assert.Single(_s.Reconciliation.Findings).FindingType);
+        // One question is enough: its answer carries the records and the decision.
+        Assert.Equal(["LIST", "GET F-OLD"], _s.Erp.Calls);
+    }
+
+    [Fact]
+    public async Task A_failed_invoice_older_than_the_window_that_the_erp_has_is_brought_back()
+    {
+        AddInvoice("F-OLD", InvoiceStatus.Failed, minutesInStatus: 100 * 60, createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(ErpDecision.None, OldErp("F-OLD", "ERP-7")));
+
+        var run = await RunAsync();
+
+        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-OLD"].Status);
+        Assert.Equal("ERP-7", _s.Invoices.Invoices["F-OLD"].ErpReference);
+        Assert.Equal(1, run.FixedCount);
+        Assert.Equal(FindingType.FailedButInErp, Assert.Single(_s.Reconciliation.Findings).FindingType);
+    }
+
+    [Fact]
+    public async Task An_unsettled_old_invoice_the_erp_does_not_have_is_reported_and_left_alone()
+    {
+        AddInvoice("F-OLD", InvoiceStatus.Sent, minutesInStatus: 100 * 60, reference: "ERP-1", createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        var run = await RunAsync();
+
+        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-OLD"].Status);
+        var finding = Assert.Single(_s.Reconciliation.Findings);
+        Assert.Equal((FindingType.MissingInErp, FindingAction.Reported), (finding.FindingType, finding.Action));
+        Assert.Equal((0, 1), (run.FixedCount, run.ReportedCount));
+    }
+
+    [Fact]
+    public async Task A_failed_invoice_older_than_the_window_that_the_erp_does_not_have_stays_unreported()
+    {
+        AddInvoice("F-OLD", InvoiceStatus.Failed, minutesInStatus: 100 * 60, createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        var run = await RunAsync();
+
+        Assert.Equal(ReconciliationStatus.Completed, run.Status);
+        Assert.Equal(InvoiceStatus.Failed, _s.Invoices.Invoices["F-OLD"].Status);
+        Assert.Empty(_s.Reconciliation.Findings);
+    }
+
+    [Fact]
+    public async Task A_final_invoice_older_than_the_window_is_not_asked_for()
+    {
+        AddInvoice("F-OLD", InvoiceStatus.Approved, reference: "ERP-1", createdHoursAgo: 100);
+
+        await RunAsync();
+
+        Assert.Equal(["LIST"], _s.Erp.Calls);
+    }
+
+    [Fact]
+    public async Task When_an_old_invoice_cannot_be_asked_for_the_run_fails_and_nothing_is_changed()
+    {
+        AddInvoice("F-OLD", InvoiceStatus.Sent, minutesInStatus: 100 * 60, reference: "ERP-1", createdHoursAgo: 100);
+        AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-2");
+        _s.Erp.ListResult = new ErpListResult(true, [Erp("F-1", "ERP-2")], null);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.Unknown());
+
+        var run = await RunAsync();
+
+        Assert.Equal(ReconciliationStatus.Failed, run.Status);
+        Assert.Contains("F-OLD", run.Error);
+        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-OLD"].Status);
+        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-1"].Status);
+        Assert.Empty(_s.Reconciliation.Findings);
+    }
+
+    [Fact]
+    public async Task An_answer_for_an_old_invoice_without_readable_records_fails_the_run()
+    {
+        AddInvoice("F-OLD", InvoiceStatus.Sent, minutesInStatus: 100 * 60, reference: "ERP-1", createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.Found("ERP-1"));
+
+        var run = await RunAsync();
+
+        Assert.Equal(ReconciliationStatus.Failed, run.Status);
+        Assert.Contains("F-OLD", run.Error);
+        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-OLD"].Status);
+    }
+
     // --- Simülatöre ulaşılamazsa
     // ---------------------------------------------------------------------------------------
 

@@ -90,7 +90,8 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
                 return new ErpLookupResult(ErpLookup.NotFound, null, status, null, watch.Elapsed);
 
             if (response.StatusCode == HttpStatusCode.OK && ReadErpReference(body) is { } reference)
-                return new ErpLookupResult(ErpLookup.Found, reference, status, null, watch.Elapsed, ReadDecision(body));
+                return new ErpLookupResult(ErpLookup.Found, reference, status, null, watch.Elapsed, ReadDecision(body),
+                    ReadRecords(body, invoiceNumber));
 
             return new ErpLookupResult(ErpLookup.Unknown, null, status,
                 $"ERP'ye faturanın kaydı sorulamadı: GET {status} {response.ReasonPhrase} döndü: {Describe(body)}", watch.Elapsed);
@@ -140,6 +141,21 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
     }
 
     private static ErpListResult ListFailed(string error) => new(false, [], $"ERP kayıtları listelenemedi: {error}");
+
+    /// <summary>The records of a lookup answer; null when the answer has no readable records.</summary>
+    private static IReadOnlyList<ErpRecord>? ReadRecords(string body, string invoiceNumber)
+    {
+        try
+        {
+            var answer = JsonSerializer.Deserialize<ErpLookupBody>(body, JsonSerializerOptions.Web);
+            return answer?.Records?.Select(r => new ErpRecord(
+                invoiceNumber, r.ErpReference, r.CustomerCode, r.Amount, r.Currency, r.InvoiceDate, r.ReceivedAt)).ToList();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>The decision fields of a lookup answer; none when they are missing.</summary>
     private static ErpDecision ReadDecision(string body)
@@ -210,6 +226,11 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
 
         return body.Length <= MaxBodyInError ? body : body[..MaxBodyInError] + "...";
     }
+
+    private sealed record ErpLookupBody(List<ErpLookupRecord>? Records);
+
+    private sealed record ErpLookupRecord(
+        string ErpReference, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate, DateTimeOffset ReceivedAt);
 
     private sealed record ErpListPage(int TotalCount, List<ErpListItem>? Items);
 

@@ -34,8 +34,11 @@ public interface IReconciliationStore
     /// <summary>In the order they were found.</summary>
     Task<IReadOnlyList<ReconciliationFinding>> ListFindingsAsync(long runId, CancellationToken ct);
 
-    /// <summary>Invoices created at or after <paramref name="since"/>, not tracked.</summary>
-    Task<IReadOnlyList<Invoice>> InvoicesCreatedSinceAsync(DateTimeOffset since, CancellationToken ct);
+    /// <summary>
+    /// Invoices created at or after <paramref name="since"/>, and every <see cref="InvoiceStatus.Unsettled"/> invoice
+    /// however old, not tracked.
+    /// </summary>
+    Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(DateTimeOffset since, CancellationToken ct);
 
     /// <summary>The invoices with these numbers (the ones that exist), not tracked.</summary>
     Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct);

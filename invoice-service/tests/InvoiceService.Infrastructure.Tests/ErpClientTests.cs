@@ -316,6 +316,33 @@ public class ErpClientTests
         Assert.Equal(ErpDecisionKind.None, result.Decision!.Kind);
     }
 
+    [Fact]
+    public async Task A_lookup_returns_the_erps_records_of_the_number()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.OK,
+            """{"invoiceNumber":"FTR-000001","registered":true,"erpReference":"ERP-1","recordCount":2,"records":[{"erpReference":"ERP-1","customerCode":"C-001","amount":100.50,"currency":"TRY","invoiceDate":"2026-10-05","receivedAt":"2026-10-05T09:00:00+00:00"},{"erpReference":"ERP-2","customerCode":"C-001","amount":100.50,"currency":"TRY","invoiceDate":"2026-10-05","receivedAt":"2026-10-05T09:01:00+00:00"}],"decision":"received"}"""));
+
+        var result = await client.FindAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(["ERP-1", "ERP-2"], result.Records!.Select(r => r.ErpReference));
+        Assert.All(result.Records!, r => Assert.Equal("FTR-000001", r.InvoiceNumber));
+        Assert.Equal(100.50m, result.Records![0].Amount);
+        Assert.Equal(new DateOnly(2026, 10, 5), result.Records![0].InvoiceDate);
+    }
+
+    [Theory]
+    [InlineData("""{"erpReference":"ERP-1"}""")]
+    [InlineData("""{"erpReference":"ERP-1","records":[{"erpReference":"ERP-1","amount":"many"}]}""")]
+    public async Task A_lookup_whose_records_cannot_be_read_is_still_found_but_has_no_records(string body)
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.OK, body));
+
+        var result = await client.FindAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(ErpLookup.Found, result.Lookup);
+        Assert.Null(result.Records);
+    }
+
     private static string ListPage(int total, params string[] numbers) =>
         $$"""{"page":1,"pageSize":2,"totalCount":{{total}},"items":[{{string.Join(",", numbers.Select(n =>
             $$"""{"invoiceNumber":"{{n}}","erpReference":"ERP-{{n}}","customerCode":"C-001","amount":100.50,"currency":"TRY","invoiceDate":"2026-10-05","receivedAt":"2026-10-05T09:00:00+00:00"}"""))}}]}""";
