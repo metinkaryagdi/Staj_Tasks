@@ -43,20 +43,6 @@ function Post-Api([string]$Path, [string]$Json = $null) { Receive-Api (Start-Api
 # {"invoiceNumbers": [...]} gövdesi.
 function ConvertTo-ResendBody([string[]]$Numbers) { (@{ invoiceNumbers = @($Numbers) } | ConvertTo-Json -Compress) }
 
-# Gün 3'ün aynı adlı fonksiyonunun sayfalı sürümü (GET /invoices artık {items, ...} döner): o durumdaki faturaların
-# numaraları. Bu dosyayı yükleyen script'lerde Wait-QueueDrained gibi yardımcılar bunu kullanır.
-function Get-ServiceInvoiceNumbers([string]$Status) {
-    $numbers = @()
-    $page = 1
-    do {
-        $r = Get-Api "/api/v1/invoices?status=$([Uri]::EscapeDataString($Status))&page=$page&pageSize=100"
-        if ($r.Status -ne 200) { throw "GET /invoices?status=$Status&page=$page -> $($r.Status): $($r.Body)" }
-        $numbers += @($r.Json.items | ForEach-Object { $_.invoiceNumber })
-        $page++
-    } while ($page -le $r.Json.totalPages)
-    $numbers
-}
-
 # Zaman damgasını (API'den gelen metin ya da DateTime) saniye hassasiyetinde UTC metnine çevirir; veritabanıyla karşılaştırmak için.
 function ConvertTo-UtcSeconds($Value) {
     if ($null -eq $Value -or $Value -eq '') { return '' }

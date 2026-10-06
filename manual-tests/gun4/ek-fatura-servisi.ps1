@@ -165,14 +165,14 @@ Write-Host "KOMUT: BEGIN; UPDATE invoices SET status='Bilinmiyor' WHERE invoice_
 Write-Host "  Gelen: $($probe.Error)"
 Check 'geçersiz UPDATE check constraint ile reddediliyor' "kabul=$($probe.Accepted); $($probe.Error)" (-not $probe.Accepted -and $probe.Error -match 'ck_invoices_status')
 foreach ($s in $statuses + @('Bilinmiyor')) {
-    $url = "$ServiceUrl/api/v1/invoices?status=$([Uri]::EscapeDataString($s))"
+    $url = "$ServiceUrl/api/v1/invoices?status=$([Uri]::EscapeDataString($s))&pageSize=100"
     $response = $script:Http.GetAsync($url).GetAwaiter().GetResult()
     $json = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
     $expected = if ($s -eq 'Bilinmiyor') { 400 } else { 200 }
     Write-Host "HTTP GET $url -> $([int]$response.StatusCode)"
     $matches = $true; $count = 0
     if ($expected -eq 200) {
-        $items = @(($json | ConvertFrom-Json) | ForEach-Object { $_ }); $count = $items.Count
+        $items = @(($json | ConvertFrom-Json).items); $count = $items.Count
         $matches = @($items | Where-Object { $_.status -ne $s }).Count -eq 0
     } else { Write-Host "  Gelen: $json" }
     Check "GET status=$s HTTP $expected; gelen satırlar filtreyle uyumlu" "$([int]$response.StatusCode); $count satır" ([int]$response.StatusCode -eq $expected -and $matches)

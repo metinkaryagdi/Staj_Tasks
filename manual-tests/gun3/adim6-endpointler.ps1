@@ -28,6 +28,21 @@ Wait-QueueDrained 'FTR-000000' 'FTR-999999' 120 | Out-Null
 
 $allPassed = $true
 
+# Liste sayfalıdır: bütün sayfaların satırları ({items, totalPages, ...}) toplanır; HTTP kodu ilk sayfanınkidir.
+function Get-AllPages([string]$Query) {
+    $all = @(); $page = 1; $status = 0
+    do {
+        $sep = if ($Query) { '&' } else { '' }
+        $r = Get-Json "$ServiceUrl/api/v1/invoices?$Query${sep}page=$page&pageSize=100"
+        if ($page -eq 1) { $status = $r.Status }
+        if ($r.Status -ne 200) { break }
+        $json = $r.Body | ConvertFrom-Json
+        $all += @($json.items)
+        $page++
+    } while ($page -le $json.totalPages)
+    [pscustomobject]@{ Status = $status; Items = $all }
+}
+
 function Get-Json([string]$Url) {
     $response = $script:Http.GetAsync($Url).GetAwaiter().GetResult()
     [pscustomobject]@{ Status = [int]$response.StatusCode; Body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() }
@@ -39,10 +54,9 @@ Write-DbHeader 'A) Endpoint''in döndürdüğü sayılar veritabanındakiyle ayn
 Show-ServiceQuery 'SELECT status, count(*) AS fatura FROM invoices GROUP BY 1 ORDER BY 1;'
 $listOk = $true
 foreach ($status in 'Bekliyor', 'Gönderildi', 'Başarısız', '') {
-    $url = if ($status) { "$ServiceUrl/api/v1/invoices?status=$([Uri]::EscapeDataString($status))" } else { "$ServiceUrl/api/v1/invoices" }
-    $r = Get-Json $url
-    # Parantez şart: Windows PowerShell 5.1'de ConvertFrom-Json diziyi tek nesne olarak verir, @() onu açmaz.
-    $items = @(($r.Body | ConvertFrom-Json) | ForEach-Object { $_ })
+    $query = if ($status) { "status=$([Uri]::EscapeDataString($status))" } else { '' }
+    $r = Get-AllPages $query
+    $items = $r.Items
     $where = if ($status) { "WHERE status = '$status'" } else { '' }
     $dbCount = [int]@(Get-ServiceRows "SELECT count(*) FROM invoices $where;")[0]
     $wrong = if ($status) { @($items | Where-Object { $_.status -ne $status }).Count } else { 0 }

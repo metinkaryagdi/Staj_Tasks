@@ -61,13 +61,21 @@ function Test-ServiceSql([string]$Sql) {
     }
 }
 
-# Servisin GET /api/v1/invoices?status=... endpoint'i: o durumdaki faturaların numaraları.
+# Servisin GET /api/v1/invoices?status=... endpoint'i: o durumdaki faturaların numaraları. Cevap sayfalıdır
+# ({items, totalPages, ...}); bütün sayfalar 100'erli okunur.
 function Get-ServiceInvoiceNumbers([string]$Status) {
-    $url = "$ServiceUrl/api/v1/invoices?status=$([Uri]::EscapeDataString($Status))"
-    $response = $script:Http.GetAsync($url).GetAwaiter().GetResult()
-    $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-    if (-not $response.IsSuccessStatusCode) { throw "GET $url -> $([int]$response.StatusCode): $body" }
-    @(($body | ConvertFrom-Json) | ForEach-Object { $_.invoiceNumber })
+    $numbers = @()
+    $page = 1
+    do {
+        $url = "$ServiceUrl/api/v1/invoices?status=$([Uri]::EscapeDataString($Status))&page=$page&pageSize=100"
+        $response = $script:Http.GetAsync($url).GetAwaiter().GetResult()
+        $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) { throw "GET $url -> $([int]$response.StatusCode): $body" }
+        $json = $body | ConvertFrom-Json
+        $numbers += @($json.items | ForEach-Object { $_.invoiceNumber })
+        $page++
+    } while ($page -le $json.totalPages)
+    $numbers
 }
 
 # Aralıktaki faturaların hepsi Bekliyor'dan çıkana kadar (gönderildi ya da başarısız) bekler; geçen saniyeyi döner.
