@@ -74,6 +74,8 @@ public sealed class Scenario
 
     public ResendInvoiceHandler ResendInvoiceHandler() => new(UnitOfWork, Invoices, Outbox, Time, NullLoggerFactory.Instance);
 
+    public ResendInvoicesHandler ResendInvoicesHandler() => new(ResendInvoiceHandler(), NullLoggerFactory.Instance);
+
     public InvoiceQueries InvoiceQueries() => new(
         Invoices, Outbox, Events, Reconciliation, Options.Create(ReconciliationSettings), Time);
 

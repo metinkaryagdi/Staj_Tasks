@@ -1,3 +1,4 @@
+using InvoiceService.Api.Invoices;
 using InvoiceService.Application.Reconciliation;
 
 namespace InvoiceService.Api.Reconciliation;
@@ -42,7 +43,8 @@ public static class ReconciliationEndpoints
             return Results.Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "A reconciliation run is already going",
-                detail: "Only one run at a time; try again when it has finished.");
+                detail: "Only one run at a time; try again when it has finished.",
+                extensions: new Dictionary<string, object?> { ["code"] = ProblemCodes.ReconciliationRunning });
         }
 
         // Not tied to this request: the run goes on after the 202, and stops with the service.

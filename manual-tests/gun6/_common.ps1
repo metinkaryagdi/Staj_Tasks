@@ -21,3 +21,24 @@ function Get-PreflightAllowOrigin([string]$Path, [string]$Origin, [string]$Metho
     $values = $null
     if ($response.Headers.TryGetValues('Access-Control-Allow-Origin', [ref]$values)) { $values -join ',' } else { '' }
 }
+
+# Fatura Servisi'ne POST başlatır (bekletmeden): iki isteğin aynı anda gitmesi gereken testler için Task döner.
+function Start-ApiPost([string]$Path, [string]$Json = $null) {
+    $content = if ($null -ne $Json) { [Net.Http.StringContent]::new($Json, [Text.Encoding]::UTF8, 'application/json') } else { $null }
+    $script:Http.PostAsync("$ServiceUrl$Path", $content)
+}
+
+# Start-ApiPost'un Task'ını bekler; Get-Api ile aynı biçimde döner (+ problem cevabındaki code alanı).
+function Receive-Api($Task) {
+    $response = $Task.GetAwaiter().GetResult()
+    $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    $json = $null
+    try { if ($body) { $json = $body | ConvertFrom-Json } } catch { }
+    [pscustomobject]@{ Status = [int]$response.StatusCode; Body = $body; Json = $json
+                       Code = $(if ($json -and $json.PSObject.Properties['code']) { $json.code } else { '' }) }
+}
+
+function Post-Api([string]$Path, [string]$Json = $null) { Receive-Api (Start-ApiPost $Path $Json) }
+
+# {"invoiceNumbers": [...]} gövdesi.
+function ConvertTo-ResendBody([string[]]$Numbers) { (@{ invoiceNumbers = @($Numbers) } | ConvertTo-Json -Compress) }

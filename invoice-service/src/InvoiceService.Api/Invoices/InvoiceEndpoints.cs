@@ -31,6 +31,17 @@ public static class InvoiceEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapPost("/resend", ResendInvoices)
+            .WithName("ResendInvoices")
+            .WithSummary("Queue several failed invoices again")
+            .WithDescription(
+                "Body: { \"invoiceNumbers\": [...] }, 1 to 100 numbers (400 otherwise); a number sent twice is resent once. " +
+                "Every invoice follows the single resend's rules (only Başarısız, nothing is sent to the ERP in this request) " +
+                "and gets its own result: queued, not_found, not_failed (with its current status) or error. The request is " +
+                "200 whatever the results are; one invoice that is refused does not stop the others.")
+            .Produces<BulkResendResponse>()
+            .ProducesValidationProblem();
+
         group.MapGet("/", ListInvoices)
             .WithName("ListInvoices")
             .WithSummary("One page of invoices, newest first")
@@ -86,10 +97,23 @@ public static class InvoiceEndpoints
             ResendStatus.NotFailed => Results.Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "Invoice is not failed",
-                detail: $"Invoice '{invoiceNumber}' has status {result.CurrentStatus}; only {InvoiceStatus.Failed} invoices can be resent."),
+                detail: $"Invoice '{invoiceNumber}' has status {result.CurrentStatus}; only {InvoiceStatus.Failed} invoices can be resent.",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = ProblemCodes.InvoiceNotFailed,
+                    ["currentStatus"] = result.CurrentStatus
+                }),
             _ => Results.Accepted(
                 $"/api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}", InvoiceResponse.From(result.Invoice!))
         };
+    }
+
+    private static async Task<IResult> ResendInvoices(ResendInvoicesRequest request, ResendInvoicesHandler handler)
+    {
+        var result = await handler.HandleAsync(request);
+        return result.Errors is not null
+            ? Results.ValidationProblem(result.Errors)
+            : Results.Ok(new BulkResendResponse(result.Items.Select(BulkResendItemResponse.From).ToList()));
     }
 
     private static async Task<IResult> ListInvoices(
@@ -137,5 +161,6 @@ public static class InvoiceEndpoints
         Results.Problem(
             statusCode: StatusCodes.Status404NotFound,
             title: "Invoice not found",
-            detail: $"No invoice '{invoiceNumber}' in the invoice service.");
+            detail: $"No invoice '{invoiceNumber}' in the invoice service.",
+            extensions: new Dictionary<string, object?> { ["code"] = ProblemCodes.InvoiceNotFound });
 }

@@ -113,8 +113,13 @@ public sealed class FakeInvoiceStore : IInvoiceStore
         Task.FromResult(Invoices.Values.Count(i =>
             i.Status is InvoiceStatus.Sent or InvoiceStatus.Processing && i.UpdatedAt < olderThan));
 
+    /// <summary>Invoices whose resend fails, like a database that is gone for that moment.</summary>
+    public HashSet<string> FailResend { get; } = [];
+
     public Task<int> MarkPendingIfFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
     {
+        if (FailResend.Contains(invoiceNumber))
+            throw new InvalidOperationException("connection lost");
         if (!Invoices.TryGetValue(invoiceNumber, out var i) || i.Status != InvoiceStatus.Failed)
             return Task.FromResult(0);
         i.Status = InvoiceStatus.Pending;

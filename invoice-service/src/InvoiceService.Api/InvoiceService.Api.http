@@ -34,6 +34,14 @@ GET {{baseUrl}}/api/v1/invoices/summary
 ### 4b) The invoice with its erp_outbox entry, its events and its findings
 GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}/details
 
+### 3a) Queue several failed invoices again (1-100 numbers; one result per invoice: queued, not_found, not_failed, error)
+POST {{baseUrl}}/api/v1/invoices/resend
+Content-Type: application/json
+
+{
+  "invoiceNumbers": ["FTR-000001", "FTR-000002"]
+}
+
 ### 5) The same invoice on the ERP side
 GET http://localhost:5080/api/v1/invoices/{{invoiceNumber}}
 
