@@ -68,21 +68,22 @@ function ConvertTo-UtcSeconds($Value) {
 # SQL tarafında aynı biçim. (Çift tırnak kullanılmaz: PowerShell docker'a geçerken siler.)
 function Get-SqlUtcSeconds([string]$Column) { "to_char($Column AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')" }
 
-# Özet sayılarını veritabanıyla karşılaştırmak için: fatura sürekli değişiyorsa iki okuma arasında sayılar kayabilir. Veritabanı
-# API'den önce ve sonra aynı çıkana kadar tekrar eder, böylece karşılaştırılan an gerçekten aynı an olur.
-function Get-StableSummary([int]$Attempts = 20) {
+# Özet sayılarını veritabanıyla karşılaştırmak için: faturalar sürekli değişiyorsa (takılı sayısı ayrıca zamanla da değişir:
+# fatura 2 dakikayı geçince takılı olur) iki okuma arasında sayılar kayabilir. Veritabanı API'den önce ve sonra aynı çıkana kadar
+# tekrar edilir; karşılaştırılan veritabanı değerleri de bu iki okumadan biridir, böylece gerçekten aynı ana denk gelir.
+function Get-StableSummary([int]$Attempts = 30) {
     $statuses = @('Bekliyor', 'Gönderildi', 'İşleme Alındı', 'Onaylandı', 'Reddedildi', 'Başarısız')
+    $countsSql = "SELECT status, count(*) FROM invoices GROUP BY status ORDER BY status;"
     for ($i = 0; $i -lt $Attempts; $i++) {
         $stuckMinutes = (Get-Api '/api/v1/invoices/summary').Json.stuckAfterMinutes
-        $sql = "SELECT status, count(*) FROM invoices GROUP BY status ORDER BY status;"
         $stuckSql = "SELECT count(*) FROM invoices WHERE status IN ('Gönderildi','İşleme Alındı') AND updated_at < now() - interval '$stuckMinutes minutes';"
-        $before = (@(Get-ServiceRows $sql) -join ';') + '|' + (@(Get-ServiceRows $stuckSql) -join '')
+        $countsBefore = @(Get-ServiceRows $countsSql); $stuckBefore = [int]@(Get-ServiceRows $stuckSql)[0]
         $api = Get-Api '/api/v1/invoices/summary'
-        $after = (@(Get-ServiceRows $sql) -join ';') + '|' + (@(Get-ServiceRows $stuckSql) -join '')
-        if ($before -eq $after) {
+        $countsAfter = @(Get-ServiceRows $countsSql); $stuckAfter = [int]@(Get-ServiceRows $stuckSql)[0]
+        if (($countsBefore -join ';') -eq ($countsAfter -join ';') -and $stuckBefore -eq $stuckAfter) {
             $db = @{}
-            foreach ($row in @(Get-ServiceRows "SELECT status, count(*) FROM invoices GROUP BY status;")) { $p = $row -split '\|'; $db[$p[0]] = [int]$p[1] }
-            return [pscustomobject]@{ Api = $api.Json; Db = $db; DbStuck = [int](@(Get-ServiceRows $stuckSql)[0]); Statuses = $statuses }
+            foreach ($row in $countsAfter) { $p = $row -split '\|'; $db[$p[0]] = [int]$p[1] }
+            return [pscustomobject]@{ Api = $api.Json; Db = $db; DbStuck = $stuckAfter; Statuses = $statuses }
         }
         Start-Sleep -Seconds 1
     }

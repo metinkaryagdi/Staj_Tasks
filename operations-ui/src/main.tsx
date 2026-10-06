@@ -11,9 +11,11 @@ const queryClient = new QueryClient({
     queries: {
       // Her sayfa kendiliğinden yenilenir; servise ulaşılamazsa yenileme sürer, servis dönünce sayfa toparlanır.
       refetchInterval: refreshIntervalMs,
-      // Tek bir ağ hatası hemen hata göstermesin, ama servis kapalıyken de uzun beklenmesin.
-      retry: 1,
-      retryDelay: 1_000,
+      // Ekran bir başka pencerede açık bırakılabilir; sekme arka planda da olsa yenileme durmaz.
+      refetchIntervalInBackground: true,
+      // Yeniden deneme işini zaten 10 saniyelik yenileme görür. Kütüphanenin kendi denemesi kapalı: gizli bir sekmede
+      // beklemeye alındığı için hata mesajı hiç görünmeyip sayfa "Yükleniyor" da kalabiliyordu.
+      retry: false,
     },
   },
 })
