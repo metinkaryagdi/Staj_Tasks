@@ -59,6 +59,16 @@ public class CreateInvoiceRequestTests
         Assert.Empty(errors);
     }
 
+    [Theory]
+    [InlineData("999999999999.99", false)]
+    [InlineData("1000000000000.00", true)]
+    [InlineData("100000000000000000", true)]
+    public void Amount_above_the_maximum_is_rejected(string amount, bool rejected)
+    {
+        var errors = new CreateInvoiceRequest("C-001", decimal.Parse(amount, CultureInfo.InvariantCulture), "TRY", new DateOnly(2026, 9, 30)).Validate();
+        Assert.Equal(rejected, errors.ContainsKey("Amount"));
+    }
+
     // The request body is JSON: the digits written there must reach the rule (System.Text.Json keeps 1.230 as scale 3).
     [Theory]
     [InlineData("1.230", true)]

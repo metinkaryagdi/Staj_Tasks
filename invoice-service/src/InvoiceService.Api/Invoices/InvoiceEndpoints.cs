@@ -126,11 +126,15 @@ public static class InvoiceEndpoints
             errors["page"] = ["Must be 1 or greater."];
         if (pageSize is < 1 or > InvoiceQueries.MaxPageSize)
             errors["pageSize"] = [$"Must be between 1 and {InvoiceQueries.MaxPageSize}."];
-        if (errors.Count > 0)
-            return Results.ValidationProblem(errors);
 
         var currentPage = page ?? 1;
         var size = pageSize ?? InvoiceQueries.DefaultPageSize;
+        // The rows to skip must fit an int; a page that far is empty anyway.
+        if (currentPage > 1 && (long)(currentPage - 1) * size > int.MaxValue)
+            errors["page"] = ["Too large for this page size."];
+        if (errors.Count > 0)
+            return Results.ValidationProblem(errors);
+
         var result = await queries.ListAsync(status, search, currentPage, size, ct);
         return Results.Ok(new InvoiceListResponse(
             result.Items.Select(InvoiceResponse.From).ToList(), currentPage, size, result.TotalCount,
