@@ -43,6 +43,17 @@ export function setOperatorName(name: string) {
   listeners.forEach((notify) => notify())
 }
 
+// Ad yeniden sorulur (yanlış yazılmışsa ya da ekranı başka biri kullanacaksa).
+export function clearOperatorName() {
+  current = null
+  try {
+    localStorage.removeItem(storageKey)
+  } catch {
+    // Saklanmamıştı.
+  }
+  listeners.forEach((notify) => notify())
+}
+
 export function useOperatorName(): string | null {
   return useSyncExternalStore(
     (notify) => {

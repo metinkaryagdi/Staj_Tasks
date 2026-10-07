@@ -18,6 +18,9 @@ export interface Invoice {
   sendAttemptCount: number
   createdAt: string
   updatedAt: string
+  // Mutabakatın ERP'ye bu faturayı en son ne zaman sorduğu ve cevabı; hiç sormadıysa null.
+  erpCheckedAt: string | null
+  erpCheckResult: string | null
 }
 
 export interface InvoiceList {

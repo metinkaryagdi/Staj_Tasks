@@ -31,6 +31,22 @@ public sealed class Invoice
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>When the reconciliation last asked the ERP about this invoice; null if it never has. Writing it does
+    /// not change <see cref="UpdatedAt"/>.</summary>
+    public DateTimeOffset? ErpCheckedAt { get; set; }
+
+    /// <summary>What the ERP answered then, one of <see cref="ErpCheckResult"/>.</summary>
+    public string? ErpCheckResult { get; set; }
+}
+
+/// <summary>The ERP's answer as the reconciliation records it on the invoice.</summary>
+public static class ErpCheckResult
+{
+    public const string NotFound = "Kayıt yok";
+
+    /// <param name="decision">The ERP's decision: none, received, approved or rejected.</param>
+    public static string Found(string decision) => $"Kayıtlı, karar: {decision}";
 }
 
 public static class InvoiceStatus

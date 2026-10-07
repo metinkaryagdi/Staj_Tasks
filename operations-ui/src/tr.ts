@@ -15,6 +15,7 @@ export const tr = {
     submit: 'Devam et',
     invalid: (max: number) => `Bir ad yazın (en fazla ${max} karakter).`,
     current: (name: string) => `Kullanıcı: ${name}`,
+    change: 'Değiştir',
   },
   common: {
     loading: 'Yükleniyor…',
@@ -115,7 +116,10 @@ export const tr = {
       attempts: 'Deneme sayısı (toplam)',
       createdAt: 'Oluşturulma',
       updatedAt: 'Son güncelleme',
+      erpCheckedAt: "Mutabakatın ERP'ye son sorusu",
+      erpCheckResult: 'ERP cevabı',
     },
+    neverChecked: "Mutabakat bu faturayı ERP'ye hiç sormadı",
     outbox: {
       status: 'Kayıt durumu',
       attempts: 'Deneme sayısı',

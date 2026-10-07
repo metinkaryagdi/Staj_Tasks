@@ -70,6 +70,10 @@ function Details({ data }: { data: InvoiceDetails }) {
         <dd>{formatDateTime(invoice.createdAt)}</dd>
         <dt>{tr.details.fields.updatedAt}</dt>
         <dd>{formatDateTime(invoice.updatedAt)}</dd>
+        <dt>{tr.details.fields.erpCheckedAt}</dt>
+        <dd>{invoice.erpCheckedAt === null ? tr.details.neverChecked : formatDateTime(invoice.erpCheckedAt)}</dd>
+        <dt>{tr.details.fields.erpCheckResult}</dt>
+        <dd>{invoice.erpCheckResult ?? emptyValue}</dd>
       </dl>
 
       <h2>{tr.details.outboxSection}</h2>

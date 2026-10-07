@@ -32,6 +32,14 @@ public sealed class ReconciliationOptions
     /// <c>ERP Karar Vermedi</c>. At least <see cref="StuckAfterMinutes"/>: only stuck invoices are asked.
     /// </summary>
     public int NoDecisionAfterMinutes { get; set; }
+
+    /// <summary>
+    /// A Başarısız invoice the ERP answered "not there" for is not asked again for this many hours, unless the invoice
+    /// has changed since (a resend, for example).
+    /// </summary>
+    public int NotFoundRecheckHours { get; set; }
+
+    public TimeSpan NotFoundRecheck => TimeSpan.FromHours(NotFoundRecheckHours);
 }
 
 public sealed class ReconciliationOptionsValidator(IConfiguration configuration) : IValidateOptions<ReconciliationOptions>
@@ -47,7 +55,7 @@ public sealed class ReconciliationOptionsValidator(IConfiguration configuration)
     [
         nameof(ReconciliationOptions.IntervalMinutes), nameof(ReconciliationOptions.LookbackHours),
         nameof(ReconciliationOptions.StuckAfterMinutes), nameof(ReconciliationOptions.UnknownEventAfterMinutes),
-        nameof(ReconciliationOptions.NoDecisionAfterMinutes)
+        nameof(ReconciliationOptions.NoDecisionAfterMinutes), nameof(ReconciliationOptions.NotFoundRecheckHours)
     ];
 
     public ValidateOptionsResult Validate(string? name, ReconciliationOptions options)
@@ -69,7 +77,8 @@ public sealed class ReconciliationOptionsValidator(IConfiguration configuration)
                      (nameof(options.LookbackHours), options.LookbackHours),
                      (nameof(options.StuckAfterMinutes), options.StuckAfterMinutes),
                      (nameof(options.UnknownEventAfterMinutes), options.UnknownEventAfterMinutes),
-                     (nameof(options.NoDecisionAfterMinutes), options.NoDecisionAfterMinutes)
+                     (nameof(options.NoDecisionAfterMinutes), options.NoDecisionAfterMinutes),
+                     (nameof(options.NotFoundRecheckHours), options.NotFoundRecheckHours)
                  })
         {
             if (value <= 0)
@@ -80,6 +89,11 @@ public sealed class ReconciliationOptionsValidator(IConfiguration configuration)
             errors.Add($"{ReconciliationOptions.SectionName}:IntervalMinutes must be at most {MaxIntervalMinutes} (was {options.IntervalMinutes}).");
         if (options.LookbackHours > MaxLookbackHours)
             errors.Add($"{ReconciliationOptions.SectionName}:LookbackHours must be at most {MaxLookbackHours} (was {options.LookbackHours}).");
+        if (options.NotFoundRecheckHours > MaxLookbackHours)
+        {
+            errors.Add($"{ReconciliationOptions.SectionName}:NotFoundRecheckHours must be at most {MaxLookbackHours} " +
+                       $"(was {options.NotFoundRecheckHours}).");
+        }
         if (options.NoDecisionAfterMinutes < options.StuckAfterMinutes)
         {
             errors.Add($"{ReconciliationOptions.SectionName}:NoDecisionAfterMinutes must be at least StuckAfterMinutes " +

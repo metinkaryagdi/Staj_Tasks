@@ -164,6 +164,68 @@ public class ReconciliationRunnerTests
     }
 
     [Fact]
+    public async Task An_old_failed_invoice_the_erp_does_not_have_is_not_asked_again_within_the_recheck_time()
+    {
+        var invoice = AddInvoice("F-OLD", InvoiceStatus.Failed, minutesInStatus: 100 * 60, createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        await RunAsync();
+        Assert.Equal(["LIST", "GET F-OLD"], _s.Erp.Calls);
+        Assert.Equal((Now, ErpCheckResult.NotFound), (invoice.ErpCheckedAt, invoice.ErpCheckResult));
+        Assert.Equal(Now.AddMinutes(-100 * 60), invoice.UpdatedAt);
+
+        _s.Erp.Calls.Clear();
+        _s.Time.Now = _s.Time.Now.AddHours(23);
+        await RunAsync();
+        Assert.Equal(["LIST"], _s.Erp.Calls);
+
+        _s.Time.Now = _s.Time.Now.AddHours(1);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+        await RunAsync();
+        Assert.Equal(["LIST", "LIST", "GET F-OLD"], _s.Erp.Calls);
+    }
+
+    [Fact]
+    public async Task A_failed_invoice_that_changed_after_the_not_there_answer_is_asked_again()
+    {
+        var invoice = AddInvoice("F-OLD", InvoiceStatus.Failed, minutesInStatus: 100 * 60, createdHoursAgo: 100);
+        invoice.ErpCheckedAt = Now.AddHours(-2);
+        invoice.ErpCheckResult = ErpCheckResult.NotFound;
+        invoice.UpdatedAt = Now.AddHours(-1); // resent and failed again since
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        await RunAsync();
+
+        Assert.Contains("GET F-OLD", _s.Erp.Calls);
+    }
+
+    [Fact]
+    public async Task An_old_sent_invoice_the_erp_does_not_have_is_asked_and_reported_in_every_run()
+    {
+        var invoice = AddInvoice("F-OLD", InvoiceStatus.Sent, reference: "ERP-1", minutesInStatus: 100 * 60, createdHoursAgo: 100);
+        invoice.ErpCheckedAt = Now.AddHours(-1);
+        invoice.ErpCheckResult = ErpCheckResult.NotFound;
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        var run = await RunAsync();
+
+        Assert.Contains("GET F-OLD", _s.Erp.Calls);
+        Assert.Equal(1, run.ReportedCount);
+    }
+
+    [Fact]
+    public async Task A_stuck_invoice_asked_for_its_decision_records_the_answer()
+    {
+        var invoice = AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-1");
+        _s.Erp.ListResult = new ErpListResult(true, [Erp("F-1", "ERP-1")], null);
+        _s.Erp.LookupResults.Enqueue(Decided(ErpDecisionKind.Received, "ERP-1"));
+
+        await RunAsync();
+
+        Assert.Equal("Kayıtlı, karar: received", invoice.ErpCheckResult);
+    }
+
+    [Fact]
     public async Task A_final_invoice_older_than_the_window_is_not_asked_for()
     {
         AddInvoice("F-OLD", InvoiceStatus.Approved, reference: "ERP-1", createdHoursAgo: 100);

@@ -49,6 +49,8 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.Property(e => e.SendAttemptCount).HasColumnName("send_attempt_count");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.ErpCheckedAt).HasColumnName("erp_checked_at");
+            entity.Property(e => e.ErpCheckResult).HasColumnName("erp_check_result").HasMaxLength(64);
         });
 
         modelBuilder.Entity<ErpOutboxEntry>(entity =>

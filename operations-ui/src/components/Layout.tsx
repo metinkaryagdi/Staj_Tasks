@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { useOperatorName } from '../operator'
+import { clearOperatorName, useOperatorName } from '../operator'
 import { tr } from '../tr'
 import { ErrorBoundary } from './ErrorBoundary'
 import { OperatorGate } from './OperatorGate'
@@ -18,7 +18,14 @@ export function Layout() {
             <NavLink to="/faturalar">{tr.nav.invoices}</NavLink>
             <NavLink to="/mutabakat">{tr.nav.reconciliation}</NavLink>
           </nav>
-          {operator !== null && <span className="operator">{tr.operator.current(operator)}</span>}
+          {operator !== null && (
+            <span className="operator">
+              {tr.operator.current(operator)}{' '}
+              <button type="button" className="link operator-change" onClick={clearOperatorName}>
+                {tr.operator.change}
+              </button>
+            </span>
+          )}
         </div>
       </header>
       <main>

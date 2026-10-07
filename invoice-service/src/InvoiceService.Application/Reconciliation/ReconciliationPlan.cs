@@ -15,6 +15,9 @@ public sealed record ReconciliationSnapshot(
     IReadOnlyList<ErpRecord> ErpRecords,
     IReadOnlyList<ErpWebhookEvent> UnknownInvoiceEvents);
 
+/// <summary>One question the run asked the ERP about an invoice and the answer, one of <see cref="Domain.Invoices.ErpCheckResult"/>.</summary>
+public sealed record ErpCheck(string InvoiceNumber, string Result);
+
 public enum FixKind
 {
     /// <summary>A Gönderildi / İşleme Alındı invoice takes the ERP's decision (same rules as an event).</summary>

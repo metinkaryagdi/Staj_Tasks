@@ -74,5 +74,6 @@ public class ShippedSettingsTests
         Assert.Equal(2, options.StuckAfterMinutes);
         Assert.Equal(60, options.UnknownEventAfterMinutes);
         Assert.Equal(30, options.NoDecisionAfterMinutes);
+        Assert.Equal(24, options.NotFoundRecheckHours);
     }
 }

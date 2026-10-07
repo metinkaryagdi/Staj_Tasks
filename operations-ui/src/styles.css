@@ -435,6 +435,11 @@ tr.row-selected td {
   font-size: 13px;
 }
 
+.operator-change {
+  color: #9db4ff;
+  margin-left: 6px;
+}
+
 .operator-form {
   max-width: 420px;
   margin: 48px auto;

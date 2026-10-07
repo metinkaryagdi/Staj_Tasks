@@ -2,6 +2,7 @@ using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Invoices;
 using Microsoft.Extensions.DependencyInjection;
 using InvoiceService.Application.Outbox;
+using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Operators;
@@ -369,6 +370,19 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
 
     public Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values.Where(i => numbers.Contains(i.InvoiceNumber)).ToList());
+
+    public Task RecordErpChecksAsync(IReadOnlyList<ErpCheck> checks, DateTimeOffset at, CancellationToken ct)
+    {
+        foreach (var check in checks)
+        {
+            if (invoices.Invoices.TryGetValue(check.InvoiceNumber, out var invoice))
+            {
+                invoice.ErpCheckedAt = at;
+                invoice.ErpCheckResult = check.Result;
+            }
+        }
+        return Task.CompletedTask;
+    }
 
     public Task<IReadOnlyList<ErpWebhookEvent>> WaitingEventsOfUnknownInvoicesAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ErpWebhookEvent>>(events.Events.Values

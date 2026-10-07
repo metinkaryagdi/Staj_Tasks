@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Reconciliation;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Reconciliation;
 using InvoiceService.Domain.Webhooks;
@@ -64,6 +65,22 @@ public sealed class ReconciliationStore(InvoiceDbContext db) : IReconciliationSt
 
     public async Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct) =>
         await db.Invoices.AsNoTracking().Where(i => numbers.Contains(i.InvoiceNumber)).ToListAsync(ct);
+
+    public async Task RecordErpChecksAsync(IReadOnlyList<ErpCheck> checks, DateTimeOffset at, CancellationToken ct)
+    {
+        if (checks.Count == 0)
+            return;
+
+        // One statement for every answer of the run.
+        var numbers = checks.Select(c => c.InvoiceNumber).ToArray();
+        var results = checks.Select(c => c.Result).ToArray();
+        await db.Database.ExecuteSqlAsync($"""
+            UPDATE invoices i
+            SET erp_checked_at = {at}, erp_check_result = c.result
+            FROM unnest({numbers}, {results}) AS c(invoice_number, result)
+            WHERE i.invoice_number = c.invoice_number
+            """, ct);
+    }
 
     public async Task<IReadOnlyList<ErpWebhookEvent>> WaitingEventsOfUnknownInvoicesAsync(CancellationToken ct) =>
         await db.ErpWebhookEvents.AsNoTracking()
