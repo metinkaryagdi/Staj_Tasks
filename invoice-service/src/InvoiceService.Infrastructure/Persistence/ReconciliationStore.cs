@@ -10,7 +10,7 @@ public sealed class ReconciliationStore(InvoiceDbContext db) : IReconciliationSt
 {
     private const string AbandonedError = "Servis durdu: çalışma sonuçlanmadan kesildi.";
 
-    public async Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, string? startedBy, CancellationToken ct)
+    public async Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, string startedBy, CancellationToken ct)
     {
         var run = new ReconciliationRun { StartedAt = now, Status = ReconciliationStatus.Running, StartedBy = startedBy };
         db.ReconciliationRuns.Add(run);

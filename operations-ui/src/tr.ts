@@ -6,6 +6,16 @@ import { apiUrl } from './config'
 export const tr = {
   appTitle: 'Fatura Operasyon Ekranı',
   nav: { summary: 'Özet', invoices: 'Fatura Listesi', reconciliation: 'Mutabakat' },
+  operator: {
+    title: 'Adınız',
+    hint:
+      'Yeniden gönderme ve mutabakat başlatma işlemleri bu adla kaydedilir. Bu bir giriş değildir; ad yalnızca kayıt içindir ' +
+      've bu tarayıcıda hatırlanır.',
+    label: 'Ad soyad',
+    submit: 'Devam et',
+    invalid: (max: number) => `Bir ad yazın (en fazla ${max} karakter).`,
+    current: (name: string) => `Kullanıcı: ${name}`,
+  },
   common: {
     loading: 'Yükleniyor…',
     lastRefresh: 'Son yenileme',
@@ -91,6 +101,9 @@ export const tr = {
     noEvents: 'Bu fatura için henüz haber gelmedi.',
     findingsSection: 'Mutabakat bulguları',
     noFindings: 'Bu faturaya ait mutabakat bulgusu yok.',
+    actionsSection: 'Müdahaleler',
+    noActions: 'Bu faturaya ekrandan yapılmış bir müdahale yok.',
+    actions: { createdAt: 'Zaman', operator: 'Kim', action: 'İşlem', result: 'Sonuç' },
     fields: {
       customerCode: 'Müşteri kodu',
       amount: 'Tutar',
@@ -141,12 +154,14 @@ export const tr = {
       id: 'No',
       startedAt: 'Başlangıç',
       finishedAt: 'Bitiş',
+      startedBy: 'Başlatan',
       status: 'Durum',
       checked: 'Kontrol edilen',
       fixed: 'Düzeltilen',
       reported: 'Raporlanan',
       error: 'Hata',
     },
+    startedByUnknown: 'Bu çalışma, başlatanın kaydedilmesinden önce yapıldı.',
     findingsSection: (id: number) => `Çalışma ${id} bulguları`,
     reportedSection: 'Raporlanan bulgular',
     reportedHint: 'Servisin kendi başına düzeltemediği farklar; incelenmesi gerekir.',
@@ -185,6 +200,9 @@ export function describeError(error: unknown): string {
       return `Fatura Servisi bir hata verdi (HTTP ${error.status}). Bir süre sonra kendiliğinden yeniden denenecek.`
     default:
       if (error.code === 'invoice_not_found') return 'Bu numaralı bir fatura bulunamadı.'
+      if (error.code === 'operator_name_required' || error.code === 'operator_name_invalid') {
+        return 'İşlem yapılmadı: Fatura Servisi işlemi yapanın adını kabul etmedi. Sayfayı yenileyip adınızı yeniden girin.'
+      }
       if (error.status === 404) return 'Aranan kayıt bulunamadı.'
       return `Fatura Servisi isteği kabul etmedi (HTTP ${error.status}).`
   }

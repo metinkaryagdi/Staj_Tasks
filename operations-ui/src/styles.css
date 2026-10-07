@@ -202,6 +202,7 @@ nav a.active {
 }
 
 input[type='search'],
+input[type='text'],
 select {
   font: inherit;
   padding: 7px 10px;
@@ -426,6 +427,39 @@ tr.row-selected td {
 
 .findings-reported h3 {
   color: var(--warn);
+}
+
+.operator {
+  margin-left: auto;
+  color: #c9d3ea;
+  font-size: 13px;
+}
+
+.operator-form {
+  max-width: 420px;
+  margin: 48px auto;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.operator-form h1 {
+  margin: 0;
+}
+
+.operator-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-error {
+  margin: 0;
+  color: var(--bad);
 }
 
 @media (max-width: 720px) {

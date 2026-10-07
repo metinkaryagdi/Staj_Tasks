@@ -304,7 +304,7 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
     /// <summary>Findings this says yes to cannot be recorded, like a database that refuses them.</summary>
     public Func<ReconciliationFinding, bool>? RefuseFinding { get; set; }
 
-    public Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, string? startedBy, CancellationToken ct)
+    public Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, string startedBy, CancellationToken ct)
     {
         if (FailToStart)
             throw new InvalidOperationException("database is gone");

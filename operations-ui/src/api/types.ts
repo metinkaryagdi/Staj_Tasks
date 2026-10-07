@@ -65,11 +65,19 @@ export interface Finding {
   createdAt: string
 }
 
+export interface OperatorAction {
+  operatorName: string
+  action: string
+  result: string
+  createdAt: string
+}
+
 export interface InvoiceDetails {
   invoice: Invoice
   outbox: OutboxEntry | null
   events: InvoiceEvent[]
   findings: Finding[]
+  operatorActions: OperatorAction[]
 }
 
 export interface ReconciliationRun {
@@ -81,6 +89,8 @@ export interface ReconciliationRun {
   fixedCount: number
   reportedCount: number
   error: string | null
+  // Kişinin adı ya da "Zamanlayıcı"; kimin başlattığı kaydedilmeden önceki çalışmalarda null.
+  startedBy: string | null
 }
 
 export interface ReconciliationRunDetail {

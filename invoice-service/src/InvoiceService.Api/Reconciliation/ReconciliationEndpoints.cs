@@ -25,7 +25,7 @@ public static class ReconciliationEndpoints
         group.MapGet("/", ListRuns)
             .WithName("ListReconciliationRuns")
             .WithSummary("The reconciliation runs, newest first")
-            .WithDescription("Without their findings; every run is listed. startedBy is null for a run the schedule started.")
+            .WithDescription("Without their findings; every run is listed. startedBy is the operator or Zamanlayıcı (the schedule); null for runs made before it was recorded.")
             .Produces<ReconciliationRunResponse[]>();
 
         group.MapGet("/{id:long}", GetRun)

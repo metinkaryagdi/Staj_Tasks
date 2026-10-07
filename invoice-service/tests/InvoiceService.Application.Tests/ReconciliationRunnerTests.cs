@@ -24,7 +24,7 @@ public class ReconciliationRunnerTests
     private static ErpRecord Erp(string number, string reference = "ERP-1") =>
         new(number, reference, "C-001", 10.50m, "TRY", new DateOnly(2026, 10, 1), Now.AddHours(-1));
 
-    private ReconciliationRun StartRun() => _s.Reconciliation.StartRunAsync(Now, null, default).GetAwaiter().GetResult();
+    private ReconciliationRun StartRun() => _s.Reconciliation.StartRunAsync(Now, ReconciliationRun.Schedule, default).GetAwaiter().GetResult();
 
     private async Task<ReconciliationRun> RunAsync()
     {

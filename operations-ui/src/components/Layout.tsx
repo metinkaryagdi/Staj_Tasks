@@ -1,8 +1,11 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { useOperatorName } from '../operator'
 import { tr } from '../tr'
 import { ErrorBoundary } from './ErrorBoundary'
+import { OperatorGate } from './OperatorGate'
 
 export function Layout() {
+  const operator = useOperatorName()
   return (
     <>
       <header className="topbar">
@@ -15,11 +18,14 @@ export function Layout() {
             <NavLink to="/faturalar">{tr.nav.invoices}</NavLink>
             <NavLink to="/mutabakat">{tr.nav.reconciliation}</NavLink>
           </nav>
+          {operator !== null && <span className="operator">{tr.operator.current(operator)}</span>}
         </div>
       </header>
       <main>
         <ErrorBoundary>
-          <Outlet />
+          <OperatorGate>
+            <Outlet />
+          </OperatorGate>
         </ErrorBoundary>
       </main>
     </>

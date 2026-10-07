@@ -112,11 +112,11 @@ public class ReconciliationServiceTests
     }
 
     [Fact]
-    public async Task A_run_the_schedule_starts_has_no_name_and_no_record()
+    public async Task A_run_the_schedule_starts_is_marked_as_the_schedule_and_has_no_record()
     {
         var started = await _s.ReconciliationService().TryStartAsync(null, CancellationToken.None);
 
-        Assert.Null(started!.Run.StartedBy);
+        Assert.Equal(ReconciliationRun.Schedule, started!.Run.StartedBy);
         Assert.Empty(_s.OperatorActions.Actions);
     }
 }

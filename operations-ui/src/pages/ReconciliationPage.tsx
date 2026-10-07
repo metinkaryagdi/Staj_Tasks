@@ -71,6 +71,7 @@ function RunTable({ runs, selectedId, onSelect }: RunTableProps) {
             <th>{c.id}</th>
             <th>{c.startedAt}</th>
             <th>{c.finishedAt}</th>
+            <th>{c.startedBy}</th>
             <th>{c.status}</th>
             <th className="num">{c.checked}</th>
             <th className="num">{c.fixed}</th>
@@ -88,6 +89,7 @@ function RunTable({ runs, selectedId, onSelect }: RunTableProps) {
               </td>
               <td>{formatDateTime(run.startedAt)}</td>
               <td>{formatDateTime(run.finishedAt)}</td>
+              <td title={run.startedBy === null ? tr.reconciliation.startedByUnknown : undefined}>{run.startedBy ?? emptyValue}</td>
               <td>
                 <StatusBadge status={run.status} />
               </td>

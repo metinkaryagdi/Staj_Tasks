@@ -26,8 +26,13 @@ public sealed class ReconciliationRun
     /// <summary>Why the run failed; null unless it is Başarısız.</summary>
     public string? Error { get; set; }
 
-    /// <summary>The operator who started it from the screen; null when the schedule started it.</summary>
+    /// <summary>
+    /// The operator who started it from the screen, or <see cref="Schedule"/>. Null only for the runs made before who
+    /// started a run was recorded: for those it is not known.
+    /// </summary>
     public string? StartedBy { get; set; }
+
+    public const string Schedule = "Zamanlayıcı";
 }
 
 public static class ReconciliationStatus

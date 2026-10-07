@@ -1,4 +1,5 @@
 import { apiUrl, requestTimeoutMs } from '../config'
+import { operatorHeaders } from '../operator'
 
 // unreachable: cevap alınamadı (servis kapalı, ağ yok, zaman aşımı ya da tarayıcı isteği engelledi)
 // server:      servis 5xx verdi ya da anlaşılmaz bir cevap döndü
@@ -50,10 +51,11 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   throw new ApiError(kind, response.status, problem.code ?? null, problem.currentStatus ?? null)
 }
 
+// Ekrandan yapılan her POST bir müdahaledir (yeniden gönderme, mutabakat başlatma): kimin yaptığı başlıkta gider.
 export function postJson<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, {
     method: 'POST',
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    headers: { ...operatorHeaders(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
 }

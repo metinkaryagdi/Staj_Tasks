@@ -27,7 +27,7 @@ export function InvoiceDetailPage() {
 }
 
 function Details({ data }: { data: InvoiceDetails }) {
-  const { invoice, outbox, events, findings } = data
+  const { invoice, outbox, events, findings, operatorActions } = data
   const queryClient = useQueryClient()
   const resend = useMutation({
     mutationFn: () => resendInvoice(invoice.invoiceNumber),
@@ -159,6 +159,34 @@ function Details({ data }: { data: InvoiceDetails }) {
                   </td>
                   <td>{finding.details}</td>
                   <td>{formatDateTime(finding.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h2>{tr.details.actionsSection}</h2>
+      {operatorActions.length === 0 ? (
+        <p className="muted">{tr.details.noActions}</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{tr.details.actions.createdAt}</th>
+                <th>{tr.details.actions.operator}</th>
+                <th>{tr.details.actions.action}</th>
+                <th>{tr.details.actions.result}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {operatorActions.map((action, index) => (
+                <tr key={index}>
+                  <td>{formatDateTime(action.createdAt)}</td>
+                  <td>{action.operatorName}</td>
+                  <td>{action.action}</td>
+                  <td>{action.result}</td>
                 </tr>
               ))}
             </tbody>
