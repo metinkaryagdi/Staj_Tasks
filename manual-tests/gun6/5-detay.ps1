@@ -32,7 +32,7 @@ foreach ($kind in $candidates.Keys) {
     Write-Host "  [$kind] $number" -ForegroundColor Yellow
 
     $detail = (Get-Api "/api/v1/invoices/$number/details").Json
-    Show-ServiceQuery "SELECT invoice_number, status, attempt_count AS outbox_deneme, next_attempt_at, last_error FROM invoices i LEFT JOIN erp_outbox o USING (invoice_number) WHERE invoice_number = '$number';"
+    Show-ServiceQuery "SELECT invoice_number, i.status, o.status AS outbox, o.attempt_count AS outbox_deneme, o.next_attempt_at, i.last_error FROM invoices i LEFT JOIN erp_outbox o USING (invoice_number) WHERE invoice_number = '$number';"
     Show-ServiceQuery "SELECT event_id, event_type, status, ignore_reason, delivery_count FROM erp_webhook_events WHERE invoice_number = '$number' ORDER BY received_at, occurred_at;"
     Show-ServiceQuery "SELECT id, run_id, finding_type, action FROM reconciliation_findings WHERE invoice_number = '$number' ORDER BY id DESC;"
 
