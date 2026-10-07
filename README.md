@@ -315,37 +315,40 @@ Bugünün işi: Gün 6'da ekranın cevaplayamadığı sorular kapatıldı ve mut
   başlatan görünür.
 - **Mutabakatta gereksiz sorgular:** ERP'nin "yok" dediği Başarısız fatura `NotFoundRecheckHours` (24 saat) yeniden sorulmaz;
   takip `invoices.erp_checked_at` / `erp_check_result` ile yapılır, fatura detayında "mutabakatın ERP'ye son sorusu" olarak da
-  görünür. Çalışma listesi sayfalıdır (en çok 50).
+  görünür (bulgu olmasa da). Çalışma listesi sayfalıdır (en çok 50).
 - **Ek — elle takip:** takılı fatura detaydan bir notla "takibe alınabilir" ve takip kapatılabilir (`invoice_follow_ups`;
   `operator_actions`'a `Takibe Alma` / `Takibi Kapatma`). Fatura takılı kalır, sayıyı ve süzgeci etkilemez; karar gelince
   mutabakat yine düzeltir. Gün 4'te önerilen "karar alınamazsa elle takibe alma" adımının karşılığıdır; görevde istenmedi.
 
 Kontrol listesi: [`manual-tests/gun7/`](manual-tests/gun7/README.md) (1, 3, 5-8. maddelerin script'leri ve
-`kontrol-listesi.ps1`; 2 ve 4. maddelerin ekranda adımları).
+`kontrol-listesi.ps1`; 2 ve 4. maddelerin ekranda adımları; ekler: zamanlayıcı ve elle takip).
 
 ### Son doğrulama — 7 Ekim 2026
 
 Sekiz madde gerçek PostgreSQL, HTTP ve tarayıcıyla koşuldu ve hepsi geçti; her maddede sonuç veritabanıyla karşılaştırıldı.
-Birim testler: Invoice Service 338, ERP Simulator 103, operasyon ekranı 20, hepsi geçti. Gün 6 kontrol listesi de yeniden
+Son koşu: kontrol listesi 13:28 (ekler dahil, 7,3 dk); script'lerin bakmadığı ekran kısımları ardından tarayıcıda yeniden yapıldı.
+Birim testler: Invoice Service 346, ERP Simulator 103, operasyon ekranı 22, hepsi geçti. Gün 6 kontrol listesi de yeniden
 koşuldu: ilk koşuda 2. madde (düzeltmesi hata veren fatura) kaldı; ERP'nin cevabı bütün faturalara tek UPDATE ile yazıldığı için
 bir faturanın hatası çalışmanın tamamını düşürüyordu. Cevap fatura başına yazılacak şekilde düzeltildi, iki liste de baştan
 koşuldu ve hepsi geçti.
 
 | # | Senaryo | Sonuç |
 |---|---|---|
-| 1 | Takılı süzgeci = özetteki sayı = veritabanı | 3 fatura 10 dk önce, 1 fatura az önce `Gönderildi` yapıldı: listede, özette ve veritabanında 6 takılı fatura, numaralar aynı; yeni olan listede yok. Süzgeç durum ve aramayla birlikte de doğru |
-| 2 | Özetteki takılı kartı | Kart listeyi `?durum=Takılı` ile açtı, Durum seçiminde Takılı, listede karttaki sayı kadar (3) fatura |
-| 3 | ERP'nin kararı gecikince | Simülatörde karar 240 sn sonraya alındı ve karar haberi gönderilmedi, eşikler 1 / 2 dk'ya indirildi: iki çalışma `ERP Karar Vermedi` raporladı (ERP cevabı `received`), detayda yalnızca sonuncusu, mutabakat sayfasında çalışmanın bulgusu; karar oluştuktan sonraki çalışma faturayı `Reddedildi` yaptı (`Takılı Fatura`, Düzeltildi) |
-| 4 | Ad | Tarayıcı verisi silinince ekran adı sordu; yenilemede sormadı; ad üst çubukta |
-| 5 | `operator_actions` | Tekli yeniden gönderme: `Kuyruğa alındı`, ikinci deneme `Reddedildi: fatura Bekliyor`. Toplu (3 Başarısız, 1 Onaylandı, 1 olmayan): 5 satır, her biri kendi sonucuyla. Mutabakat: aynı anda iki başlatma, biri `Başlatıldı: çalışma N` (çalışmanın `started_by`'ı aynı ad), diğeri `Reddedildi: başka bir çalışma sürüyor`. Türkçe karakterli ad doğru kaydedildi |
+| 1 | Takılı süzgeci = özetteki sayı = veritabanı | 3 fatura 10 dk önce, 1 fatura az önce `Gönderildi` yapıldı: API'de, özette ve veritabanında 6 takılı fatura, numaralar aynı; yeni olan listede yok. Ekranda ayrıca kart 5 = listede "5 fatura" = veritabanı 5, aynı numaralar. Bir fatura 2 dk'yı geçtiği anda üç sayı birlikte değişti. Süzgeç durum ve aramayla birlikte de doğru |
+| 2 | Özetteki takılı kartı | Kart listeyi `?durum=Takılı` ile açtı, Durum seçiminde Takılı, listede karttaki sayı kadar (5) fatura; yenilemede süzgeç korunuyor |
+| 3 | ERP'nin kararı gecikince | Simülatörde karar 240 sn sonraya alındı (`Webhooks:SecondEventMin/MaxSeconds`) ve karar haberi gönderilmedi; `Reconciliation:StuckAfterMinutes` / `NoDecisionAfterMinutes` ortam değişkeniyle 1 / 2 dk'ya indirildi. İki çalışma `ERP Karar Vermedi` raporladı (ERP cevabı `received`); detayda yalnızca sonuncusu, mutabakat sayfasında çalışmanın raporlanan bulgusu. Karar oluştuktan sonraki çalışma faturayı ERP'nin kararına göre düzeltti (bu koşuda `Reddedildi`; `Takılı Fatura`, Düzeltildi) |
+| 4 | Ad | Tarayıcı verisi silinince sayfa yerine ad formu geldi; boş ad kabul edilmedi; ad girildikten sonra yenilemede ve başka sayfa doğrudan açıldığında sormadı; ad üst çubukta |
+| 5 | `operator_actions` | Tekli yeniden gönderme: `Kuyruğa alındı`, ikinci deneme `Reddedildi: fatura Bekliyor`. Toplu (3 Başarısız, 1 Onaylandı, 1 olmayan): 5 satır, her biri kendi sonucuyla; ekrandan toplu gönderimde 2 fatura için 2 satır. Mutabakat: aynı anda iki başlatma, biri `Başlatıldı: çalışma N` (çalışmanın `started_by`'ı aynı ad), diğeri `Reddedildi: başka bir çalışma sürüyor`, fatura numarası boş. Türkçe karakterli ad doğru kaydedildi |
 | 6 | Başlıksız istekler | Üç istek, başlık yok / boş / yalnızca boşluk: `400` (`operator_name_required`); hiçbir şey yazılmadı, fatura değişmedi, çalışma başlamadı |
-| 7 | ERP'nin hiç almadığı 50 eski Başarısız fatura | İlk çalışma 50 sorgu (hepsi `NotFound`, loglarda fatura başına satır), ikinci çalışma 0 sorgu (`skippedRecentlyNotFound`); faturalardan biri değişince sonraki çalışma yalnızca onu sordu |
-| 8 | 120'den fazla çalışma | 50'lik sayfalarla bütün çalışmalar bir kez ve veritabanıyla aynı sırada okundu; `pageSize=51` ve `page=0` `400` |
+| 7 | ERP'nin hiç almadığı 50 eski Başarısız fatura | Servis logu: ilk çalışmada bu 50 fatura için 50 `Reconciliation asked the ERP … answer=NotFound` satırı ve `ERP lookups … asked=53 notFound=50`; ikinci çalışmada bu faturalar için satır yok, `asked=3` (3 takılı faturanın kararı). Faturalardan biri değişince sonraki çalışma yalnızca onu sordu |
+| 8 | 120 çalışma | Tam 120 çalışmayla (48 mevcut + 72 eklenen) 50'lik sayfalar 50/50/20; son koşuda 191 çalışma 50/50/50/41, ekranda 192 çalışma 20'lik 10 sayfa. Tekrar ya da kayıp yok, sıra veritabanıyla aynı; `pageSize=51`, `pageSize=0` ve `page=0` `400` |
 
-Ek: elle takip (`ek-elle-takip.ps1`): başlıksız istek `400`; takibe alma `201`, ikinci istek ve aynı anda gelen iki istekten
-biri `409`; takılı olmayan faturaya `409`; takip açıkken özet = takılı listesi = veritabanı; kapatma ve detaydaki geçmiş doğru.
-Ekranda takibe alma, listede ve detayda "Takipte: ad" rozeti ve kapatma denendi. Zamanlayıcının başlattığı çalışmada `started_by` `Zamanlayıcı`, `operator_actions`'a kayıt yok. Gün 6'da bilinen sınır
-olarak yazılan, ERP'nin hiç karar vermediği üç fatura (FTR-004135..137) artık her çalışmada `ERP Karar Vermedi` alıyor.
+Ekler:
+- Elle takip (`ek-elle-takip.ps1`): başlıksız istek `400`; takibe alma `201`, ikinci istek ve aynı anda gelen iki istekten biri
+  `409`; takılı olmayan faturaya `409`; takip açıkken özet = takılı listesi = veritabanı; kapatma ve detaydaki geçmiş doğru.
+  Ekranda takibe alma, listede ve detayda "Takipte: ad" rozeti ve kapatma denendi.
+- Zamanlayıcının başlattığı çalışmada `started_by` `Zamanlayıcı`, `operator_actions`'a kayıt yok.
+- Gün 6'da ERP'nin hiç karar vermediği üç fatura (FTR-004135..137) artık her çalışmada `ERP Karar Vermedi` alıyor.
 
 Testte izlenen yol: 1. maddede takılı faturalar, 7. maddede eski Başarısız faturalar, 8. maddede eksik kalan çalışmalar SQL ile
 üretildi. 3. maddede simülatörün `Webhooks:SecondEventMin/MaxSeconds` ve `LostDecisionRate` ayarları ile servisin
@@ -354,10 +357,15 @@ Testte izlenen yol: 1. maddede takılı faturalar, 7. maddede eski Başarısız 
 ### Bilinen sınırlar
 
 - **Ad bir kayıttır, kimlik değildir:** ekranı açan herkes istediği adı yazabilir; API'yi doğrudan çağıran herhangi bir adı gönderebilir.
-- **Takılı sayısı zamana bağlıdır:** özet ve liste aynı koşulu kullanır, ama farklı anlarda istenirlerse arada 2 dakikayı geçen bir
-  fatura birinde sayılıp diğerinde sayılmayabilir. Kuyrukta (`Bekliyor`) uzun kalan fatura hâlâ takılı sayılmaz.
+- **Takılı sayısı zamana bağlıdır:** özet ve liste aynı koşulu kullanır, ama farklı anlarda istenirlerse (ekran 10 sn'de bir
+  yeniler) arada 2 dakikayı geçen bir fatura birinde sayılıp diğerinde sayılmayabilir.
+- **Kuyrukta (`Bekliyor`) uzun kalan fatura takılı sayılmaz.** Gönderim en geç ~15 dk'da sonuçlandığından bu, gönderim worker'ının
+  çalışmadığına işaret eder; Özet'te kuyrukta en uzun bekleyen faturanın süresinin gösterilmesi bir sonraki adım olarak önerildi.
 - **`ERP Karar Vermedi` her çalışmada yazılır:** ERP sessiz kaldıkça bulgu tablosu fatura başına çalışma sayısı kadar büyür (detay yalnızca
-  sonuncusunu gösterir). Fatura elle takibe alınmaz; karar gelince mutabakat düzeltir.
+  sonuncusunu gösterir). Elle takip faturayı değiştirmez ve kendiliğinden kapanmaz; karar gelince mutabakat faturayı düzeltir, takip
+  açık kalır ve detay bunu belirtir.
+- **"ERP'ye son soru" yalnızca tek tek sorulan faturalarda tutulur** (pencerenin dışındaki kesinleşmemiş faturalar ve takılı
+  faturalar). ERP listesiyle karşılaştırılan faturalarda detay bunu yazar; bu günden önceki sorgular kayıtlı değildir.
 - **Yalnızca Başarısız faturada atlanır:** pencerenin dışındaki `Gönderildi` fatura ERP'de yoksa her çalışmada sorulur ve
   `ERP Kaydı Yok` olarak raporlanır. ERP'ye ulaşılamadığı için başarısız olan çalışmada o ana kadar alınan cevaplar kaydedilmez;
   faturaya yazılamayan cevap da yalnızca loga düşer. İkisinde de o fatura sonraki çalışmada yeniden sorulur.
@@ -366,7 +374,8 @@ Testte izlenen yol: 1. maddede takılı faturalar, 7. maddede eski Başarısız 
 - **Eski çalışmalar:** Gün 7'den önceki çalışmaların başlatanı bilinmez (ekranda `—`).
 - **Çalışma listesi:** sayfalar arasında yeni bir çalışma başlarsa sonraki sayfa bir kayıt kayar (listeler id'ye göre en yeni üstte).
 - **Detay tek anlık görüntü değildir** ve **ekranın adresi derlemede gömülür** (değişmedi).
-- **Yerel test verisi:** 50 `QA7-ESKI` Başarısız fatura, 72 `QA7-sayfa` çalışması ve 3 kalıcı takılı fatura veritabanında kaldı.
+- **Yerel test verisi:** 300 `QA7-ESKI` ve 50 `QA7-TEKRAR` Başarısız fatura, 72 `QA7-sayfa` çalışması, 9 takip (4'ü açık) ve 3 kalıcı
+  takılı fatura (FTR-004135..137) veritabanında kaldı.
 
 ---
 
