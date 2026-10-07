@@ -31,13 +31,14 @@ bellek içi sahteleriyle değiştirilebilir (bkz. [Testler](#testler)).
 invoice-service/
   src/
     InvoiceService.Domain/
-      Invoices/        Invoice, InvoiceStatus, InvoiceNumber, InvoiceTransitions
+      Invoices/        Invoice, InvoiceStatus, InvoiceNumber, InvoiceTransitions, ErpCheckResult
+      Operators/       OperatorAction, OperatorActionType, OperatorActionResult
       Outbox/          ErpOutboxEntry, OutboxStatus
       Webhooks/        ErpWebhookEvent, WebhookEventType, WebhookEventStatus, IgnoreReason
       Reconciliation/  ReconciliationRun, ReconciliationFinding, ReconciliationStatus, FindingType, FindingAction
     InvoiceService.Application/
       Abstractions/    IErpGateway, IInvoiceStore, IOutboxStore, IWebhookEventStore, IReconciliationStore, IReconciliationLock,
-                       IUnitOfWork, IDatabaseFailureClassifier
+                       IOperatorActionStore, IUnitOfWork, IDatabaseFailureClassifier
       Invoices/        CreateInvoiceHandler, ResendInvoiceHandler, ResendInvoicesHandler, InvoiceQueries,
                        InvoiceReadModels, CreateInvoiceRequest
       Outbox/          OutboxProcessor, ClaimedEntry, ErpSendStrategy, OutboxOutcomeWriter, RetryPolicy, OutboxOptions
@@ -47,14 +48,16 @@ invoice-service/
       DependencyInjection.cs
     InvoiceService.Infrastructure/
       Persistence/     InvoiceDbContext, Migrations/, InvoiceStore, OutboxStore, WebhookEventStore, UnitOfWork,
-                       ReconciliationStore, AdvisoryReconciliationLock, PostgresFailureClassifier
+                       ReconciliationStore, OperatorActionStore, AdvisoryReconciliationLock, PostgresFailureClassifier
       Erp/             ErpClient (IErpGateway), ErpOptions
       DependencyInjection.cs
     InvoiceService.Api/
       Invoices/        InvoiceEndpoints, InvoiceResponse, InvoiceReadResponses, BulkResendResponses
       Webhooks/        WebhookEndpoints, WebhookRequestReader
       Reconciliation/  ReconciliationEndpoints, ReconciliationResponses
+      Operators/       OperatorHeader (X-Operator-Name okuma ve doğrulama)
       Workers/         OutboxWorker, ReconciliationWorker
+      Paging.cs        sayfalı listelerin page / pageSize doğrulaması
       Startup/         LoggingExtensions, OpenApiExtensions, DatabaseMigrator, SettingsLogger, CorsExtensions
       Program.cs
   tests/
@@ -70,7 +73,8 @@ invoice-service/
 | `IOutboxStore` | `erp_outbox`: `FOR UPDATE SKIP LOCKED` ile kayıt al, claim hâlâ bizde mi, sonucu claim'e göre yaz, sıfırla, faturanın kaydını oku | `OutboxStore` |
 | `IWebhookEventStore` | `erp_webhook_events`: bir kez sakla (`ON CONFLICT`), oku, faturanın haberlerini listele, bekleyenleri kilitle, `SET LOCAL` süre limitleri | `WebhookEventStore` |
 | `IUnitOfWork` | Transaction sınırı: aynı DI scope'undaki store'lar aynı transaction'a katılır | `UnitOfWork` |
-| `IReconciliationStore` | `reconciliation_runs` / `reconciliation_findings`; mutabakatın okuduğu fatura ve haber listeleri; bir faturanın bulguları | `ReconciliationStore` |
+| `IReconciliationStore` | `reconciliation_runs` / `reconciliation_findings`; mutabakatın okuduğu fatura ve haber listeleri; bir faturanın bulguları; ERP'ye sorulan faturalara cevabın yazılması | `ReconciliationStore` |
+| `IOperatorActionStore` | `operator_actions`: müdahaleyi açık transaction'da hemen yaz, bir faturanın müdahalelerini oku | `OperatorActionStore` |
 | `IReconciliationLock` | Aynı anda tek mutabakat: bırakılana kadar tutulan kilit; başkasındaysa `null` | `AdvisoryReconciliationLock` |
 | `IDatabaseFailureClassifier` | Veritabanı hatası `lock_timeout` / `statement_timeout` mu (webhook'ta 503 için) | `PostgresFailureClassifier` |
 
@@ -110,17 +114,20 @@ flowchart LR
 
 ERP'ye ulaşılamazsa çalışma Başarısız olur ve hiçbir fatura değişmemiştir (yazma henüz başlamamıştır).
 
-**Yeniden gönderme** — `POST /api/v1/invoices/{n}/resend` → `ResendInvoiceHandler`: yalnızca Başarısız fatura
-Bekliyor'a döner ve outbox kaydı sıfırlanır (tek transaction); sonuç `Queued` / `NotFound` / `NotFailed` → `202` /
+**Yeniden gönderme** — `POST /api/v1/invoices/{n}/resend` → endpoint `X-Operator-Name`'i okur (`OperatorHeader`; yoksa
+`400`) → `ResendInvoiceHandler`: yalnızca Başarısız fatura Bekliyor'a döner ve outbox kaydı sıfırlanır; `operator_actions`
+kaydı aynı transaction'da yazılır (reddedilen istekte yalnızca kayıt); sonuç `Queued` / `NotFound` / `NotFailed` → `202` /
 `404` / `409`.
 
 **Toplu yeniden gönderme** — `POST /api/v1/invoices/resend` → `ResendInvoicesHandler`: 1–100 numara; tekrarlanan numara
 bir kez işlenir; her numara sırayla `ResendInvoiceHandler`'dan (kendi transaction'ıyla) geçer, böylece tekli resend'in
 kuralları ve aynı anda iki resend'e karşı koşullu UPDATE aynen geçerlidir. Bir faturanın hatası diğerlerini durdurmaz;
-cevap her fatura için ayrı sonuçtur (`queued`, `not_found`, `not_failed` + şu anki durum, `error`).
+cevap her fatura için ayrı sonuçtur (`queued`, `not_found`, `not_failed` + şu anki durum, `error`). Her fatura kendi
+`operator_actions` satırını alır; hata veren faturanın transaction'ı geri alındığı için hatası ayrıca yazılır.
 
-**Ekranın okumaları** — `InvoiceQueries`: sayfalı liste ve arama (`ListPageAsync`), özet (`CountByStatusAsync`,
-`CountStuckAsync`), detay (fatura, outbox kaydı, haberler ve bulgular; dört ayrı okuma, tek anlık görüntü değil).
+**Ekranın okumaları** — `InvoiceQueries`: sayfalı liste, arama ve takılı süzgeci (`ListPageAsync`), özet (`CountByStatusAsync`,
+`CountStuckAsync`), detay (fatura, outbox kaydı, haberler, bulgular ve müdahaleler; ayrı okumalar, tek anlık görüntü değil).
+`ReconciliationQueries`: sayfalı çalışma listesi ve bir çalışmanın bulguları.
 
 ## ERP Simulator
 
@@ -166,7 +173,8 @@ operations-ui/
   src/
     api/          client (fetch, hata türleri), endpoints, queries (TanStack Query tanımları), types
     pages/        SummaryPage, InvoiceListPage, InvoiceDetailPage, ReconciliationPage
-    components/   Layout, QueryState, Notice, StatusBadge, RefreshStamp, ErrorBoundary
+    components/   Layout, OperatorGate (ad sorulmadan sayfa açılmaz), QueryState, Notice, StatusBadge, RefreshStamp, ErrorBoundary
+    operator.ts   kullanıcının adı (localStorage), X-Operator-Name başlığı
     tr.ts         ekrandaki bütün metinler ve hata mesajları
     selection.ts  toplu seçim (en fazla 100)
     config.ts     servis adresi, yenileme aralığı, zaman aşımı
@@ -254,6 +262,17 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   Pencerenin dışındaki kesinleşmemiş fatura ERP listesinde olmaz; ona `GET /{n}` ile tek tek sorulur (cevap kayıtları ve kararı taşır), böylece
   uzun bir kesintiden sonra takılı fatura kaçmaz. ERP listesini en eski faturadan başlatmak yerine tek tek sorulur: kalıcı olarak
   `Başarısız` kalan bir fatura her çalışmaya ERP'nin bütün geçmişini çektirirdi.
+- **Takılı tanımı tek yerde.** Özetteki sayı ve listedeki Takılı süzgeci `InvoiceStore`'daki aynı koşulu ve aynı süreyi
+  (`ReconciliationOptions.StuckAfter`) kullanır; ikisinin ayrı yazılması zamanla iki farklı sayı üretebilirdi.
+- **ERP Karar Vermedi.** Takılı fatura için ERP'nin cevabı faturayı ilerletmiyorsa (kararı yok ya da yalnızca `received`) ve fatura
+  `NoDecisionAfterMinutes`'tan uzun aynı durumdaysa raporlanır; düzeltme yoktur. Bulgu her çalışmada yeniden yazılır (o çalışmanın
+  raporu eksik kalmasın), fatura detayı yalnızca en sonuncusunu gösterir. Yalnızca `none` sayılsaydı, `received` haberi gelmiş ve
+  İşleme Alındı'da kalmış fatura bu bulguyu hiç almazdı.
+- **"Yok" cevabı faturada tutulur.** `erp_checked_at` / `erp_check_result` ayrı bir tabloya değil faturaya yazılır; geçerliliği
+  `updated_at` ile karşılaştırılarak anlaşılır: fatura cevaptan sonra değiştiyse (resend gibi) cevap eskidir ve ayrıca temizlenmesi
+  gerekmez. Yazma `updated_at`'e dokunmaz, düzeltmelerden önce ve fatura başına ayrı yapılır; yazılamayan cevap (satırı
+  kilitli kalan ya da veritabanının reddettiği fatura) yalnızca loga düşer, çalışmayı durdurmaz, o fatura sonraki çalışmada yine sorulur. Yalnızca Başarısız faturada atlanır; eski Gönderildi
+  için "yok", her çalışmada raporlanması gereken `ERP Kaydı Yok`'tur. Aynı veri fatura detayında "ERP'ye son soru" olarak görünür.
 - **Varsayılan aralık 60 dakika, ilk çalışma bir aralık sonra.** Daha kısa bir aralık, haberi yalnızca geç gelen faturaları da düzeltir ve
   önceki günlerin sayımlarını (karar haberi gönderilmeyen fatura sayısı) değiştirirdi; 7. ve 8. maddenin testleri aralığı ortam değişkeniyle kısaltır.
 
@@ -277,7 +296,7 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 ### Operasyon ekranı
 
 - **Tarayıcı servise doğrudan gider, CORS açılır.** Ekranın adresi (`Cors:AllowedOrigins`, varsayılan `http://localhost:5100`) dışında bir
-  sayfanın isteğine izin verilmez; yalnızca GET, POST ve `Content-Type`. Boş ya da geçersiz origin servisin açılmasını engeller.
+  sayfanın isteğine izin verilmez; yalnızca GET, POST, `Content-Type` ve `X-Operator-Name`. Boş ya da geçersiz origin servisin açılmasını engeller.
 - **Yenileme yeniden denemenin yerini tutar.** Kütüphanenin kendi yeniden denemesi kapalıdır: gizli bir sekmede beklemeye alındığı için hata
   hiç görünmeyip sayfa "Yükleniyor"da kalabiliyordu. Sekme arka planda da yenilenir.
 - **Hata türü üçe ayrılır:** ulaşılamadı (cevap yok, zaman aşımı ya da tarayıcının engellemesi), sunucu hatası (5xx), reddedildi (4xx,
@@ -285,6 +304,11 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Süzgeç, arama ve sayfa adreste tutulur** (`?durum=&ara=&sayfa=&boyut=`); yenileyince ya da geri dönünce aynı liste açılır.
 - **`index.html` önbelleğe alınmaz**, dosya adı içerik özeti taşıyan `assets/` uzun süre saklanır; yeni sürüm kurulunca tarayıcı eski
   sayfanın aradığı dosyayı istemez.
+- **Müdahaleyi yapanın adı bir kayıttır, kimlik değildir.** Ad tarayıcıda saklanır ve her POST'ta gönderilir; servis yalnızca boş
+  olmadığını ve uzunluğunu denetler. Tarayıcılar header'da Latin-1 dışı karakter göndermediği için ad yüzde kodlanır.
+  `operator_actions` kaydı müdahalenin değişikliğiyle aynı transaction'dadır ve tracker'a eklenmeden doğrudan `INSERT` ile yazılır:
+  toplu gönderimde hata veren faturanın kaydı bir sonraki faturanın kaydıyla birlikte yanlışlıkla yazılamaz. Zamanlayıcının
+  başlattığı çalışmada `started_by` = `Zamanlayıcı`; boş değer yalnızca başlatanın kaydedilmesinden önceki çalışmalardır.
 - **Tutar üst sınırı** (`CreateInvoiceRequest.MaxAmount`, 999.999.999.999,99): veritabanı sütununa sığar ve JSON sayısı olarak ekranda
   kuruşuna kadar doğru görünür.
 
@@ -296,7 +320,7 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 | `*.Application.Tests` | Politikalar ve doğrulamalar (`RetryPolicy`, imza, ayarlar, istek doğrulama, `BehaviorSelector`, `WebhookPlanner`) ve **use case'ler port'ların bellek içi sahteleriyle** (`Fakes/`): veritabanı ve HTTP olmadan gönderim akışı, yeniden gönderme, webhook işleme, simülatörün davranışları ve webhook gönderimi |
 | `*.Infrastructure.Tests` | `ErpClient` (sahte `HttpMessageHandler` ile), ERP ayarları, migration'ların modeli hâlâ tarif ettiği (veritabanı gerekmez) |
 | `InvoiceService.Api.Tests` | Projeyle gelen `appsettings.json` değerleri, CORS origin doğrulaması |
-| `operations-ui` (vitest) | Toplu seçim sınırı, API istemcisinin hata türleri, Türkçe hata mesajları |
+| `operations-ui` (vitest) | Toplu seçim sınırı, API istemcisinin hata türleri, Türkçe hata mesajları, kullanıcı adının doğrulanması ve kodlanması |
 
 ```bash
 dotnet test invoice-service

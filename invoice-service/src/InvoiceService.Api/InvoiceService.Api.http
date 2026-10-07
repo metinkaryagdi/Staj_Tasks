@@ -7,6 +7,8 @@
 
 @baseUrl = http://localhost:5090
 @invoiceNumber = FTR-000001
+# Who makes the change: required on resend and on starting a run (400 without it). Percent-encoded UTF-8; ASCII as is.
+@operator = test-http
 
 ### 1) Create an invoice (202, status Bekliyor)
 POST {{baseUrl}}/api/v1/invoices
@@ -24,19 +26,24 @@ GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}
 
 ### 3) Queue a failed invoice again (202; 409 if it is not Başarısız)
 POST {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}/resend
+X-Operator-Name: {{operator}}
 
 ### 4) One page of invoices, newest first (status, search = part of the number, page, pageSize 1-100)
 GET {{baseUrl}}/api/v1/invoices?status=Bekliyor&search=FTR-0001&page=1&pageSize=20
 
+### 4c) Only the stuck invoices (the ones the summary counts)
+GET {{baseUrl}}/api/v1/invoices?stuck=true
+
 ### 4a) How many invoices are in each status, and how many are stuck
 GET {{baseUrl}}/api/v1/invoices/summary
 
-### 4b) The invoice with its erp_outbox entry, its events and its findings
+### 4b) The invoice with its erp_outbox entry, its events, its findings and the interventions made on it
 GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}/details
 
 ### 3a) Queue several failed invoices again (1-100 numbers; one result per invoice: queued, not_found, not_failed, error)
 POST {{baseUrl}}/api/v1/invoices/resend
 Content-Type: application/json
+X-Operator-Name: {{operator}}
 
 {
   "invoiceNumbers": ["FTR-000001", "FTR-000002"]
@@ -58,9 +65,13 @@ Content-Type: application/json
 
 ### 7) Start a reconciliation run now (202 with the run; 409 while another run is going)
 POST {{baseUrl}}/api/v1/reconciliation-runs
+X-Operator-Name: {{operator}}
 
-### 8) The runs, newest first (without findings)
-GET {{baseUrl}}/api/v1/reconciliation-runs
+### 8) One page of runs, newest first (without findings; pageSize 1-50)
+GET {{baseUrl}}/api/v1/reconciliation-runs?page=1&pageSize=20
+
+### 7a) Without the name: 400 (operator_name_required)
+POST {{baseUrl}}/api/v1/reconciliation-runs
 
 ### 9) One run with its findings (replace 1 with a run id from 7 or 8)
 GET {{baseUrl}}/api/v1/reconciliation-runs/1
