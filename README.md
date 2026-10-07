@@ -321,7 +321,7 @@ Bugünün işi: Gün 6'da ekranın cevaplayamadığı sorular kapatıldı ve mut
   mutabakat yine düzeltir. Gün 4'te önerilen "karar alınamazsa elle takibe alma" adımının karşılığıdır; görevde istenmedi.
 
 Kontrol listesi: [`manual-tests/gun7/`](manual-tests/gun7/README.md) (1, 3, 5-8. maddelerin script'leri ve
-`kontrol-listesi.ps1`; 2 ve 4. maddelerin ekranda adımları; ekler: zamanlayıcı ve elle takip).
+`kontrol-listesi.ps1`; 2 ve 4. maddelerin ekranda adımları; ekler: zamanlayıcı, elle takip, 24 saat sınırı ve sorgu ayarı).
 
 ### Son doğrulama — 7 Ekim 2026
 
@@ -349,6 +349,9 @@ Ekler:
   Ekranda takibe alma, listede ve detayda "Takipte: ad" rozeti ve kapatma denendi.
 - Zamanlayıcının başlattığı çalışmada `started_by` `Zamanlayıcı`, `operator_actions`'a kayıt yok.
 - Gün 6'da ERP'nin hiç karar vermediği üç fatura (FTR-004135..137) artık her çalışmada `ERP Karar Vermedi` alıyor.
+- 24 saat sınırı (`ek-24-saat-siniri.ps1`): "Kayıt yok" cevabı 23 sa 59 dk önce alınmış fatura sorulmadı, 75 sn sonra soruldu.
+- Sorgu ayarı (`ek-sorgu-ayari.ps1`): `NotFoundRecheckHours` 1 yapılınca 61 dk önce "yok" denmiş fatura soruldu, 59 dk önce
+  denmiş olan sorulmadı ve 1 saat dolunca soruldu; ayar dosyasındaki 24 ile ikisi de sorulmadı.
 
 Testte izlenen yol: 1. maddede takılı faturalar, 7. maddede eski Başarısız faturalar, 8. maddede eksik kalan çalışmalar SQL ile
 üretildi. 3. maddede simülatörün `Webhooks:SecondEventMin/MaxSeconds` ve `LostDecisionRate` ayarları ile servisin
@@ -375,7 +378,7 @@ Testte izlenen yol: 1. maddede takılı faturalar, 7. maddede eski Başarısız 
 - **Çalışma listesi:** sayfalar arasında yeni bir çalışma başlarsa sonraki sayfa bir kayıt kayar (listeler id'ye göre en yeni üstte).
 - **Detay tek anlık görüntü değildir** ve **ekranın adresi derlemede gömülür** (değişmedi).
 - **Yerel test verisi:** 300 `QA7-ESKI` ve 50 `QA7-TEKRAR` Başarısız fatura, 72 `QA7-sayfa` çalışması, 9 takip (4'ü açık) ve 3 kalıcı
-  takılı fatura (FTR-004135..137) veritabanında kaldı.
+  takılı fatura (FTR-004135..137) veritabanında kaldı; ek script'ler her koşuda `QA7-24SAAT` / `QA7-AYAR` Başarısız faturaları ekler.
 
 ---
 

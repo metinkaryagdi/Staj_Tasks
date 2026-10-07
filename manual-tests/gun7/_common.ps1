@@ -39,3 +39,33 @@ function Send-OperatorPost([string]$Path, [string]$Json = $null, $Name = $null, 
 
 # operator_actions'ın en büyük id'si; bir adımdan sonra yalnızca o adımın yazdıklarına bakmak için.
 function Get-LastActionId { [long]@(Get-ServiceRows 'SELECT coalesce(max(id), 0) FROM operator_actions;')[0] }
+
+# Mutabakat çalışmasının servis logundaki ERP satırları: verilen faturaların sorgu satırları ve çalışmanın özet satırı.
+function Get-RunLookups([long]$RunId, [string[]]$Numbers) {
+    $invoices = ($Numbers | ForEach-Object { [regex]::Escape($_) }) -join '|'
+    @(foreach ($c in @(docker ps --format '{{.Names}}' | Where-Object { $_ -match 'invoice-service' })) {
+        docker logs --since 10m $c 2>&1 | ForEach-Object { "$_" } |
+            Where-Object { $_ -match "Reconciliation asked the ERP run=$RunId invoice=($invoices) " -or $_ -match "Reconciliation ERP lookups run=$RunId " }
+    })
+}
+
+# 3 gün önce oluşturulmuş, ERP'den "Kayıt yok" cevabı $CheckedAgo önce alınmış Başarısız fatura ekler; numarasını döner.
+function New-NotFoundInvoice([string]$CustomerCode, [string]$CheckedAgo) {
+    @(Get-ServiceRows ("INSERT INTO invoices (invoice_number, customer_code, amount, currency, invoice_date, status, last_error, " +
+        "send_attempt_count, created_at, updated_at, erp_checked_at, erp_check_result) " +
+        "SELECT 'FTR-' || lpad(nextval('invoice_number_seq')::text, 6, '0'), '$CustomerCode', 100.00, 'TRY', current_date - 3, 'Başarısız', " +
+        "'elle eklendi: ERP hiç almadı', 10, now() - interval '3 days', now() - interval '3 days', now() - interval '$CheckedAgo', 'Kayıt yok' " +
+        "RETURNING invoice_number;") | Where-Object { $_ -match '^FTR-' })[0]
+}
+
+function Show-ErpCheck([string[]]$Numbers) {
+    Show-ServiceQuery ("SELECT invoice_number, status, to_char(updated_at,'MM-DD HH24:MI:SS') AS guncellendi, " +
+        "to_char(erp_checked_at,'MM-DD HH24:MI:SS') AS erp_son_soru, erp_check_result, " +
+        "date_trunc('second', now() - erp_checked_at) AS soru_uzerinden_gecen FROM invoices WHERE invoice_number IN ($(InList $Numbers)) ORDER BY 1;")
+}
+
+# Fatura Servisi kapsayıcısındaki ortam değişkeni; yoksa ayar dosyasındaki değer geçerlidir.
+function Get-ServiceEnv([string]$Key) {
+    $value = docker exec staj-tasks-invoice-service-1 sh -c "printenv $Key || true"
+    if ($value) { "$Key=$value" } else { "$Key yok (appsettings.json)" }
+}

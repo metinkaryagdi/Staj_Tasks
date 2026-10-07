@@ -18,6 +18,10 @@ Script'ler repo kök klasöründen çalıştırılır. Hepsi sonunda `SONUÇ: GE
 Script'li maddeleri art arda çalıştırmak için: `.\manual-tests\gun7\kontrol-listesi.ps1`. Ek olarak `ek-zamanlayici.ps1`
 zamanlanmış çalışmanın başlatanının "Zamanlayıcı" yazıldığını gösterir (servis 1 dk aralıkla yeniden başlatılır);
 `ek-elle-takip.ps1` takılı faturanın elle takibe alınmasını ve kapatılmasını sınar (ikisi de kontrol listesinde "Ek").
+7. maddenin süresi için iki script daha var, kontrol listesine dahil değiller: `ek-24-saat-siniri.ps1` "Kayıt yok" cevabı
+23 sa 59 dk önce alınmış faturanın sorulmadığını, 24 saat dolunca sorulduğunu gösterir (~1,5 dk); `ek-sorgu-ayari.ps1`
+servisi `NotFoundRecheckHours=1` ile yeniden başlatıp sürenin ayardan okunduğunu gösterir, sonda ayar dosyasındaki değere
+döner (~3 dk).
 
 ## Ekrandan elle yapılan maddeler
 
