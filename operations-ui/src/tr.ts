@@ -140,7 +140,7 @@ export const tr = {
       erpCheckedAt: "Mutabakatın ERP'ye son sorusu",
       erpCheckResult: 'ERP cevabı',
     },
-    neverChecked: "Mutabakat bu faturayı ERP'ye hiç sormadı",
+    neverChecked: "Mutabakat tek tek sormadı: ERP'nin listesiyle karşılaştırılıyor. Gönderim ve ERP haberleri aşağıda.",
     outbox: {
       status: 'Kayıt durumu',
       attempts: 'Deneme sayısı',
