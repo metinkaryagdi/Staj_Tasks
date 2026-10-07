@@ -20,11 +20,12 @@ public sealed record InvoiceResponse(
     DateTimeOffset UpdatedAt,
     DateTimeOffset? ErpCheckedAt,
     string? ErpCheckResult,
-    bool Stuck)
+    bool Stuck,
+    string? FollowedBy)
 {
     /// <param name="stuck">Whether the summary counts it as stuck; an invoice just created or queued again is not.</param>
-    public static InvoiceResponse From(Invoice i, bool stuck = false) => new(
+    public static InvoiceResponse From(Invoice i, bool stuck = false, string? followedBy = null) => new(
         i.InvoiceNumber, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.Status,
         i.ErpReference, i.RejectReason, i.LastError, i.SendAttemptCount, i.CreatedAt, i.UpdatedAt,
-        i.ErpCheckedAt, i.ErpCheckResult, stuck);
+        i.ErpCheckedAt, i.ErpCheckResult, stuck, followedBy);
 }

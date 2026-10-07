@@ -3,6 +3,7 @@ using InvoiceService.Application.Invoices;
 using InvoiceService.Domain.Operators;
 using InvoiceService.Domain.Outbox;
 using InvoiceService.Domain.Webhooks;
+using InvoiceService.Domain.Invoices;
 
 namespace InvoiceService.Api.Invoices;
 
@@ -39,18 +40,32 @@ public sealed record OperatorActionResponse(string OperatorName, string Action, 
     public static OperatorActionResponse From(OperatorAction a) => new(a.OperatorName, a.Action, a.Result, a.CreatedAt);
 }
 
+public sealed record InvoiceFollowUpResponse(
+    long Id, string InvoiceNumber, string OperatorName, string Note, DateTimeOffset OpenedAt, DateTimeOffset? ClosedAt, string? ClosedBy)
+{
+    public static InvoiceFollowUpResponse From(InvoiceFollowUp f) =>
+        new(f.Id, f.InvoiceNumber, f.OperatorName, f.Note, f.OpenedAt, f.ClosedAt, f.ClosedBy);
+}
+
+public sealed record InvoiceFollowUpSummaryResponse(string OperatorName, string Note, DateTimeOffset OpenedAt);
+
 /// <summary>
 /// The invoice, its outbox entry, its events, the reconciliation findings about it and the interventions made on it, in
 /// one response.
 /// </summary>
 public sealed record InvoiceDetailsResponse(
     InvoiceResponse Invoice, OutboxEntryResponse? Outbox, IReadOnlyList<InvoiceEventResponse> Events,
-    IReadOnlyList<ReconciliationFindingResponse> Findings, IReadOnlyList<OperatorActionResponse> OperatorActions)
+    IReadOnlyList<ReconciliationFindingResponse> Findings, IReadOnlyList<OperatorActionResponse> OperatorActions,
+    InvoiceFollowUpSummaryResponse? FollowUp, IReadOnlyList<InvoiceFollowUpResponse> FollowUps)
 {
     public static InvoiceDetailsResponse From(InvoiceDetails d) => new(
         InvoiceResponse.From(d.Invoice, d.Stuck),
         d.Outbox is null ? null : OutboxEntryResponse.From(d.Outbox),
         d.Events.Select(InvoiceEventResponse.From).ToList(),
         d.Findings.Select(ReconciliationFindingResponse.From).ToList(),
-        d.OperatorActions.Select(OperatorActionResponse.From).ToList());
+        d.OperatorActions.Select(OperatorActionResponse.From).ToList(),
+        d.FollowUp is null ? null : new(d.FollowUp.OperatorName, d.FollowUp.Note, d.FollowUp.OpenedAt),
+        d.FollowUps.Select(InvoiceFollowUpResponse.From).ToList());
 }
+
+public sealed record FollowUpRequest(string? Note);

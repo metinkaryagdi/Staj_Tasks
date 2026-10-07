@@ -30,4 +30,7 @@ public static class ProblemCodes
     public const string ReconciliationRunning = "reconciliation_running";
     public const string OperatorNameRequired = "operator_name_required";
     public const string OperatorNameInvalid = "operator_name_invalid";
+    public const string InvoiceNotStuck = "invoice_not_stuck";
+    public const string FollowUpOpen = "follow_up_open";
+    public const string FollowUpNotOpen = "follow_up_not_open";
 }

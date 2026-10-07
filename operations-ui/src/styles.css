@@ -354,6 +354,23 @@ tr.row-selected td {
   margin-left: 6px;
 }
 
+.badge-follow-up {
+  background: #e6f1ff;
+  color: #174a7e;
+}
+
+.follow-up-form {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 36rem;
+  margin-block: 1rem;
+}
+
+.follow-up-form textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
 .badge-neutral {
   color: var(--muted);
   background: var(--neutral-bg);

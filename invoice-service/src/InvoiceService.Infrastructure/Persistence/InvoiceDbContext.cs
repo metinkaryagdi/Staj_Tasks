@@ -23,6 +23,8 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
 
     public DbSet<OperatorAction> OperatorActions => Set<OperatorAction>();
 
+    public DbSet<InvoiceFollowUp> InvoiceFollowUps => Set<InvoiceFollowUp>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasSequence<long>(InvoiceNumberSequence);
@@ -180,11 +182,31 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.Property(e => e.Action).HasColumnName("action").HasMaxLength(32);
             // No foreign key to invoices: a resend of a number that does not exist is recorded too.
             entity.Property(e => e.InvoiceNumber).HasColumnName("invoice_number").HasMaxLength(OperatorAction.MaxInvoiceNumberLength);
-            entity.Property(e => e.Result).HasColumnName("result").HasMaxLength(128);
+            entity.Property(e => e.Result).HasColumnName("result").HasMaxLength(OperatorAction.MaxResultLength);
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
 
             // An invoice's interventions on its detail page.
             entity.HasIndex(e => new { e.InvoiceNumber, e.Id });
+        });
+
+        modelBuilder.Entity<InvoiceFollowUp>(entity =>
+        {
+            entity.ToTable("invoice_follow_ups", t =>
+            {
+                t.HasCheckConstraint("ck_invoice_follow_ups_operator_name", "btrim(operator_name) <> ''");
+                t.HasCheckConstraint("ck_invoice_follow_ups_note", "btrim(note) <> ''");
+                t.HasCheckConstraint("ck_invoice_follow_ups_closed_by", "(closed_at IS NULL) = (closed_by IS NULL)");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
+            entity.Property(e => e.InvoiceNumber).HasColumnName("invoice_number").HasMaxLength(32);
+            entity.HasOne<Invoice>().WithMany().HasForeignKey(e => e.InvoiceNumber).OnDelete(DeleteBehavior.Restrict);
+            entity.Property(e => e.OperatorName).HasColumnName("operator_name").HasMaxLength(OperatorAction.MaxNameLength);
+            entity.Property(e => e.Note).HasColumnName("note").HasMaxLength(InvoiceFollowUp.MaxNoteLength);
+            entity.Property(e => e.OpenedAt).HasColumnName("opened_at");
+            entity.Property(e => e.ClosedAt).HasColumnName("closed_at");
+            entity.Property(e => e.ClosedBy).HasColumnName("closed_by").HasMaxLength(OperatorAction.MaxNameLength);
+            entity.HasIndex(e => e.InvoiceNumber).IsUnique().HasFilter("closed_at IS NULL");
         });
     }
 

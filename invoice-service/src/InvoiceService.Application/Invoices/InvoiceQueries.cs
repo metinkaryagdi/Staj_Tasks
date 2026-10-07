@@ -8,7 +8,7 @@ namespace InvoiceService.Application.Invoices;
 /// <summary>Reads invoices as stored by the service.</summary>
 public sealed class InvoiceQueries(
     IInvoiceStore invoices, IOutboxStore outbox, IWebhookEventStore events, IReconciliationStore reconciliation,
-    IOperatorActionStore actions, IOptions<ReconciliationOptions> reconciliationOptions, TimeProvider time)
+    IOperatorActionStore actions, IInvoiceFollowUpStore followUps, IOptions<ReconciliationOptions> reconciliationOptions, TimeProvider time)
 {
     public const int DefaultPageSize = 20;
 
@@ -28,7 +28,8 @@ public sealed class InvoiceQueries(
             status, string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
             stuck ? cutoff : null, (page - 1) * pageSize, pageSize, ct);
         var isStuck = StuckInvoice.Before(cutoff).Compile();
-        return new InvoiceListPage(result.Items.Select(i => new ListedInvoice(i, isStuck(i))).ToList(), result.TotalCount);
+        var openNames = await followUps.OpenNamesAsync(result.Items.Select(i => i.InvoiceNumber).ToList(), ct);
+        return new InvoiceListPage(result.Items.Select(i => new ListedInvoice(i, isStuck(i), openNames.GetValueOrDefault(i.InvoiceNumber))).ToList(), result.TotalCount);
     }
 
     /// <summary>Whether the summary counts the invoice as stuck right now.</summary>
@@ -72,6 +73,8 @@ public sealed class InvoiceQueries(
             await events.ListByInvoiceAsync(invoiceNumber, ct),
             WithoutRepeatedNoDecision(await reconciliation.ListFindingsOfInvoiceAsync(invoiceNumber, ct)),
             await actions.ListOfInvoiceAsync(invoiceNumber, ct),
-            IsStuck(invoice));
+            IsStuck(invoice),
+            await followUps.FindOpenAsync(invoiceNumber, ct),
+            await followUps.ListAsync(invoiceNumber, ct));
     }
 }

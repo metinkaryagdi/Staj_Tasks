@@ -13,6 +13,7 @@ $scripts = @(
     @{ No = '7';   Order = 7; File = 'adim4-gereksiz-sorgu.ps1';    Name = '50 eski Başarısız: 50 sorgu, sonra 0' }
     @{ No = '8';   Order = 8; File = 'adim5-calisma-sayfalari.ps1'; Name = '120 çalışma sayfa sayfa' }
     @{ No = 'Ek';  Order = 9; File = 'ek-zamanlayici.ps1';          Name = 'Zamanlanmış çalışmanın başlatanı' }
+    @{ No = 'Ek';  Order = 10; File = 'ek-elle-takip.ps1';          Name = 'Takılı faturayı elle takibe alma' }
 ) | Where-Object { $_.Order -ge $From }
 
 $outputDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'output'

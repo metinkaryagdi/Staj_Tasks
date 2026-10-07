@@ -460,3 +460,37 @@ public sealed class FakeOperatorActionStore : IOperatorActionStore
         Task.FromResult<IReadOnlyList<OperatorAction>>(
             Actions.Where(a => a.InvoiceNumber == invoiceNumber).OrderByDescending(a => a.Id).ToList());
 }
+
+public sealed class FakeInvoiceFollowUpStore : IInvoiceFollowUpStore
+{
+    public List<InvoiceFollowUp> FollowUps { get; } = [];
+
+    public Task<InvoiceFollowUp?> FindOpenAsync(string invoiceNumber, CancellationToken ct) =>
+        Task.FromResult(FollowUps.SingleOrDefault(f => f.InvoiceNumber == invoiceNumber && f.ClosedAt is null));
+
+    public Task<IReadOnlyList<InvoiceFollowUp>> ListAsync(string invoiceNumber, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<InvoiceFollowUp>>(FollowUps.Where(f => f.InvoiceNumber == invoiceNumber)
+            .OrderByDescending(f => f.OpenedAt).ToList());
+
+    public Task AddAsync(InvoiceFollowUp followUp, CancellationToken ct)
+    {
+        // What the partial unique index does in the database.
+        if (FollowUps.Any(f => f.InvoiceNumber == followUp.InvoiceNumber && f.ClosedAt is null))
+            throw new InvalidOperationException("an open follow-up already exists");
+        followUp.Id = FollowUps.Count + 1;
+        FollowUps.Add(followUp);
+        return Task.CompletedTask;
+    }
+
+    public Task CloseAsync(long id, string closedBy, DateTimeOffset closedAt, CancellationToken ct)
+    {
+        var followUp = FollowUps.Single(f => f.Id == id);
+        followUp.ClosedBy = closedBy;
+        followUp.ClosedAt = closedAt;
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyDictionary<string, string>> OpenNamesAsync(IReadOnlyCollection<string> invoiceNumbers, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyDictionary<string, string>>(FollowUps.Where(f => invoiceNumbers.Contains(f.InvoiceNumber) && f.ClosedAt is null)
+            .ToDictionary(f => f.InvoiceNumber, f => f.OperatorName));
+}

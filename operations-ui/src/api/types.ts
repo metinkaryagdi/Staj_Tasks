@@ -4,6 +4,7 @@ export const invoiceStatuses = ['Bekliyor', 'Gönderildi', 'İşleme Alındı', 
 export type InvoiceStatus = (typeof invoiceStatuses)[number]
 
 export const failedStatus: InvoiceStatus = 'Başarısız'
+export const maxFollowUpNoteLength = 500
 
 export interface Invoice {
   invoiceNumber: string
@@ -23,6 +24,7 @@ export interface Invoice {
   erpCheckResult: string | null
   // Özetin takılı saydığı fatura mı; servis süzgeçle aynı kuralla hesaplar.
   stuck: boolean
+  followedBy: string | null
 }
 
 export interface InvoiceList {
@@ -77,12 +79,30 @@ export interface OperatorAction {
   createdAt: string
 }
 
+export interface InvoiceFollowUp {
+  id: number
+  invoiceNumber: string
+  operatorName: string
+  note: string
+  openedAt: string
+  closedAt: string | null
+  closedBy: string | null
+}
+
+export interface OpenInvoiceFollowUp {
+  operatorName: string
+  note: string
+  openedAt: string
+}
+
 export interface InvoiceDetails {
   invoice: Invoice
   outbox: OutboxEntry | null
   events: InvoiceEvent[]
   findings: Finding[]
   operatorActions: OperatorAction[]
+  followUp: OpenInvoiceFollowUp | null
+  followUps: InvoiceFollowUp[]
 }
 
 export interface ReconciliationRun {

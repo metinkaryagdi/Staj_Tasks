@@ -16,7 +16,8 @@ Script'ler repo kök klasöründen çalıştırılır. Hepsi sonunda `SONUÇ: GE
 | 8 | 120 mutabakat çalışması varken liste sayfa sayfa doğru | `.\manual-tests\gun7\adim5-calisma-sayfalari.ps1` |
 
 Script'li maddeleri art arda çalıştırmak için: `.\manual-tests\gun7\kontrol-listesi.ps1`. Ek olarak `ek-zamanlayici.ps1`
-zamanlanmış çalışmanın başlatanının "Zamanlayıcı" yazıldığını gösterir (servis 1 dk aralıkla yeniden başlatılır).
+zamanlanmış çalışmanın başlatanının "Zamanlayıcı" yazıldığını gösterir (servis 1 dk aralıkla yeniden başlatılır);
+`ek-elle-takip.ps1` takılı faturanın elle takibe alınmasını ve kapatılmasını sınar (ikisi de kontrol listesinde "Ek").
 
 ## Ekrandan elle yapılan maddeler
 

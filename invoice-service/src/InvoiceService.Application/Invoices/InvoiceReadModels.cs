@@ -10,7 +10,7 @@ namespace InvoiceService.Application.Invoices;
 public sealed record InvoicePage(IReadOnlyList<Invoice> Items, int TotalCount);
 
 /// <summary>An invoice of the list with whether the summary counts it as stuck.</summary>
-public sealed record ListedInvoice(Invoice Invoice, bool Stuck);
+public sealed record ListedInvoice(Invoice Invoice, bool Stuck, string? FollowedBy);
 
 /// <summary>One page of the list as the screen gets it; <paramref name="TotalCount"/> counts every invoice the filters
 /// match.</summary>
@@ -30,4 +30,4 @@ public sealed record InvoiceSummary(IReadOnlyList<StatusCount> Counts, int Total
 /// <param name="Stuck">Whether the summary counts it as stuck.</param>
 public sealed record InvoiceDetails(
     Invoice Invoice, ErpOutboxEntry? Outbox, IReadOnlyList<ErpWebhookEvent> Events, IReadOnlyList<ReconciliationFinding> Findings,
-    IReadOnlyList<OperatorAction> OperatorActions, bool Stuck);
+    IReadOnlyList<OperatorAction> OperatorActions, bool Stuck, InvoiceFollowUp? FollowUp, IReadOnlyList<InvoiceFollowUp> FollowUps);

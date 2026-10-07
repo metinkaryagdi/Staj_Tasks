@@ -20,6 +20,7 @@ public sealed class Scenario
     public FakeWebhookEventStore Events { get; } = new();
     public FakeErpGateway Erp { get; } = new();
     public FakeOperatorActionStore OperatorActions { get; } = new();
+    public FakeInvoiceFollowUpStore FollowUps { get; } = new();
 
     public OutboxOptions OutboxSettings { get; } = new()
     {
@@ -81,8 +82,11 @@ public sealed class Scenario
     public ResendInvoicesHandler ResendInvoicesHandler() =>
         new(ResendInvoiceHandler(), OperatorActions, Time, NullLoggerFactory.Instance);
 
+    public InvoiceFollowUpHandler InvoiceFollowUpHandler() =>
+        new(UnitOfWork, Invoices, FollowUps, OperatorActions, Time, Options.Create(ReconciliationSettings));
+
     public InvoiceQueries InvoiceQueries() => new(
-        Invoices, Outbox, Events, Reconciliation, OperatorActions, Options.Create(ReconciliationSettings), Time);
+        Invoices, Outbox, Events, Reconciliation, OperatorActions, FollowUps, Options.Create(ReconciliationSettings), Time);
 
     public CreateInvoiceHandler CreateInvoiceHandler() => new(Invoices, Time, NullLoggerFactory.Instance);
 }

@@ -3,6 +3,7 @@ import {
   stuckFilter,
   type Invoice,
   type InvoiceDetails,
+  type InvoiceFollowUp,
   type InvoiceList,
   type InvoiceQuery,
   type InvoiceSummary,
@@ -33,6 +34,14 @@ export function getInvoiceDetails(invoiceNumber: string) {
 
 export function resendInvoice(invoiceNumber: string) {
   return postJson<Invoice>(`${invoices}/${encodeURIComponent(invoiceNumber)}/resend`)
+}
+
+export function openInvoiceFollowUp(invoiceNumber: string, note: string) {
+  return postJson<InvoiceFollowUp>(`${invoices}/${encodeURIComponent(invoiceNumber)}/follow-up`, { note })
+}
+
+export function closeInvoiceFollowUp(invoiceNumber: string) {
+  return postJson<InvoiceFollowUp>(`${invoices}/${encodeURIComponent(invoiceNumber)}/follow-up/close`)
 }
 
 export async function resendInvoices(invoiceNumbers: string[]) {

@@ -127,7 +127,8 @@ da başka nedenle ERP'den ayrışan faturalar için mutabakat işi servisin içi
 | `erp_webhook_events` | Gelen her geçerli event bir satır (`event_id` birincil anahtar). `delivery_count` tekrar gelişi sayar, `ignore_reason` `Yok Sayıldı`'nın nedenidir (`Geri Götürüyor`, `Kesin Durumda`, `İlerletmiyor`, `Referans Farklı`, `Fatura Yok`) |
 | `reconciliation_runs` | Bir mutabakat çalışması: durum (`Çalışıyor` / `Tamamlandı` / `Başarısız`), karşılaştırılan, düzeltilen ve raporlanan sayısı, hata, `started_by` (başlatan kişi ya da `Zamanlayıcı`; başlatanın kaydedilmesinden önceki çalışmalarda boş) |
 | `reconciliation_findings` | Çalışmanın bulduğu fark: tür, eylem (`Düzeltildi` / `Raporlandı`), ayrıntı. `Düzeltildi` yalnızca düzeltilen üç türde olabilir (check constraint). Fatura tablosuna foreign key yoktur: ERP'de olup serviste olmayan fatura da raporlanır |
-| `operator_actions` | Ekrandan yapılan her müdahale: `operator_name`, `action` (`Yeniden Gönderme`, `Toplu Yeniden Gönderme`, `Mutabakat Başlatma`), `invoice_number` (mutabakat başlatmada boş), `result` (`Kuyruğa alındı`, `Reddedildi: fatura Bekliyor`, `Başlatıldı: çalışma 12` …), `created_at`. Reddedilen istekler de yazılır; toplu gönderimde fatura başına bir satır |
+| `operator_actions` | Ekrandan yapılan her müdahale: `operator_name`, `action` (`Yeniden Gönderme`, `Toplu Yeniden Gönderme`, `Mutabakat Başlatma`, `Takibe Alma`, `Takibi Kapatma`), `invoice_number` (mutabakat başlatmada boş), `result` (`Kuyruğa alındı`, `Reddedildi: fatura Bekliyor`, `Başlatıldı: çalışma 12` …), `created_at`. Reddedilen istekler de yazılır; toplu gönderimde fatura başına bir satır |
+| `invoice_follow_ups` | Takılı bir faturanın elle takibi: `operator_name`, `note`, `opened_at`, `closed_at` / `closed_by` (açıkken boş). Fatura başına en fazla bir açık takip (kısmi benzersiz indeks); kapatılanlar geçmiş olarak kalır. Faturanın durumunu değiştirmez |
 
 `invoices.status`: `Bekliyor` → `Gönderildi` ya da `Başarısız`; ERP event'leriyle `Gönderildi` → `İşleme Alındı` →
 `Onaylandı` / `Reddedildi` (`Gönderildi`'den doğrudan karar da olur). `Onaylandı` ve `Reddedildi` kesin durumdur.
@@ -146,6 +147,8 @@ yeniden kuyruğa alır. Durum değerleri ve alanlar veritabanında check constra
 | `GET /api/v1/invoices/{invoiceNumber}` | Faturanın servisteki hali (`200`, `rejectReason` dahil) ya da `404`. |
 | `GET /api/v1/invoices/{invoiceNumber}/details` | Fatura, `erp_outbox` kaydı, haberleri (geliş sırasıyla), mutabakat bulguları (en yeni üstte; `ERP Karar Vermedi`'den yalnızca en sonuncusu) ve müdahaleler (`operatorActions`, en yeni üstte) tek cevapta; yoksa `404`. |
 | `POST /api/v1/reconciliation-runs` | `X-Operator-Name` gerekir. Mutabakatı elle başlatır: `202` + `Location` + çalışma (`Çalışıyor`); çalışma arka planda sürer. Başka bir çalışma sürüyorsa (zamanlanmış, elle ya da servisin diğer kopyasında) `409` (`code: reconciliation_running`). |
+| `POST /api/v1/invoices/{invoiceNumber}/follow-up` | `X-Operator-Name` gerekir. Body `{"note": "..."}` (1-500 karakter, aksi `400`). Yalnızca takılı fatura (aksi `409`, `code: invoice_not_stuck`); açık takip varsa `409` (`code: follow_up_open`, açan ve zamanı); yoksa `404`. `201` + takip. Fatura takılı kalır |
+| `POST /api/v1/invoices/{invoiceNumber}/follow-up/close` | `X-Operator-Name` gerekir. Açık takibi kapatır (`200`); yoksa `409` (`code: follow_up_not_open`) |
 | `GET /api/v1/reconciliation-runs` | Sayfalı çalışma listesi, en yeni üstte (bulgusuz): `page` (1'den), `pageSize` (1-50, varsayılan 20). Cevap `{items, page, pageSize, totalCount, totalPages}`. |
 | `GET /api/v1/reconciliation-runs/{id}` | `{ run, findings[] }` ya da `404`. |
 | `POST /api/v1/erp-webhooks` | ERP webhook event'i. İmza header'ları yok/yanlış ya da timestamp 5 dk'dan eski veya ileri: `401`, kaydedilmez. İmza doğru ama body geçersiz: `400`; 64 KB'tan büyük body: `413`. Event 4 sn içinde işlenemezse `503` (ERP tekrar gönderir). Aksi halde `200` + `{eventId, status, repeat}`. |
@@ -257,8 +260,8 @@ React + TypeScript (Vite), nginx ile sunulur. Tarayıcı doğrudan Invoice Servi
 | Sayfa | İçerik |
 |---|---|
 | Özet | Her durumdaki fatura sayısı, takılı fatura sayısı (kart listeyi Takılı süzgeciyle açar), son mutabakat çalışmasının durumu ve bulgu sayıları |
-| Fatura Listesi | Durum süzgeci (altı durum ve Takılı; takılı faturada durumun yanında "Takılı · süre" rozeti), numarayla arama, sayfalama (20/50/100). Kolonlar: fatura no, müşteri kodu, tutar, durum, deneme sayısı (toplam), son hata, son güncelleme, detay bağlantısı. Başarısız faturalar seçilip (en fazla 100) toplu yeniden gönderilir; sonuçta kaçının kuyruğa alındığı, kaçının alınamadığı ve nedeni görünür |
-| Fatura Detayı | Fatura bilgileri (mutabakatın ERP'ye son sorusu ve cevabı dahil), `erp_outbox` kaydı, gelen bütün haberler, faturanın mutabakat bulguları, müdahaleler (kim, ne, sonuç); Başarısız faturada "Yeniden Gönder" |
+| Fatura Listesi | Durum süzgeci (altı durum ve Takılı; takılı faturada durumun yanında "Takılı · süre" rozeti, takipteyse "Takipte: ad"), numarayla arama, sayfalama (20/50/100). Kolonlar: fatura no, müşteri kodu, tutar, durum, deneme sayısı (toplam), son hata, son güncelleme, detay bağlantısı. Başarısız faturalar seçilip (en fazla 100) toplu yeniden gönderilir; sonuçta kaçının kuyruğa alındığı, kaçının alınamadığı ve nedeni görünür |
+| Fatura Detayı | Fatura bilgileri (mutabakatın ERP'ye son sorusu ve cevabı dahil), `erp_outbox` kaydı, gelen bütün haberler, faturanın mutabakat bulguları, müdahaleler (kim, ne, sonuç); Başarısız faturada "Yeniden Gönder"; takılı faturada "Takibe Al" (not ile) / "Takibi Kapat", açık takip ve takip geçmişi |
 | Mutabakat | Sayfalı çalışma listesi (20'şer, başlatan dahil), seçili çalışmanın bulguları (Raporlanan ve Düzeltilen ayrı), "Mutabakatı Şimdi Çalıştır" |
 
 - İlk açılışta kullanıcının adı sorulur ve tarayıcıda (`localStorage`) saklanır; sayfa yenilenince yeniden sorulmaz. Ad üst
@@ -313,6 +316,9 @@ Bugünün işi: Gün 6'da ekranın cevaplayamadığı sorular kapatıldı ve mut
 - **Mutabakatta gereksiz sorgular:** ERP'nin "yok" dediği Başarısız fatura `NotFoundRecheckHours` (24 saat) yeniden sorulmaz;
   takip `invoices.erp_checked_at` / `erp_check_result` ile yapılır, fatura detayında "mutabakatın ERP'ye son sorusu" olarak da
   görünür. Çalışma listesi sayfalıdır (en çok 50).
+- **Ek — elle takip:** takılı fatura detaydan bir notla "takibe alınabilir" ve takip kapatılabilir (`invoice_follow_ups`;
+  `operator_actions`'a `Takibe Alma` / `Takibi Kapatma`). Fatura takılı kalır, sayıyı ve süzgeci etkilemez; karar gelince
+  mutabakat yine düzeltir. Gün 4'te önerilen "karar alınamazsa elle takibe alma" adımının karşılığıdır; görevde istenmedi.
 
 Kontrol listesi: [`manual-tests/gun7/`](manual-tests/gun7/README.md) (1, 3, 5-8. maddelerin script'leri ve
 `kontrol-listesi.ps1`; 2 ve 4. maddelerin ekranda adımları).
@@ -336,7 +342,9 @@ koşuldu ve hepsi geçti.
 | 7 | ERP'nin hiç almadığı 50 eski Başarısız fatura | İlk çalışma 50 sorgu (hepsi `NotFound`, loglarda fatura başına satır), ikinci çalışma 0 sorgu (`skippedRecentlyNotFound`); faturalardan biri değişince sonraki çalışma yalnızca onu sordu |
 | 8 | 120'den fazla çalışma | 50'lik sayfalarla bütün çalışmalar bir kez ve veritabanıyla aynı sırada okundu; `pageSize=51` ve `page=0` `400` |
 
-Ek: zamanlayıcının başlattığı çalışmada `started_by` `Zamanlayıcı`, `operator_actions`'a kayıt yok. Gün 6'da bilinen sınır
+Ek: elle takip (`ek-elle-takip.ps1`): başlıksız istek `400`; takibe alma `201`, ikinci istek ve aynı anda gelen iki istekten
+biri `409`; takılı olmayan faturaya `409`; takip açıkken özet = takılı listesi = veritabanı; kapatma ve detaydaki geçmiş doğru.
+Ekranda takibe alma, listede ve detayda "Takipte: ad" rozeti ve kapatma denendi. Zamanlayıcının başlattığı çalışmada `started_by` `Zamanlayıcı`, `operator_actions`'a kayıt yok. Gün 6'da bilinen sınır
 olarak yazılan, ERP'nin hiç karar vermediği üç fatura (FTR-004135..137) artık her çalışmada `ERP Karar Vermedi` alıyor.
 
 Testte izlenen yol: 1. maddede takılı faturalar, 7. maddede eski Başarısız faturalar, 8. maddede eksik kalan çalışmalar SQL ile

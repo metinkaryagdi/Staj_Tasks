@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from './api/client'
-import { describeError, describeResendError, describeResendRefusal, describeStartRunError } from './tr'
+import { describeError, describeFollowUpError, describeResendError, describeResendRefusal, describeStartRunError } from './tr'
 
 describe('hata mesajları', () => {
   it('servise ulaşılamayınca anlaşılır bir mesaj verir ve ham hata göstermez', () => {
@@ -28,6 +28,12 @@ describe('hata mesajları', () => {
   it('cevap alınamayan müdahalede işlemin belirsiz olduğunu saklamaz', () => {
     expect(describeResendError(new ApiError('unreachable', null))).toContain('belli değil')
     expect(describeStartRunError(new ApiError('unreachable', null))).toContain('belli değil')
+  })
+
+  it('takip reddedilme kodlarını Türkçe açıklar', () => {
+    expect(describeFollowUpError(new ApiError('rejected', 409, 'invoice_not_stuck', 'Onaylandı'))).toContain('Onaylandı')
+    expect(describeFollowUpError(new ApiError('rejected', 409, 'follow_up_open'))).toContain('zaten açık')
+    expect(describeFollowUpError(new ApiError('rejected', 409, 'follow_up_not_open'))).toContain('açık takip yok')
   })
 
   it('toplu gönderimde reddedilen her fatura için nedenini yazar', () => {

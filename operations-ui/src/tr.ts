@@ -102,6 +102,20 @@ export const tr = {
     resend: 'Yeniden Gönder',
     resending: 'Gönderiliyor…',
     resendQueued: 'Fatura yeniden gönderilmek üzere kuyruğa alındı. Durumu bu sayfada izleyebilirsiniz.',
+    followUpSection: 'Takip',
+    takeFollowUp: 'Takibe Al',
+    closeFollowUp: 'Takibi Kapat',
+    saveFollowUp: 'Kaydet',
+    followUpNote: 'Not',
+    followUpPlaceholder: 'Bu faturayla ilgili kısa not',
+    followUpOpened: 'Fatura takibe alındı.',
+    followUpClosed: 'Takip kapatıldı.',
+    followUpOpen: (name: string) => `Takipte: ${name}`,
+    followUpNoLongerStuck: 'Takip açık, fatura artık takılı değil.',
+    followUpHistory: 'Takip geçmişi',
+    noFollowUps: 'Bu fatura için henüz takip kaydı yok.',
+    followUpError: 'Takip işlemi yapılamadı.',
+    followUpFields: { note: 'Not', operator: 'Açan', openedAt: 'Açılış', closedAt: 'Kapanış', closedBy: 'Kapatan' },
     invoiceSection: 'Fatura bilgileri',
     outboxSection: 'Gönderim kaydı (erp_outbox)',
     noOutbox: 'Bu faturanın gönderim kaydı yok.',
@@ -233,6 +247,16 @@ export function describeResendError(error: unknown): string {
         'Başka biri faturayı az önce yeniden göndermiş olabilir; yeniden gönderme yapılmadı.'
       )
     }
+    if (error.kind === 'unreachable') return unknownOutcome
+  }
+  return describeError(error)
+}
+
+export function describeFollowUpError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === 'invoice_not_stuck') return `Bu fatura artık takılı değil (${error.currentStatus ?? 'durumu değişti'}). Takip açılmadı.`
+    if (error.code === 'follow_up_open') return 'Bu faturanın zaten açık bir takibi var. Sayfa güncellendiğinde takip bilgisi görünecek.'
+    if (error.code === 'follow_up_not_open') return 'Bu faturada kapatılacak açık takip yok.'
     if (error.kind === 'unreachable') return unknownOutcome
   }
   return describeError(error)

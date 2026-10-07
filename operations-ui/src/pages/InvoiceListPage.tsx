@@ -246,6 +246,7 @@ function InvoiceTable({ invoices, selected, onToggle, onSelectPage }: TableProps
                 <td>
                   <StatusBadge status={invoice.status} />
                   {invoice.stuck && <StuckBadge since={invoice.updatedAt} />}
+                  {invoice.followedBy && <span className="badge badge-follow-up">{tr.details.followUpOpen(invoice.followedBy)}</span>}
                 </td>
                 <td className="num">{invoice.sendAttemptCount}</td>
                 <td className="truncate" title={invoice.lastError ?? undefined}>

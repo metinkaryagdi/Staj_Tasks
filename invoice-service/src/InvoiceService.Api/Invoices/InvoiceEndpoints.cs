@@ -33,6 +33,26 @@ public static class InvoiceEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapPost("/{invoiceNumber}/follow-up", OpenFollowUp)
+            .WithName("OpenInvoiceFollowUp")
+            .WithSummary("Mark a stuck invoice as being looked after")
+            .WithDescription(
+                "Body: { \"note\": \"...\" } (1 to 500 characters, 400 otherwise). Only for a stuck invoice (409 invoice_not_stuck " +
+                "with currentStatus otherwise); one open follow-up per invoice (409 follow_up_open with operatorName and openedAt); " +
+                "404 if the invoice does not exist. The invoice does not change and stays stuck. " + OperatorDescription)
+            .Produces<InvoiceFollowUpResponse>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapPost("/{invoiceNumber}/follow-up/close", CloseFollowUp)
+            .WithName("CloseInvoiceFollowUp")
+            .WithSummary("Close the invoice's open follow-up")
+            .WithDescription("Anyone can close it; 409 follow_up_not_open when there is none. " + OperatorDescription)
+            .ProducesValidationProblem()
+            .Produces(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
         group.MapPost("/resend", ResendInvoices)
             .WithName("ResendInvoices")
             .WithSummary("Queue several failed invoices again")
@@ -148,7 +168,7 @@ public static class InvoiceEndpoints
 
         var result = await queries.ListAsync(status, search, stuck ?? false, currentPage, size, ct);
         return Results.Ok(new InvoiceListResponse(
-            result.Items.Select(i => InvoiceResponse.From(i.Invoice, i.Stuck)).ToList(), currentPage, size, result.TotalCount,
+            result.Items.Select(i => InvoiceResponse.From(i.Invoice, i.Stuck, i.FollowedBy)).ToList(), currentPage, size, result.TotalCount,
             Paging.TotalPages(result.TotalCount, size)));
     }
 
@@ -170,6 +190,62 @@ public static class InvoiceEndpoints
     {
         var invoice = await queries.FindAsync(invoiceNumber, ct);
         return invoice is null ? NotFound(invoiceNumber) : Results.Ok(InvoiceResponse.From(invoice, queries.IsStuck(invoice)));
+    }
+
+    private static async Task<IResult> OpenFollowUp(
+        string invoiceNumber, FollowUpRequest? body, HttpRequest request, InvoiceFollowUpHandler handler, CancellationToken ct)
+    {
+        var (operatorName, invalid) = OperatorHeader.Read(request);
+        if (invalid is not null)
+            return invalid;
+
+        var result = await handler.OpenAsync(invoiceNumber, operatorName!, body?.Note, ct);
+        return result.Status switch
+        {
+            FollowUpStatus.InvalidNote => Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["note"] = [$"Must not be empty and at most {InvoiceFollowUp.MaxNoteLength} characters."]
+            }),
+            FollowUpStatus.InvoiceNotFound => NotFound(invoiceNumber),
+            FollowUpStatus.NotStuck => Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Invoice is not stuck",
+                detail: $"Invoice '{invoiceNumber}' has status {result.CurrentStatus} and is not stuck; only stuck invoices are followed up.",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = ProblemCodes.InvoiceNotStuck,
+                    ["currentStatus"] = result.CurrentStatus
+                }),
+            FollowUpStatus.AlreadyOpen => Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Follow-up already open",
+                detail: $"Invoice '{invoiceNumber}' is already followed up by {result.ExistingOperator}.",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = ProblemCodes.FollowUpOpen,
+                    ["operatorName"] = result.ExistingOperator,
+                    ["openedAt"] = result.ExistingOpenedAt
+                }),
+            _ => Results.Created(
+                $"/api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}/details", InvoiceFollowUpResponse.From(result.FollowUp!))
+        };
+    }
+
+    private static async Task<IResult> CloseFollowUp(
+        string invoiceNumber, HttpRequest request, InvoiceFollowUpHandler handler, CancellationToken ct)
+    {
+        var (operatorName, invalid) = OperatorHeader.Read(request);
+        if (invalid is not null)
+            return invalid;
+
+        var result = await handler.CloseAsync(invoiceNumber, operatorName!, ct);
+        return result.Status == FollowUpStatus.NotOpen
+            ? Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "No open follow-up",
+                detail: $"Invoice '{invoiceNumber}' has no open follow-up.",
+                extensions: new Dictionary<string, object?> { ["code"] = ProblemCodes.FollowUpNotOpen })
+            : Results.Ok(InvoiceFollowUpResponse.From(result.FollowUp!));
     }
 
     private static IResult NotFound(string invoiceNumber) =>
