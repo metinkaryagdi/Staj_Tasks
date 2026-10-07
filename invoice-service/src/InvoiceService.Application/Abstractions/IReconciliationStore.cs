@@ -49,10 +49,10 @@ public interface IReconciliationStore
     Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct);
 
     /// <summary>
-    /// Writes on each invoice when the ERP was asked about it and what it answered (erp_checked_at, erp_check_result),
-    /// leaving updated_at as it is.
+    /// Writes on the invoice when the ERP was asked about it and what it answered (erp_checked_at, erp_check_result),
+    /// leaving updated_at as it is. A statement of its own, outside any transaction.
     /// </summary>
-    Task RecordErpChecksAsync(IReadOnlyList<ErpCheck> checks, DateTimeOffset at, CancellationToken ct);
+    Task RecordErpCheckAsync(ErpCheck check, DateTimeOffset at, CancellationToken ct);
 
     /// <summary>The Bekliyor events whose invoice number the service has no invoice for, not tracked.</summary>
     Task<IReadOnlyList<ErpWebhookEvent>> WaitingEventsOfUnknownInvoicesAsync(CancellationToken ct);

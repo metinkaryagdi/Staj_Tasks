@@ -186,6 +186,24 @@ public class ReconciliationRunnerTests
     }
 
     [Fact]
+    public async Task An_answer_that_cannot_be_recorded_does_not_stop_the_run_or_the_other_answers_and_fixes()
+    {
+        var refused = AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-1");
+        var other = AddInvoice("F-2", InvoiceStatus.Sent, reference: "ERP-2");
+        _s.Erp.ListResult = new ErpListResult(true, [Erp("F-1", "ERP-1"), Erp("F-2", "ERP-2")], null);
+        _s.Erp.LookupResults.Enqueue(Decided(ErpDecisionKind.Approved, "ERP-1"));
+        _s.Erp.LookupResults.Enqueue(Decided(ErpDecisionKind.Approved, "ERP-2"));
+        _s.Reconciliation.RefuseErpCheck.Add("F-1");
+
+        var run = await RunAsync();
+
+        Assert.Equal(ReconciliationStatus.Completed, run.Status);
+        Assert.Null(refused.ErpCheckResult);
+        Assert.Equal("Kayıtlı, karar: approved", other.ErpCheckResult);
+        Assert.Equal(2, run.FixedCount);
+    }
+
+    [Fact]
     public async Task A_failed_invoice_that_changed_after_the_not_there_answer_is_asked_again()
     {
         var invoice = AddInvoice("F-OLD", InvoiceStatus.Failed, minutesInStatus: 100 * 60, createdHoursAgo: 100);

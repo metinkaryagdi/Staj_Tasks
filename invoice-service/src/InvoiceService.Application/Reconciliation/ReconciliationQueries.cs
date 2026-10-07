@@ -8,7 +8,7 @@ public sealed class ReconciliationQueries(IReconciliationStore store)
 {
     public const int DefaultPageSize = 20;
 
-    /// <summary>The task's limit for one page of runs.</summary>
+    /// <summary>A chosen limit: one page is one response, and a screen shows a few dozen runs at most.</summary>
     public const int MaxPageSize = 50;
 
     /// <summary>One page, newest first, without findings; and how many runs there are.</summary>

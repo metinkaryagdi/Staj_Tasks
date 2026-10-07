@@ -31,7 +31,7 @@ public sealed class ReconciliationRunner(
             checkedCount = plan.CheckedCount;
 
             // Before the fixes: a fix moves updated_at past this time, so an answer is never taken for a newer state.
-            await store.RecordErpChecksAsync(checks, time.GetUtcNow(), ct);
+            await RecordErpChecksAsync(run.Id, checks, ct);
 
             var reported = plan.Findings.Where(f => f.Fix is null).ToList();
             foreach (var finding in reported)
@@ -177,6 +177,27 @@ public sealed class ReconciliationRunner(
         && invoice.ErpCheckedAt is { } checkedAt
         && checkedAt >= invoice.UpdatedAt
         && now - checkedAt < options.Value.NotFoundRecheck;
+
+    /// <summary>
+    /// One statement per invoice, and one that fails is only logged: an invoice whose row cannot be written (locked too
+    /// long, refused by the database) must not stop the run. Its answer is lost, so the next run asks again.
+    /// </summary>
+    private async Task RecordErpChecksAsync(long runId, IReadOnlyList<ErpCheck> checks, CancellationToken ct)
+    {
+        var at = time.GetUtcNow();
+        foreach (var check in checks)
+        {
+            try
+            {
+                await store.RecordErpCheckAsync(check, at, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning("Reconciliation could not record the ERP's answer run={RunId} invoice={InvoiceNumber}: {Message}",
+                    runId, check.InvoiceNumber, ex.GetBaseException().Message);
+            }
+        }
+    }
 
     private void LogLookup(long runId, string invoiceNumber, ErpLookupResult found) =>
         logger.LogInformation("Reconciliation asked the ERP run={RunId} invoice={InvoiceNumber} answer={Answer} decision={Decision}",

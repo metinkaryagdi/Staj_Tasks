@@ -372,15 +372,17 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
     public Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values.Where(i => numbers.Contains(i.InvoiceNumber)).ToList());
 
-    public Task RecordErpChecksAsync(IReadOnlyList<ErpCheck> checks, DateTimeOffset at, CancellationToken ct)
+    /// <summary>Invoices whose ERP answer cannot be recorded, like a row the database refuses to update.</summary>
+    public HashSet<string> RefuseErpCheck { get; } = [];
+
+    public Task RecordErpCheckAsync(ErpCheck check, DateTimeOffset at, CancellationToken ct)
     {
-        foreach (var check in checks)
+        if (RefuseErpCheck.Contains(check.InvoiceNumber))
+            throw new InvalidOperationException("P0001: elle verilen hata");
+        if (invoices.Invoices.TryGetValue(check.InvoiceNumber, out var invoice))
         {
-            if (invoices.Invoices.TryGetValue(check.InvoiceNumber, out var invoice))
-            {
-                invoice.ErpCheckedAt = at;
-                invoice.ErpCheckResult = check.Result;
-            }
+            invoice.ErpCheckedAt = at;
+            invoice.ErpCheckResult = check.Result;
         }
         return Task.CompletedTask;
     }
