@@ -154,6 +154,8 @@ export const tr = {
     started: (id: number) => `Mutabakat başlatıldı (çalışma ${id}).`,
     runsSection: 'Çalışmalar',
     noRuns: 'Henüz mutabakat çalışması yok.',
+    emptyPage: 'Bu sayfada çalışma yok.',
+    totalCount: (count: number) => `${count} çalışma`,
     runColumns: {
       id: 'No',
       startedAt: 'Başlangıç',

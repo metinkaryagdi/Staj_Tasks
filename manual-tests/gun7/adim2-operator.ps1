@@ -108,8 +108,8 @@ $dbActions = @(Get-ServiceRows "SELECT operator_name, action, result FROM operat
 $apiActions = @($details.Json.operatorActions | ForEach-Object { "$($_.operatorName)|$($_.action)|$($_.result)" })
 Check (Write-DbVerdict "detayda $($failed[0]) için $($dbActions.Count) müdahale, en yeni üstte: $($dbActions -join ' / ')" "$($apiActions -join ' / ')" `
     (($dbActions -join ',') -eq ($apiActions -join ',')))
-$runs = Get-Api '/api/v1/reconciliation-runs'
-$listed = @($runs.Json) | Where-Object { $_.id -eq $runId }
+$runs = Get-Api '/api/v1/reconciliation-runs?pageSize=50'
+$listed = @($runs.Json.items) | Where-Object { $_.id -eq $runId }
 Check (Write-DbVerdict "çalışma listesinde $runId startedBy = $starter" "$($listed.startedBy)" ($listed.startedBy -eq $starter))
 
 $preflight = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Options, "$ServiceUrl/api/v1/reconciliation-runs")

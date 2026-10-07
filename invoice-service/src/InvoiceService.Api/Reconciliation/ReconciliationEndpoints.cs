@@ -24,9 +24,13 @@ public static class ReconciliationEndpoints
 
         group.MapGet("/", ListRuns)
             .WithName("ListReconciliationRuns")
-            .WithSummary("The reconciliation runs, newest first")
-            .WithDescription("Without their findings; every run is listed. startedBy is the operator or Zamanlayıcı (the schedule); null for runs made before it was recorded.")
-            .Produces<ReconciliationRunResponse[]>();
+            .WithSummary("One page of reconciliation runs, newest first")
+            .WithDescription(
+                "Without their findings. page starts at 1 (default 1), pageSize is 1 to 50 (default 20); the response carries " +
+                "the page and the total number of runs. startedBy is the operator or Zamanlayıcı (the schedule); null for runs " +
+                "made before it was recorded.")
+            .Produces<ReconciliationRunListResponse>()
+            .ProducesValidationProblem();
 
         group.MapGet("/{id:long}", GetRun)
             .WithName("GetReconciliationRun")
@@ -59,8 +63,18 @@ public static class ReconciliationEndpoints
         return Results.Accepted($"/api/v1/reconciliation-runs/{started.Run.Id}", ReconciliationRunResponse.From(started.Run));
     }
 
-    private static async Task<IResult> ListRuns(ReconciliationQueries queries, CancellationToken ct) =>
-        Results.Ok((await queries.ListRunsAsync(ct)).Select(ReconciliationRunResponse.From));
+    private static async Task<IResult> ListRuns(int? page, int? pageSize, ReconciliationQueries queries, CancellationToken ct)
+    {
+        var errors = new Dictionary<string, string[]>();
+        var (currentPage, size) = Paging.Read(
+            page, pageSize, ReconciliationQueries.DefaultPageSize, ReconciliationQueries.MaxPageSize, errors);
+        if (errors.Count > 0)
+            return Results.ValidationProblem(errors);
+
+        var (items, total) = await queries.ListRunsAsync(currentPage, size, ct);
+        return Results.Ok(new ReconciliationRunListResponse(
+            items.Select(ReconciliationRunResponse.From).ToList(), currentPage, size, total, Paging.TotalPages(total, size)));
+    }
 
     private static async Task<IResult> GetRun(long id, ReconciliationQueries queries, CancellationToken ct)
     {

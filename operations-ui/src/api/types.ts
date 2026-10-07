@@ -96,6 +96,14 @@ export interface ReconciliationRun {
   startedBy: string | null
 }
 
+export interface ReconciliationRunList {
+  items: ReconciliationRun[]
+  page: number
+  pageSize: number
+  totalCount: number
+  totalPages: number
+}
+
 export interface ReconciliationRunDetail {
   run: ReconciliationRun
   findings: Finding[]

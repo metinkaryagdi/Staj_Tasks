@@ -10,20 +10,30 @@ import { StatusBadge } from '../components/StatusBadge'
 import { emptyValue, formatDateTime } from '../format'
 import { describeStartRunError, tr } from '../tr'
 
+const runsPageSize = 20
+
 export function ReconciliationPage() {
-  const runs = useQuery(runsQuery())
   const [params, setParams] = useSearchParams()
+  // Sayfa ve seçili çalışma adreste tutulur; seçilmemişse sayfanın en yenisi gösterilir.
+  const page = Math.max(1, Number(params.get('sayfa')) || 1)
+  const requestedId = Number(params.get('calisma')) || null
+  const runs = useQuery(runsQuery(page, runsPageSize))
   const queryClient = useQueryClient()
   const start = useMutation({
     mutationFn: startRun,
     onSettled: () => queryClient.invalidateQueries(),
-    onSuccess: (run) => selectRun(run.id),
+    // Yeni çalışma ilk sayfadadır.
+    onSuccess: (run) => setParams({ calisma: String(run.id) }, { replace: true }),
   })
 
-  // Seçili çalışma adreste tutulur; seçilmemişse en yenisi gösterilir.
-  const requestedId = Number(params.get('calisma')) || null
   function selectRun(id: number) {
-    setParams({ calisma: String(id) }, { replace: true })
+    const next: Record<string, string> = { calisma: String(id) }
+    if (page > 1) next.sayfa = String(page)
+    setParams(next, { replace: true })
+  }
+
+  function goToPage(next: number) {
+    setParams(next > 1 ? { sayfa: String(next) } : {}, { replace: true })
   }
 
   return (
@@ -41,12 +51,22 @@ export function ReconciliationPage() {
       <h2>{tr.reconciliation.runsSection}</h2>
       <QueryState query={runs}>
         {(data) =>
-          data.length === 0 ? (
-            <p className="muted">{tr.reconciliation.noRuns}</p>
+          data.items.length === 0 ? (
+            <p className="muted">{data.totalCount === 0 ? tr.reconciliation.noRuns : tr.reconciliation.emptyPage}</p>
           ) : (
             <>
-              <RunTable runs={data} selectedId={requestedId ?? data[0].id} onSelect={selectRun} />
-              <Findings runId={requestedId ?? data[0].id} />
+              <RunTable runs={data.items} selectedId={requestedId ?? data.items[0].id} onSelect={selectRun} />
+              <div className="pager">
+                <span>{tr.reconciliation.totalCount(data.totalCount)}</span>
+                <button type="button" disabled={data.page <= 1} onClick={() => goToPage(data.page - 1)}>
+                  {tr.invoices.previous}
+                </button>
+                <span>{tr.invoices.page(data.page, data.totalPages)}</span>
+                <button type="button" disabled={data.page >= data.totalPages} onClick={() => goToPage(data.page + 1)}>
+                  {tr.invoices.next}
+                </button>
+              </div>
+              <Findings runId={requestedId ?? data.items[0].id} />
             </>
           )
         }

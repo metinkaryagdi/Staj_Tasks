@@ -351,8 +351,9 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
         Findings.Add(finding);
     }
 
-    public Task<IReadOnlyList<ReconciliationRun>> ListRunsAsync(CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<ReconciliationRun>>(Runs.OrderByDescending(r => r.Id).ToList());
+    public Task<(IReadOnlyList<ReconciliationRun> Items, int TotalCount)> ListRunsPageAsync(int skip, int take, CancellationToken ct) =>
+        Task.FromResult<(IReadOnlyList<ReconciliationRun>, int)>(
+            (Runs.OrderByDescending(r => r.Id).Skip(skip).Take(take).ToList(), Runs.Count));
 
     public Task<ReconciliationRun?> FindRunAsync(long id, CancellationToken ct) =>
         Task.FromResult(Runs.SingleOrDefault(r => r.Id == id));

@@ -141,23 +141,14 @@ public static class InvoiceEndpoints
         var errors = new Dictionary<string, string[]>();
         if (status is not null && !InvoiceStatus.All.Contains(status))
             errors["status"] = [$"Must be one of: {string.Join(", ", InvoiceStatus.All)}."];
-        if (page is < 1)
-            errors["page"] = ["Must be 1 or greater."];
-        if (pageSize is < 1 or > InvoiceQueries.MaxPageSize)
-            errors["pageSize"] = [$"Must be between 1 and {InvoiceQueries.MaxPageSize}."];
-
-        var currentPage = page ?? 1;
-        var size = pageSize ?? InvoiceQueries.DefaultPageSize;
-        // The rows to skip must fit an int; a page that far is empty anyway.
-        if (currentPage > 1 && (long)(currentPage - 1) * size > int.MaxValue)
-            errors["page"] = ["Too large for this page size."];
+        var (currentPage, size) = Paging.Read(page, pageSize, InvoiceQueries.DefaultPageSize, InvoiceQueries.MaxPageSize, errors);
         if (errors.Count > 0)
             return Results.ValidationProblem(errors);
 
         var result = await queries.ListAsync(status, search, stuck ?? false, currentPage, size, ct);
         return Results.Ok(new InvoiceListResponse(
             result.Items.Select(InvoiceResponse.From).ToList(), currentPage, size, result.TotalCount,
-            (result.TotalCount + size - 1) / size));
+            Paging.TotalPages(result.TotalCount, size)));
     }
 
     private static async Task<IResult> Summary(InvoiceQueries queries, CancellationToken ct)

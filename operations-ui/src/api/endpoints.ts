@@ -8,6 +8,7 @@ import {
   type InvoiceSummary,
   type ReconciliationRun,
   type ReconciliationRunDetail,
+  type ReconciliationRunList,
   type ResendItem,
 } from './types'
 
@@ -39,8 +40,8 @@ export async function resendInvoices(invoiceNumbers: string[]) {
   return response.results
 }
 
-export function getRuns() {
-  return request<ReconciliationRun[]>(runs)
+export function getRuns(page: number, pageSize: number) {
+  return request<ReconciliationRunList>(`${runs}?${new URLSearchParams({ page: String(page), pageSize: String(pageSize) })}`)
 }
 
 export function getRunDetail(id: number) {

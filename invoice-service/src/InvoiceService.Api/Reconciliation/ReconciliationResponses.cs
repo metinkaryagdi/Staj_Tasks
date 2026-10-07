@@ -28,3 +28,7 @@ public sealed record ReconciliationFindingResponse(
 
 /// <summary>A run with what it found.</summary>
 public sealed record ReconciliationRunDetailResponse(ReconciliationRunResponse Run, IReadOnlyList<ReconciliationFindingResponse> Findings);
+
+/// <summary>One page of runs; <see cref="TotalCount"/> counts every run.</summary>
+public sealed record ReconciliationRunListResponse(
+    IReadOnlyList<ReconciliationRunResponse> Items, int Page, int PageSize, int TotalCount, int TotalPages);

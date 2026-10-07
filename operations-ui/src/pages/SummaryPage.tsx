@@ -10,7 +10,8 @@ import { tr } from '../tr'
 
 export function SummaryPage() {
   const summary = useQuery(summaryQuery())
-  const runs = useQuery(runsQuery())
+  // Yalnızca en son çalışma gösterilir.
+  const runs = useQuery(runsQuery(1, 1))
 
   return (
     <>
@@ -49,7 +50,7 @@ export function SummaryPage() {
       </QueryState>
 
       <h2>{tr.summary.lastRun}</h2>
-      <QueryState query={runs}>{(data) => (data.length === 0 ? <p className="muted">{tr.summary.noRun}</p> : <LastRun run={data[0]} />)}</QueryState>
+      <QueryState query={runs}>{(data) => (data.items.length === 0 ? <p className="muted">{tr.summary.noRun}</p> : <LastRun run={data.items[0]} />)}</QueryState>
     </>
   )
 }

@@ -43,8 +43,13 @@ public sealed class ReconciliationStore(InvoiceDbContext db) : IReconciliationSt
 
     public void AddFinding(ReconciliationFinding finding) => db.ReconciliationFindings.Add(finding);
 
-    public async Task<IReadOnlyList<ReconciliationRun>> ListRunsAsync(CancellationToken ct) =>
-        await db.ReconciliationRuns.AsNoTracking().OrderByDescending(r => r.Id).ToListAsync(ct);
+    public async Task<(IReadOnlyList<ReconciliationRun> Items, int TotalCount)> ListRunsPageAsync(
+        int skip, int take, CancellationToken ct)
+    {
+        var total = await db.ReconciliationRuns.CountAsync(ct);
+        var items = await db.ReconciliationRuns.AsNoTracking().OrderByDescending(r => r.Id).Skip(skip).Take(take).ToListAsync(ct);
+        return (items, total);
+    }
 
     public Task<ReconciliationRun?> FindRunAsync(long id, CancellationToken ct) =>
         db.ReconciliationRuns.AsNoTracking().SingleOrDefaultAsync(r => r.Id == id, ct);

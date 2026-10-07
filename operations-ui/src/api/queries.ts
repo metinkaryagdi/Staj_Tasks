@@ -15,12 +15,13 @@ export const detailsQuery = (invoiceNumber: string) =>
   queryOptions({ queryKey: ['invoice-details', invoiceNumber], queryFn: () => getInvoiceDetails(invoiceNumber) })
 
 // Çalışan bir mutabakat varken sonucu çabuk görünsün diye daha sık yenilenir.
-export const runsQuery = () =>
+export const runsQuery = (page: number, pageSize: number) =>
   queryOptions({
-    queryKey: ['runs'],
-    queryFn: getRuns,
+    queryKey: ['runs', page, pageSize],
+    queryFn: () => getRuns(page, pageSize),
+    placeholderData: keepPreviousData,
     refetchInterval: (query) =>
-      query.state.data?.some((run) => run.status === 'Çalışıyor') ? runningRefreshIntervalMs : refreshIntervalMs,
+      query.state.data?.items.some((run) => run.status === 'Çalışıyor') ? runningRefreshIntervalMs : refreshIntervalMs,
   })
 
 export const runDetailQuery = (id: number) =>

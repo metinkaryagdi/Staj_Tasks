@@ -28,8 +28,8 @@ public interface IReconciliationStore
     /// it.</summary>
     void AddFinding(ReconciliationFinding finding);
 
-    /// <summary>Newest first, without findings.</summary>
-    Task<IReadOnlyList<ReconciliationRun>> ListRunsAsync(CancellationToken ct);
+    /// <summary>One page of runs, newest first, without findings; and how many runs there are.</summary>
+    Task<(IReadOnlyList<ReconciliationRun> Items, int TotalCount)> ListRunsPageAsync(int skip, int take, CancellationToken ct);
 
     Task<ReconciliationRun?> FindRunAsync(long id, CancellationToken ct);
 
