@@ -1,4 +1,6 @@
+using InvoiceService.Application.Abstractions;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Operators;
 
 namespace InvoiceService.Application.Invoices;
 
@@ -28,16 +30,17 @@ public sealed record BulkResendResult(IReadOnlyDictionary<string, string[]>? Err
 /// <summary>
 /// Queues several Başarısız invoices again. Each invoice goes through <see cref="ResendInvoiceHandler"/> on its own, so
 /// the rules and the guard against two resends at the same time are the single resend's; one invoice that cannot be
-/// queued does not stop the others.
+/// queued does not stop the others. Each invoice gets its own operator_actions record.
 /// </summary>
-public sealed class ResendInvoicesHandler(ResendInvoiceHandler single, ILoggerFactory loggerFactory)
+public sealed class ResendInvoicesHandler(
+    ResendInvoiceHandler single, IOperatorActionStore actions, TimeProvider time, ILoggerFactory loggerFactory)
 {
     /// <summary>A chosen limit: the screen allows at most this many selections, so one request stays short.</summary>
     public const int MaxInvoices = 100;
 
     private readonly ILogger _logger = loggerFactory.CreateLogger(InvoiceLog.Category);
 
-    public async Task<BulkResendResult> HandleAsync(ResendInvoicesRequest request)
+    public async Task<BulkResendResult> HandleAsync(ResendInvoicesRequest request, string operatorName)
     {
         var numbers = request.InvoiceNumbers;
         if (numbers is null || numbers.Count == 0)
@@ -51,21 +54,21 @@ public sealed class ResendInvoicesHandler(ResendInvoiceHandler single, ILoggerFa
         var distinct = numbers.Select(n => n.Trim()).Distinct().ToList();
         var items = new List<BulkResendItem>(distinct.Count);
         foreach (var number in distinct)
-            items.Add(await ResendAsync(number));
+            items.Add(await ResendAsync(number, operatorName));
 
         _logger.LogInformation(
-            "Bulk resend requested={Requested} queued={Queued} refused={Refused} errors={Errors}",
-            distinct.Count, items.Count(i => i.Outcome == BulkResendOutcome.Queued),
+            "Bulk resend operator={Operator} requested={Requested} queued={Queued} refused={Refused} errors={Errors}",
+            operatorName, distinct.Count, items.Count(i => i.Outcome == BulkResendOutcome.Queued),
             items.Count(i => i.Outcome is BulkResendOutcome.NotFound or BulkResendOutcome.NotFailed),
             items.Count(i => i.Outcome == BulkResendOutcome.Error));
         return new BulkResendResult(null, items);
     }
 
-    private async Task<BulkResendItem> ResendAsync(string number)
+    private async Task<BulkResendItem> ResendAsync(string number, string operatorName)
     {
         try
         {
-            var result = await single.HandleAsync(number);
+            var result = await single.HandleAsync(number, operatorName, OperatorActionType.BulkResend);
             return result.Status switch
             {
                 ResendStatus.Queued => new BulkResendItem(number, BulkResendOutcome.Queued),
@@ -76,7 +79,27 @@ public sealed class ResendInvoicesHandler(ResendInvoiceHandler single, ILoggerFa
         catch (Exception ex)
         {
             _logger.LogError(ex, "Bulk resend failed for invoice={InvoiceNumber}", number);
+            await RecordErrorAsync(number, operatorName);
             return new BulkResendItem(number, BulkResendOutcome.Error);
+        }
+    }
+
+    /// <summary>
+    /// The resend's transaction was rolled back with its record; the error is recorded on its own. If that fails too
+    /// (the database is gone), it is only logged: the other invoices go on.
+    /// </summary>
+    private async Task RecordErrorAsync(string number, string operatorName)
+    {
+        try
+        {
+            await actions.RecordAsync(
+                ResendInvoiceHandler.Record(operatorName, OperatorActionType.BulkResend, number, OperatorActionResult.Error, time.GetUtcNow()),
+                CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Bulk resend error could not be recorded invoice={InvoiceNumber}: {Message}",
+                number, ex.GetBaseException().Message);
         }
     }
 

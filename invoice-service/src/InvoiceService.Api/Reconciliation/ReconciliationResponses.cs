@@ -2,7 +2,8 @@ using InvoiceService.Domain.Reconciliation;
 
 namespace InvoiceService.Api.Reconciliation;
 
-/// <summary>One reconciliation run as the service stores it.</summary>
+/// <summary>One reconciliation run as the service stores it; <see cref="StartedBy"/> is null when the schedule started
+/// it.</summary>
 public sealed record ReconciliationRunResponse(
     long Id,
     DateTimeOffset StartedAt,
@@ -11,10 +12,11 @@ public sealed record ReconciliationRunResponse(
     int CheckedCount,
     int FixedCount,
     int ReportedCount,
-    string? Error)
+    string? Error,
+    string? StartedBy)
 {
     public static ReconciliationRunResponse From(ReconciliationRun r) => new(
-        r.Id, r.StartedAt, r.FinishedAt, r.Status, r.CheckedCount, r.FixedCount, r.ReportedCount, r.Error);
+        r.Id, r.StartedAt, r.FinishedAt, r.Status, r.CheckedCount, r.FixedCount, r.ReportedCount, r.Error, r.StartedBy);
 }
 
 public sealed record ReconciliationFindingResponse(

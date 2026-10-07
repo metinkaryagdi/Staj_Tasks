@@ -1,6 +1,7 @@
 using InvoiceService.Application.Invoices;
 using InvoiceService.Application.Tests.Fakes;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Operators;
 
 namespace InvoiceService.Application.Tests;
 
@@ -9,7 +10,7 @@ public class ResendInvoicesHandlerTests
     private readonly Scenario _s = new();
 
     private Task<BulkResendResult> Resend(params string[] numbers) =>
-        _s.ResendInvoicesHandler().HandleAsync(new ResendInvoicesRequest(numbers));
+        _s.ResendInvoicesHandler().HandleAsync(new ResendInvoicesRequest(numbers), "Ayşe");
 
     [Fact]
     public async Task Every_invoice_gets_its_own_result_and_only_the_failed_one_is_queued()
@@ -31,6 +32,15 @@ public class ResendInvoicesHandlerTests
             result.Items);
         Assert.Equal(["FTR-000001"], _s.Outbox.Resets);
         Assert.Equal(InvoiceStatus.Pending, _s.Invoices.Invoices["FTR-000001"].Status);
+        Assert.Equal(
+            [
+                ("FTR-000001", OperatorActionResult.Queued),
+                ("FTR-000002", "Reddedildi: fatura Bekliyor"),
+                ("FTR-000003", "Reddedildi: fatura Onaylandı"),
+                ("FTR-999999", OperatorActionResult.NotFound)
+            ],
+            _s.OperatorActions.Actions.Select(a => (a.InvoiceNumber!, a.Result)));
+        Assert.All(_s.OperatorActions.Actions, a => Assert.Equal(("Ayşe", OperatorActionType.BulkResend), (a.OperatorName, a.Action)));
     }
 
     [Fact]
@@ -58,6 +68,23 @@ public class ResendInvoicesHandlerTests
             [BulkResendOutcome.Queued, BulkResendOutcome.Error, BulkResendOutcome.Queued],
             result.Items.Select(i => i.Outcome));
         Assert.Equal(["FTR-000001", "FTR-000003"], _s.Outbox.Resets);
+        Assert.Equal(
+            [("FTR-000001", OperatorActionResult.Queued), ("FTR-000002", OperatorActionResult.Error), ("FTR-000003", OperatorActionResult.Queued)],
+            _s.OperatorActions.Actions.Select(a => (a.InvoiceNumber!, a.Result)));
+    }
+
+    [Fact]
+    public async Task An_error_that_cannot_be_recorded_does_not_stop_the_other_invoices()
+    {
+        _s.Invoices.Add("FTR-000001", InvoiceStatus.Failed);
+        _s.Invoices.Add("FTR-000002", InvoiceStatus.Failed);
+        _s.Invoices.FailResend.Add("FTR-000001");
+        _s.OperatorActions.Refuse.Add("FTR-000001");
+
+        var result = await Resend("FTR-000001", "FTR-000002");
+
+        Assert.Equal([BulkResendOutcome.Error, BulkResendOutcome.Queued], result.Items.Select(i => i.Outcome));
+        Assert.Equal(["FTR-000002"], _s.OperatorActions.Actions.Select(a => a.InvoiceNumber));
     }
 
     [Fact]
@@ -84,7 +111,8 @@ public class ResendInvoicesHandlerTests
 
         Assert.NotNull((await Resend()).Errors);
         Assert.NotNull((await Resend("FTR-000001", " ")).Errors);
-        Assert.NotNull((await _s.ResendInvoicesHandler().HandleAsync(new ResendInvoicesRequest(null))).Errors);
+        Assert.NotNull((await _s.ResendInvoicesHandler().HandleAsync(new ResendInvoicesRequest(null), "Ayşe")).Errors);
         Assert.Empty(_s.Outbox.Resets);
+        Assert.Empty(_s.OperatorActions.Actions);
     }
 }

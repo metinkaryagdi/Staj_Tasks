@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Domain.Operators;
 using InvoiceService.Domain.Reconciliation;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,11 +19,17 @@ public sealed class ReconciliationService(
     IServiceScopeFactory scopes, IReconciliationLock gate, TimeProvider time, ILogger<ReconciliationService> logger)
 {
     /// <summary>Takes the lock and records the run as Çalışıyor; null when another run holds the lock.</summary>
-    public async Task<StartedRun?> TryStartAsync(CancellationToken ct)
+    /// <param name="operatorName">Who started it from the screen; null for the schedule. The run keeps it, and the
+    /// request is recorded in operator_actions whether it started a run or was refused.</param>
+    public async Task<StartedRun?> TryStartAsync(string? operatorName, CancellationToken ct)
     {
         var lease = await gate.TryAcquireAsync(ct);
         if (lease is null)
+        {
+            if (operatorName is not null)
+                await RecordRefusedAsync(operatorName, ct);
             return null;
+        }
 
         try
         {
@@ -34,8 +41,17 @@ public sealed class ReconciliationService(
             if (abandoned > 0)
                 logger.LogWarning("Reconciliation: {Count} run(s) left Çalışıyor by a stopped service were marked Başarısız", abandoned);
 
-            var run = await store.StartRunAsync(time.GetUtcNow(), ct);
-            logger.LogInformation("Reconciliation run started run={RunId}", run.Id);
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+            await using var transaction = await unitOfWork.BeginAsync(ct);
+            var run = await store.StartRunAsync(time.GetUtcNow(), operatorName, ct);
+            if (operatorName is not null)
+            {
+                await scope.ServiceProvider.GetRequiredService<IOperatorActionStore>().RecordAsync(
+                    StartRecord(operatorName, OperatorActionResult.RunStarted(run.Id)), ct);
+            }
+            await transaction.CommitAsync(ct);
+
+            logger.LogInformation("Reconciliation run started run={RunId} by={StartedBy}", run.Id, operatorName ?? "schedule");
             return new StartedRun(run, lease);
         }
         catch
@@ -44,6 +60,19 @@ public sealed class ReconciliationService(
             throw;
         }
     }
+
+    private async Task RecordRefusedAsync(string operatorName, CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IOperatorActionStore>().RecordAsync(
+            StartRecord(operatorName, OperatorActionResult.AlreadyRunning), ct);
+    }
+
+    private OperatorAction StartRecord(string operatorName, string result) => new()
+    {
+        OperatorName = operatorName, Action = OperatorActionType.StartReconciliation, Result = result,
+        CreatedAt = time.GetUtcNow()
+    };
 
     /// <summary>Does the run, records how it ended, then lets the lock go.</summary>
     public async Task ExecuteAsync(StartedRun started, CancellationToken ct)

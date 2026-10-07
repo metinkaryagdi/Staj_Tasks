@@ -21,7 +21,7 @@ public sealed class ReconciliationWorker(
             {
                 try
                 {
-                    var started = await service.TryStartAsync(stoppingToken);
+                    var started = await service.TryStartAsync(null, stoppingToken);
                     if (started is null)
                         logger.LogInformation("Reconciliation tick skipped: another run holds the lock");
                     else

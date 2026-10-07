@@ -1,4 +1,5 @@
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Operators;
 using InvoiceService.Domain.Outbox;
 using InvoiceService.Domain.Reconciliation;
 using InvoiceService.Domain.Webhooks;
@@ -19,6 +20,8 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
     public DbSet<ReconciliationRun> ReconciliationRuns => Set<ReconciliationRun>();
 
     public DbSet<ReconciliationFinding> ReconciliationFindings => Set<ReconciliationFinding>();
+
+    public DbSet<OperatorAction> OperatorActions => Set<OperatorAction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -131,6 +134,7 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.Property(e => e.FixedCount).HasColumnName("fixed_count");
             entity.Property(e => e.ReportedCount).HasColumnName("reported_count");
             entity.Property(e => e.Error).HasColumnName("error");
+            entity.Property(e => e.StartedBy).HasColumnName("started_by").HasMaxLength(OperatorAction.MaxNameLength);
         });
 
         modelBuilder.Entity<ReconciliationFinding>(entity =>
@@ -155,6 +159,30 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.Property(e => e.Action).HasColumnName("action").HasMaxLength(16);
             entity.Property(e => e.Details).HasColumnName("details");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<OperatorAction>(entity =>
+        {
+            entity.ToTable("operator_actions", t =>
+            {
+                t.HasCheckConstraint("ck_operator_actions_action", InList("action", OperatorActionType.All));
+                t.HasCheckConstraint("ck_operator_actions_operator_name", "btrim(operator_name) <> ''");
+                // Starting a reconciliation is about no invoice; every other action is about one.
+                t.HasCheckConstraint("ck_operator_actions_invoice_number",
+                    $"(action = '{OperatorActionType.StartReconciliation}') = (invoice_number IS NULL)");
+            });
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
+            entity.Property(e => e.OperatorName).HasColumnName("operator_name").HasMaxLength(OperatorAction.MaxNameLength);
+            entity.Property(e => e.Action).HasColumnName("action").HasMaxLength(32);
+            // No foreign key to invoices: a resend of a number that does not exist is recorded too.
+            entity.Property(e => e.InvoiceNumber).HasColumnName("invoice_number").HasMaxLength(OperatorAction.MaxInvoiceNumberLength);
+            entity.Property(e => e.Result).HasColumnName("result").HasMaxLength(128);
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+
+            // An invoice's interventions on its detail page.
+            entity.HasIndex(e => new { e.InvoiceNumber, e.Id });
         });
     }
 

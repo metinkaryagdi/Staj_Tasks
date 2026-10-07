@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Webhooks;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Operators;
 using InvoiceService.Domain.Outbox;
 using InvoiceService.Domain.Reconciliation;
 using InvoiceService.Domain.Webhooks;
@@ -303,11 +304,14 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
     /// <summary>Findings this says yes to cannot be recorded, like a database that refuses them.</summary>
     public Func<ReconciliationFinding, bool>? RefuseFinding { get; set; }
 
-    public Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, CancellationToken ct)
+    public Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, string? startedBy, CancellationToken ct)
     {
         if (FailToStart)
             throw new InvalidOperationException("database is gone");
-        var run = new ReconciliationRun { Id = Runs.Count + 1, StartedAt = now, Status = ReconciliationStatus.Running };
+        var run = new ReconciliationRun
+        {
+            Id = Runs.Count + 1, StartedAt = now, Status = ReconciliationStatus.Running, StartedBy = startedBy
+        };
         Runs.Add(run);
         return Task.FromResult(run);
     }
@@ -418,4 +422,25 @@ public sealed class FakeScopeFactory(Func<Type, object?> resolve) : IServiceScop
         {
         }
     }
+}
+
+public sealed class FakeOperatorActionStore : IOperatorActionStore
+{
+    public List<OperatorAction> Actions { get; } = [];
+
+    /// <summary>Records for these invoices fail, like a database that is gone for that moment.</summary>
+    public HashSet<string> Refuse { get; } = [];
+
+    public Task RecordAsync(OperatorAction action, CancellationToken ct)
+    {
+        if (action.InvoiceNumber is not null && Refuse.Contains(action.InvoiceNumber))
+            throw new InvalidOperationException("connection lost");
+        action.Id = Actions.Count + 1;
+        Actions.Add(action);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<OperatorAction>> ListOfInvoiceAsync(string invoiceNumber, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<OperatorAction>>(
+            Actions.Where(a => a.InvoiceNumber == invoiceNumber).OrderByDescending(a => a.Id).ToList());
 }

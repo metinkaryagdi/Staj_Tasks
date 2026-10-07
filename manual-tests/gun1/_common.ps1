@@ -8,6 +8,9 @@ $OutputDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'output'
 Add-Type -AssemblyName System.Net.Http
 $script:Http = New-Object System.Net.Http.HttpClient
 $script:Http.Timeout = [TimeSpan]::FromMinutes(2)
+# Fatura Servisi yeniden gönderme ve mutabakat başlatmada kimin istediğini zorunlu tutar (yoksa 400); script'ler bu adla
+# kaydedilir. Başlıksız isteği deneyen script kendi istemcisini kullanır.
+$script:Http.DefaultRequestHeaders.Add('X-Operator-Name', 'test-script')
 
 # docker-compose.yml'in simülatöre aktardığı ayar değişkenleri.
 $SimulatorEnvKeys = @(

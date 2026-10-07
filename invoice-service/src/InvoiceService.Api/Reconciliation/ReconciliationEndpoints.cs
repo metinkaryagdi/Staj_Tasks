@@ -1,4 +1,5 @@
 using InvoiceService.Api.Invoices;
+using InvoiceService.Api.Operators;
 using InvoiceService.Application.Reconciliation;
 
 namespace InvoiceService.Api.Reconciliation;
@@ -16,14 +17,15 @@ public static class ReconciliationEndpoints
                 "Compares the service's invoices with the ERP's records, fixes what it can and reports the rest. Returns 202 with " +
                 "the run (Çalışıyor); the run goes on in the background and is read with GET /api/v1/reconciliation-runs/{id}. " +
                 "409 while another run is going, whether it was started by the schedule, by this endpoint or by another copy " +
-                "of the service.")
+                "of the service. " + InvoiceEndpoints.OperatorDescription + " The run keeps the name as startedBy.")
             .Produces<ReconciliationRunResponse>(StatusCodes.Status202Accepted)
+            .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapGet("/", ListRuns)
             .WithName("ListReconciliationRuns")
             .WithSummary("The reconciliation runs, newest first")
-            .WithDescription("Without their findings; every run is listed.")
+            .WithDescription("Without their findings; every run is listed. startedBy is null for a run the schedule started.")
             .Produces<ReconciliationRunResponse[]>();
 
         group.MapGet("/{id:long}", GetRun)
@@ -35,9 +37,14 @@ public static class ReconciliationEndpoints
         return app;
     }
 
-    private static async Task<IResult> StartRun(ReconciliationService service, IHostApplicationLifetime lifetime, CancellationToken ct)
+    private static async Task<IResult> StartRun(
+        HttpRequest request, ReconciliationService service, IHostApplicationLifetime lifetime, CancellationToken ct)
     {
-        var started = await service.TryStartAsync(ct);
+        var (operatorName, invalid) = OperatorHeader.Read(request);
+        if (invalid is not null)
+            return invalid;
+
+        var started = await service.TryStartAsync(operatorName, ct);
         if (started is null)
         {
             return Results.Problem(

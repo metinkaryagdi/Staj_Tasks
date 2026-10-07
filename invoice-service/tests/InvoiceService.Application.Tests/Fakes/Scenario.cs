@@ -19,6 +19,7 @@ public sealed class Scenario
     public FakeOutboxStore Outbox { get; } = new();
     public FakeWebhookEventStore Events { get; } = new();
     public FakeErpGateway Erp { get; } = new();
+    public FakeOperatorActionStore OperatorActions { get; } = new();
 
     public OutboxOptions OutboxSettings { get; } = new()
     {
@@ -64,6 +65,7 @@ public sealed class Scenario
         : type == typeof(ReconciliationRunner) ? ReconciliationRunner()
         : type == typeof(IReconciliationStore) ? Reconciliation
         : type == typeof(IUnitOfWork) ? UnitOfWork
+        : type == typeof(IOperatorActionStore) ? OperatorActions
         : null);
 
     public ReconciliationRunner ReconciliationRunner() => new(
@@ -72,12 +74,14 @@ public sealed class Scenario
 
     public ReconciliationService ReconciliationService() => new(Scopes(), Lock, Time, NullLogger<ReconciliationService>.Instance);
 
-    public ResendInvoiceHandler ResendInvoiceHandler() => new(UnitOfWork, Invoices, Outbox, Time, NullLoggerFactory.Instance);
+    public ResendInvoiceHandler ResendInvoiceHandler() =>
+        new(UnitOfWork, Invoices, Outbox, OperatorActions, Time, NullLoggerFactory.Instance);
 
-    public ResendInvoicesHandler ResendInvoicesHandler() => new(ResendInvoiceHandler(), NullLoggerFactory.Instance);
+    public ResendInvoicesHandler ResendInvoicesHandler() =>
+        new(ResendInvoiceHandler(), OperatorActions, Time, NullLoggerFactory.Instance);
 
     public InvoiceQueries InvoiceQueries() => new(
-        Invoices, Outbox, Events, Reconciliation, Options.Create(ReconciliationSettings), Time);
+        Invoices, Outbox, Events, Reconciliation, OperatorActions, Options.Create(ReconciliationSettings), Time);
 
     public CreateInvoiceHandler CreateInvoiceHandler() => new(Invoices, Time, NullLoggerFactory.Instance);
 }

@@ -1,3 +1,4 @@
+using InvoiceService.Api.Operators;
 using InvoiceService.Application.Invoices;
 using InvoiceService.Domain.Invoices;
 
@@ -26,8 +27,9 @@ public static class InvoiceEndpoints
                 "Only for invoices with status Başarısız. Does not call the ERP: resets the invoice's erp_outbox entry " +
                 "(Bekliyor, 0 attempts, due now) and sets the invoice to Bekliyor, then returns 202. The worker sends it " +
                 "again by the usual rules, asking the ERP first so an invoice the ERP already shows is not posted again. " +
-                "409 if the invoice is not Başarısız, 404 if it does not exist.")
+                "409 if the invoice is not Başarısız, 404 if it does not exist. " + OperatorDescription)
             .Produces<InvoiceResponse>(StatusCodes.Status202Accepted)
+            .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
@@ -38,7 +40,8 @@ public static class InvoiceEndpoints
                 "Body: { \"invoiceNumbers\": [...] }, 1 to 100 numbers (400 otherwise); a number sent twice is resent once. " +
                 "Every invoice follows the single resend's rules (only Başarısız, nothing is sent to the ERP in this request) " +
                 "and gets its own result: queued, not_found, not_failed (with its current status) or error. The request is " +
-                "200 whatever the results are; one invoice that is refused does not stop the others.")
+                "200 whatever the results are; one invoice that is refused does not stop the others. " + OperatorDescription +
+                " Each invoice gets its own record.")
             .Produces<BulkResendResponse>()
             .ProducesValidationProblem();
 
@@ -89,9 +92,18 @@ public static class InvoiceEndpoints
         return Results.Accepted($"/api/v1/invoices/{Uri.EscapeDataString(invoice.InvoiceNumber)}", InvoiceResponse.From(invoice));
     }
 
-    private static async Task<IResult> ResendInvoice(string invoiceNumber, ResendInvoiceHandler handler)
+    /// <summary>For the endpoints that change something on an operator's request.</summary>
+    public const string OperatorDescription =
+        "Header X-Operator-Name (required, percent-encoded UTF-8, at most 100 characters; 400 if missing or empty): who " +
+        "asks for it; the request and its result are recorded in operator_actions under that name.";
+
+    private static async Task<IResult> ResendInvoice(string invoiceNumber, HttpRequest request, ResendInvoiceHandler handler)
     {
-        var result = await handler.HandleAsync(invoiceNumber);
+        var (operatorName, invalid) = OperatorHeader.Read(request);
+        if (invalid is not null)
+            return invalid;
+
+        var result = await handler.HandleAsync(invoiceNumber, operatorName!);
         return result.Status switch
         {
             ResendStatus.NotFound => NotFound(invoiceNumber),
@@ -109,9 +121,14 @@ public static class InvoiceEndpoints
         };
     }
 
-    private static async Task<IResult> ResendInvoices(ResendInvoicesRequest request, ResendInvoicesHandler handler)
+    private static async Task<IResult> ResendInvoices(
+        ResendInvoicesRequest request, HttpRequest http, ResendInvoicesHandler handler)
     {
-        var result = await handler.HandleAsync(request);
+        var (operatorName, invalid) = OperatorHeader.Read(http);
+        if (invalid is not null)
+            return invalid;
+
+        var result = await handler.HandleAsync(request, operatorName!);
         return result.Errors is not null
             ? Results.ValidationProblem(result.Errors)
             : Results.Ok(new BulkResendResponse(result.Items.Select(BulkResendItemResponse.From).ToList()));

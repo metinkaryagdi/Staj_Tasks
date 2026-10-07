@@ -25,6 +25,9 @@ public sealed class ReconciliationRun
 
     /// <summary>Why the run failed; null unless it is Başarısız.</summary>
     public string? Error { get; set; }
+
+    /// <summary>The operator who started it from the screen; null when the schedule started it.</summary>
+    public string? StartedBy { get; set; }
 }
 
 public static class ReconciliationStatus

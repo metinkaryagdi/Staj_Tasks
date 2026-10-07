@@ -7,7 +7,7 @@ namespace InvoiceService.Application.Invoices;
 /// <summary>Reads invoices as stored by the service.</summary>
 public sealed class InvoiceQueries(
     IInvoiceStore invoices, IOutboxStore outbox, IWebhookEventStore events, IReconciliationStore reconciliation,
-    IOptions<ReconciliationOptions> reconciliationOptions, TimeProvider time)
+    IOperatorActionStore actions, IOptions<ReconciliationOptions> reconciliationOptions, TimeProvider time)
 {
     public const int DefaultPageSize = 20;
 
@@ -49,6 +49,7 @@ public sealed class InvoiceQueries(
             invoice,
             await outbox.FindAsync(invoiceNumber, ct),
             await events.ListByInvoiceAsync(invoiceNumber, ct),
-            await reconciliation.ListFindingsOfInvoiceAsync(invoiceNumber, ct));
+            await reconciliation.ListFindingsOfInvoiceAsync(invoiceNumber, ct),
+            await actions.ListOfInvoiceAsync(invoiceNumber, ct));
     }
 }

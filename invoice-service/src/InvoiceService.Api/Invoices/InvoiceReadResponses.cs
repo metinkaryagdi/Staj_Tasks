@@ -1,5 +1,6 @@
 using InvoiceService.Api.Reconciliation;
 using InvoiceService.Application.Invoices;
+using InvoiceService.Domain.Operators;
 using InvoiceService.Domain.Outbox;
 using InvoiceService.Domain.Webhooks;
 
@@ -32,14 +33,24 @@ public sealed record InvoiceEventResponse(
         e.EventId, e.EventType, e.Status, e.IgnoreReason, e.DeliveryCount, e.OccurredAt, e.ReceivedAt, e.ProcessedAt);
 }
 
-/// <summary>The invoice, its outbox entry, its events and the reconciliation findings about it, in one response.</summary>
+/// <summary>An intervention made from the screen: who, what, how it ended.</summary>
+public sealed record OperatorActionResponse(string OperatorName, string Action, string Result, DateTimeOffset CreatedAt)
+{
+    public static OperatorActionResponse From(OperatorAction a) => new(a.OperatorName, a.Action, a.Result, a.CreatedAt);
+}
+
+/// <summary>
+/// The invoice, its outbox entry, its events, the reconciliation findings about it and the interventions made on it, in
+/// one response.
+/// </summary>
 public sealed record InvoiceDetailsResponse(
     InvoiceResponse Invoice, OutboxEntryResponse? Outbox, IReadOnlyList<InvoiceEventResponse> Events,
-    IReadOnlyList<ReconciliationFindingResponse> Findings)
+    IReadOnlyList<ReconciliationFindingResponse> Findings, IReadOnlyList<OperatorActionResponse> OperatorActions)
 {
     public static InvoiceDetailsResponse From(InvoiceDetails d) => new(
         InvoiceResponse.From(d.Invoice),
         d.Outbox is null ? null : OutboxEntryResponse.From(d.Outbox),
         d.Events.Select(InvoiceEventResponse.From).ToList(),
-        d.Findings.Select(ReconciliationFindingResponse.From).ToList());
+        d.Findings.Select(ReconciliationFindingResponse.From).ToList(),
+        d.OperatorActions.Select(OperatorActionResponse.From).ToList());
 }
