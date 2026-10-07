@@ -15,13 +15,18 @@ Script'ler repo kök klasöründen çalıştırılır. Hepsi sonunda `SONUÇ: GE
 | 7 | ERP'nin hiç almadığı 50 eski Başarısız fatura: ilk çalışma 50 sorgu, ikinci 0 (loglarla) | `.\manual-tests\gun7\adim4-gereksiz-sorgu.ps1` |
 | 8 | 120 mutabakat çalışması varken liste sayfa sayfa doğru | `.\manual-tests\gun7\adim5-calisma-sayfalari.ps1` |
 
-Script'li maddeleri art arda çalıştırmak için: `.\manual-tests\gun7\kontrol-listesi.ps1`. Ek olarak `ek-zamanlayici.ps1`
-zamanlanmış çalışmanın başlatanının "Zamanlayıcı" yazıldığını gösterir (servis 1 dk aralıkla yeniden başlatılır);
-`ek-elle-takip.ps1` takılı faturanın elle takibe alınmasını ve kapatılmasını sınar (ikisi de kontrol listesinde "Ek").
-7. maddenin süresi için iki script daha var, kontrol listesine dahil değiller: `ek-24-saat-siniri.ps1` "Kayıt yok" cevabı
-23 sa 59 dk önce alınmış faturanın sorulmadığını, 24 saat dolunca sorulduğunu gösterir (~1,5 dk); `ek-sorgu-ayari.ps1`
-servisi `NotFoundRecheckHours=1` ile yeniden başlatıp sürenin ayardan okunduğunu gösterir, sonda ayar dosyasındaki değere
-döner (~3 dk).
+Bütün script'leri tek seferde çalıştırmak için: `.\manual-tests\gun7\kontrol-listesi.ps1`. Sıra, her script'in
+ihtiyaç duyduğu veriyi öncekinin bırakacağı şekilde, boş bir veritabanında da çalışması için belirlenmiştir. Bu yüzden 7. madde 5-6. maddeden
+önce çalışır: `adim2-operator.ps1` hazır Başarısız fatura ister, uygulama ise kendiliğinden neredeyse hiç Başarısız fatura
+üretmez; `adim4-gereksiz-sorgu.ps1`'in eklediği faturalar bu ihtiyacı karşılar. `adim2-operator.ps1` tek başına
+çalıştırılacaksa veritabanında en az 4 Başarısız ve 1 Onaylandı fatura bulunmalıdır.
+
+Ekler (hepsi kontrol listesinde "Ek"):
+- `ek-24-saat-siniri.ps1`: "Kayıt yok" cevabı 23 sa 59 dk önce alınmış fatura sorulmuyor, 24 saat dolunca soruluyor.
+- `ek-sorgu-ayari.ps1`: servis `NotFoundRecheckHours=1` ile yeniden başlatılır, sürenin ayardan okunduğu görülür; sonda ayar
+  dosyasındaki değere dönülür.
+- `ek-zamanlayici.ps1`: zamanlanmış çalışmanın başlatanı "Zamanlayıcı" yazılıyor (servis 1 dk aralıkla yeniden başlatılır).
+- `ek-elle-takip.ps1`: takılı fatura elle takibe alınıyor ve takip kapatılıyor.
 
 ## Ekrandan elle yapılan maddeler
 

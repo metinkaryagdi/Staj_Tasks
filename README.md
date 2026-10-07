@@ -326,7 +326,7 @@ Kontrol listesi: [`manual-tests/gun7/`](manual-tests/gun7/README.md) (1, 3, 5-8.
 ### Son doğrulama — 7 Ekim 2026
 
 Sekiz madde gerçek PostgreSQL, HTTP ve tarayıcıyla koşuldu ve hepsi geçti; her maddede sonuç veritabanıyla karşılaştırıldı.
-Son koşu: kontrol listesi 13:28 (ekler dahil, 7,3 dk); script'lerin bakmadığı ekran kısımları ardından tarayıcıda yeniden yapıldı.
+Son koşu: kontrol listesi 15:34 (ekler dahil, bütün script'ler tek seferde); script'lerin bakmadığı ekran kısımları ardından tarayıcıda yeniden yapıldı.
 Birim testler: Invoice Service 346, ERP Simulator 103, operasyon ekranı 22, hepsi geçti. Gün 6 kontrol listesi de yeniden
 koşuldu: ilk koşuda 2. madde (düzeltmesi hata veren fatura) kaldı; ERP'nin cevabı bütün faturalara tek UPDATE ile yazıldığı için
 bir faturanın hatası çalışmanın tamamını düşürüyordu. Cevap fatura başına yazılacak şekilde düzeltildi, iki liste de baştan
@@ -341,7 +341,7 @@ koşuldu ve hepsi geçti.
 | 5 | `operator_actions` | Tekli yeniden gönderme: `Kuyruğa alındı`, ikinci deneme `Reddedildi: fatura Bekliyor`. Toplu (3 Başarısız, 1 Onaylandı, 1 olmayan): 5 satır, her biri kendi sonucuyla; ekrandan toplu gönderimde 2 fatura için 2 satır. Mutabakat: aynı anda iki başlatma, biri `Başlatıldı: çalışma N` (çalışmanın `started_by`'ı aynı ad), diğeri `Reddedildi: başka bir çalışma sürüyor`, fatura numarası boş. Türkçe karakterli ad doğru kaydedildi |
 | 6 | Başlıksız istekler | Üç istek, başlık yok / boş / yalnızca boşluk: `400` (`operator_name_required`); hiçbir şey yazılmadı, fatura değişmedi, çalışma başlamadı |
 | 7 | ERP'nin hiç almadığı 50 eski Başarısız fatura | Servis logu: ilk çalışmada bu 50 fatura için 50 `Reconciliation asked the ERP … answer=NotFound` satırı ve `ERP lookups … asked=53 notFound=50`; ikinci çalışmada bu faturalar için satır yok, `asked=3` (3 takılı faturanın kararı). Faturalardan biri değişince sonraki çalışma yalnızca onu sordu |
-| 8 | 120 çalışma | Tam 120 çalışmayla (48 mevcut + 72 eklenen) 50'lik sayfalar 50/50/20; son koşuda 191 çalışma 50/50/50/41, ekranda 192 çalışma 20'lik 10 sayfa. Tekrar ya da kayıp yok, sıra veritabanıyla aynı; `pageSize=51`, `pageSize=0` ve `page=0` `400` |
+| 8 | 120 çalışma | Tam 120 çalışmayla (48 mevcut + 72 eklenen) 50'lik sayfalar 50/50/20; son koşuda 240 çalışma 50/50/50/50/40, ekranda 192 çalışma 20'lik 10 sayfa. Tekrar ya da kayıp yok, sıra veritabanıyla aynı; `pageSize=51`, `pageSize=0` ve `page=0` `400` |
 
 Ekler:
 - Elle takip (`ek-elle-takip.ps1`): başlıksız istek `400`; takibe alma `201`, ikinci istek ve aynı anda gelen iki istekten biri
