@@ -69,6 +69,25 @@ public class InvoiceQueriesTests
     }
 
     [Fact]
+    public async Task Details_show_only_the_newest_ERP_Karar_Vermedi_finding_and_every_other_finding()
+    {
+        _s.Invoices.Add("FTR-000001", InvoiceStatus.Processing);
+        _s.Reconciliation.Findings.AddRange(
+        [
+            new ReconciliationFinding { Id = 1, RunId = 1, InvoiceNumber = "FTR-000001", FindingType = FindingType.NoErpDecision,
+                Action = FindingAction.Reported, Details = "ilk", CreatedAt = Scenario.Start.AddMinutes(-20) },
+            new ReconciliationFinding { Id = 2, RunId = 2, InvoiceNumber = "FTR-000001", FindingType = FindingType.StuckInvoice,
+                Action = FindingAction.Fixed, Details = "düzeltme", CreatedAt = Scenario.Start.AddMinutes(-15) },
+            new ReconciliationFinding { Id = 3, RunId = 3, InvoiceNumber = "FTR-000001", FindingType = FindingType.NoErpDecision,
+                Action = FindingAction.Reported, Details = "son", CreatedAt = Scenario.Start.AddMinutes(-10) }
+        ]);
+
+        var details = await _s.InvoiceQueries().DetailsAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(["son", "düzeltme"], details!.Findings.Select(f => f.Details));
+    }
+
+    [Fact]
     public async Task Stuck_list_holds_exactly_the_invoices_the_summary_counts_as_stuck()
     {
         _s.Invoices.Add("FTR-000001", InvoiceStatus.Sent).UpdatedAt = Scenario.Start.AddMinutes(-3);

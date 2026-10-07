@@ -1,6 +1,7 @@
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Reconciliation;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Reconciliation;
 
 namespace InvoiceService.Application.Invoices;
 
@@ -36,6 +37,16 @@ public sealed class InvoiceQueries(
         return new InvoiceSummary(counts, counts.Sum(c => c.Count), stuck, options.StuckAfterMinutes);
     }
 
+    /// <summary>
+    /// "ERP Karar Vermedi" is written again by every run while the ERP stays silent; only the newest is shown. The list
+    /// comes newest first, so that is the first one.
+    /// </summary>
+    private static List<ReconciliationFinding> WithoutRepeatedNoDecision(IReadOnlyList<ReconciliationFinding> findings)
+    {
+        var newest = findings.FirstOrDefault(f => f.FindingType == FindingType.NoErpDecision);
+        return findings.Where(f => f.FindingType != FindingType.NoErpDecision || ReferenceEquals(f, newest)).ToList();
+    }
+
     private DateTimeOffset StuckBefore() => time.GetUtcNow() - reconciliationOptions.Value.StuckAfter;
 
     /// <summary>Null if there is no such invoice.</summary>
@@ -49,7 +60,7 @@ public sealed class InvoiceQueries(
             invoice,
             await outbox.FindAsync(invoiceNumber, ct),
             await events.ListByInvoiceAsync(invoiceNumber, ct),
-            await reconciliation.ListFindingsOfInvoiceAsync(invoiceNumber, ct),
+            WithoutRepeatedNoDecision(await reconciliation.ListFindingsOfInvoiceAsync(invoiceNumber, ct)),
             await actions.ListOfInvoiceAsync(invoiceNumber, ct));
     }
 }

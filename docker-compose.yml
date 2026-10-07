@@ -45,6 +45,8 @@ services:
       Webhooks__ApprovalRate:
       Webhooks__FirstEventMinSeconds:
       Webhooks__FirstEventMaxSeconds:
+      Webhooks__SecondEventMinSeconds:
+      Webhooks__SecondEventMaxSeconds:
       Webhooks__RetryDelaysSeconds__0:
       Webhooks__RetryDelaysSeconds__1:
       Webhooks__RetryDelaysSeconds__2:
@@ -100,6 +102,7 @@ services:
       Reconciliation__LookbackHours:
       Reconciliation__StuckAfterMinutes:
       Reconciliation__UnknownEventAfterMinutes:
+      Reconciliation__NoDecisionAfterMinutes:
     networks:
       - invoice-data
       - apps
@@ -138,6 +141,7 @@ services:
       Reconciliation__LookbackHours:
       Reconciliation__StuckAfterMinutes:
       Reconciliation__UnknownEventAfterMinutes:
+      Reconciliation__NoDecisionAfterMinutes:
     networks:
       - invoice-data
       - apps

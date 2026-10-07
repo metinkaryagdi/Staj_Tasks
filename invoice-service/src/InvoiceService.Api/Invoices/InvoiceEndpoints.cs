@@ -69,7 +69,8 @@ public static class InvoiceEndpoints
             .WithSummary("The invoice with its erp_outbox entry, its events and its reconciliation findings")
             .WithDescription(
                 "Four reads, not one snapshot: a change made while the response is built can show in one part and not in another. " +
-                "outbox is null for an invoice without an entry. 404 if the invoice does not exist.")
+                "outbox is null for an invoice without an entry. Of the ERP Karar Vermedi findings, which every run writes again " +
+                "while the ERP stays silent, only the newest is listed. 404 if the invoice does not exist.")
             .Produces<InvoiceDetailsResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound);
 

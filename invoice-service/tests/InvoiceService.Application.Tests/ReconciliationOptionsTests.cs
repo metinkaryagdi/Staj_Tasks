@@ -12,7 +12,8 @@ public class ReconciliationOptionsTests
             ["Reconciliation:IntervalMinutes"] = "60",
             ["Reconciliation:LookbackHours"] = "24",
             ["Reconciliation:StuckAfterMinutes"] = "2",
-            ["Reconciliation:UnknownEventAfterMinutes"] = "60"
+            ["Reconciliation:UnknownEventAfterMinutes"] = "60",
+            ["Reconciliation:NoDecisionAfterMinutes"] = "30"
         };
         foreach (var (key, value) in overrides)
             values[key] = value;
@@ -37,6 +38,7 @@ public class ReconciliationOptionsTests
     [InlineData("Reconciliation:LookbackHours")]
     [InlineData("Reconciliation:StuckAfterMinutes")]
     [InlineData("Reconciliation:UnknownEventAfterMinutes")]
+    [InlineData("Reconciliation:NoDecisionAfterMinutes")]
     public void A_missing_value_is_refused_and_named(string key)
     {
         var result = Validate(Settings((key, null)));
@@ -71,11 +73,22 @@ public class ReconciliationOptionsTests
     [InlineData("Reconciliation:LookbackHours", "-1")]
     [InlineData("Reconciliation:StuckAfterMinutes", "0")]
     [InlineData("Reconciliation:UnknownEventAfterMinutes", "-5")]
+    [InlineData("Reconciliation:NoDecisionAfterMinutes", "0")]
     public void A_value_that_is_not_greater_than_0_is_refused_and_named(string key, string value)
     {
         var result = Validate(Settings((key, value)));
 
         Assert.False(result.Succeeded);
         Assert.Contains($"{key} must be greater than 0", result.FailureMessage);
+    }
+
+    [Fact]
+    public void No_decision_threshold_below_the_stuck_threshold_is_refused_and_equal_is_accepted()
+    {
+        var below = Validate(Settings(("Reconciliation:NoDecisionAfterMinutes", "1")));
+        Assert.False(below.Succeeded);
+        Assert.Contains("NoDecisionAfterMinutes must be at least StuckAfterMinutes", below.FailureMessage);
+
+        Assert.True(Validate(Settings(("Reconciliation:NoDecisionAfterMinutes", "2"))).Succeeded);
     }
 }

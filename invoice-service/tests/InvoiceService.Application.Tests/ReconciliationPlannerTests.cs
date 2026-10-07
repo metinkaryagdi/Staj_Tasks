@@ -14,7 +14,8 @@ public class ReconciliationPlannerTests
 
     private static readonly ReconciliationPlanner Planner = new(Options.Create(new ReconciliationOptions
     {
-        IntervalMinutes = 1, LookbackHours = 24, StuckAfterMinutes = 2, UnknownEventAfterMinutes = 60
+        IntervalMinutes = 1, LookbackHours = 24, StuckAfterMinutes = 2, UnknownEventAfterMinutes = 60,
+        NoDecisionAfterMinutes = 30
     }));
 
     private static Invoice Invoice(string number, string status, int minutesInStatus = 10, string? reference = null,
@@ -67,12 +68,38 @@ public class ReconciliationPlannerTests
     [Theory]
     [InlineData(ErpDecisionKind.None)]
     [InlineData(ErpDecisionKind.Received)]
-    public void An_invoice_the_erp_has_not_decided_on_is_left_alone(string kind)
+    public void An_invoice_the_erp_has_not_decided_on_is_left_alone_until_the_no_decision_threshold(string kind)
     {
         // İşleme Alındı + received: a second invoice.received would not move it forward either.
-        var snapshot = Snapshot([Invoice("F-1", InvoiceStatus.Processing)], [Erp("F-1")]);
+        var snapshot = Snapshot([Invoice("F-1", InvoiceStatus.Processing, minutesInStatus: 30)], [Erp("F-1")]);
 
         Assert.Empty(Plan(snapshot, ("F-1", Decided(kind))).Findings);
+    }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Sent, ErpDecisionKind.None)]
+    [InlineData(InvoiceStatus.Processing, ErpDecisionKind.None)]
+    [InlineData(InvoiceStatus.Processing, ErpDecisionKind.Received)]
+    public void A_stuck_invoice_without_a_decision_after_the_threshold_is_reported_and_not_changed(string status, string kind)
+    {
+        var snapshot = Snapshot([Invoice("F-1", status, minutesInStatus: 31)], [Erp("F-1")]);
+
+        var finding = Assert.Single(Plan(snapshot, ("F-1", Decided(kind))).Findings);
+
+        Assert.Equal(FindingType.NoErpDecision, finding.FindingType);
+        Assert.Null(finding.Fix);
+        Assert.Contains($"{status} durumunda 31 dk", finding.Details);
+        Assert.Contains($"ERP cevabı: {kind}", finding.Details);
+    }
+
+    [Fact]
+    public void A_sent_invoice_the_erp_only_received_moves_on_instead_of_being_reported()
+    {
+        var snapshot = Snapshot([Invoice("F-1", InvoiceStatus.Sent, minutesInStatus: 45)], [Erp("F-1")]);
+
+        var finding = Assert.Single(Plan(snapshot, ("F-1", Decided(ErpDecisionKind.Received))).Findings);
+
+        Assert.Equal(FindingType.StuckInvoice, finding.FindingType);
     }
 
     [Fact]

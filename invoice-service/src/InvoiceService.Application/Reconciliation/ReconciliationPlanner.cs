@@ -17,6 +17,8 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
 
     private TimeSpan UnknownEventAfter => TimeSpan.FromMinutes(options.Value.UnknownEventAfterMinutes);
 
+    private TimeSpan NoDecisionAfter => TimeSpan.FromMinutes(options.Value.NoDecisionAfterMinutes);
+
     /// <summary>The invoices whose decision the ERP must be asked for before <see cref="Plan"/>.</summary>
     public IReadOnlyList<string> InvoicesToAsk(ReconciliationSnapshot snapshot) =>
         Pair(snapshot).Where(p => p.Invoice is not null && WantsDecision(p.Invoice, p.Records, snapshot.Now))
@@ -88,7 +90,7 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
         (invoice.Status == InvoiceStatus.Failed
          || (invoice.Status is InvoiceStatus.Sent or InvoiceStatus.Processing && now - invoice.UpdatedAt > StuckAfter));
 
-    private static PlannedFinding? FixFor(Invoice invoice, ErpRecord erp, ErpDecision decision, DateTimeOffset now)
+    private PlannedFinding? FixFor(Invoice invoice, ErpRecord erp, ErpDecision decision, DateTimeOffset now)
     {
         var number = invoice.InvoiceNumber;
 
@@ -103,10 +105,17 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
         }
 
         var result = DecisionTarget(invoice.Status, decision);
-        if (result is null)
-            return null;
-
         var minutes = (int)(now - invoice.UpdatedAt).TotalMinutes;
+        if (result is null)
+        {
+            // Nothing the ERP said moves it: no decision yet ("none"), or only "received" for an invoice that is already
+            // İşleme Alındı. Waited long enough, it is reported so the stuck invoice has a reason on the screen.
+            return now - invoice.UpdatedAt > NoDecisionAfter
+                ? new(number, FindingType.NoErpDecision,
+                    $"{invoice.Status} durumunda {minutes} dk kaldı; ERP'ye soruldu, kesin karar yok (ERP cevabı: {decision.Kind}).")
+                : null;
+        }
+
         return new(number, FindingType.StuckInvoice,
             $"{invoice.Status} durumunda {minutes} dk kaldı; ERP kararı {decision.Kind}: {result} yapıldı.",
             new Fix(FixKind.ApplyDecision, number, invoice.Status, erp.ErpReference, decision));

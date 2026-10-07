@@ -6,7 +6,8 @@ $Service2Url = 'http://localhost:5091'
 
 # docker-compose.yml'in Fatura Servisi'ne aktardığı mutabakat ayarları.
 $ServiceEnvKeys = @('Reconciliation__IntervalMinutes', 'Reconciliation__LookbackHours',
-                    'Reconciliation__StuckAfterMinutes', 'Reconciliation__UnknownEventAfterMinutes')
+                    'Reconciliation__StuckAfterMinutes', 'Reconciliation__UnknownEventAfterMinutes',
+                    'Reconciliation__NoDecisionAfterMinutes')
 
 function Clear-ServiceEnv { foreach ($key in $ServiceEnvKeys) { Remove-Item "Env:$key" -ErrorAction SilentlyContinue } }
 

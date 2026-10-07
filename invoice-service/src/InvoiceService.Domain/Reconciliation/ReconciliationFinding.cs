@@ -57,8 +57,14 @@ public static class FindingType
     /// <summary>Amount, currency, customer code or erp_reference differ. Reported.</summary>
     public const string FieldMismatch = "Alan Farkı";
 
+    /// <summary>
+    /// Stuck longer than the no-decision threshold and the ERP, asked, has still decided nothing that moves it. Reported,
+    /// again in every run while it lasts; the invoice is fixed by the first run after the decision comes.
+    /// </summary>
+    public const string NoErpDecision = "ERP Karar Vermedi";
+
     public static readonly string[] All =
-        [StuckInvoice, FailedButInErp, UnknownEvent, MissingInService, MissingInErp, DuplicateInErp, FieldMismatch];
+        [StuckInvoice, FailedButInErp, UnknownEvent, MissingInService, MissingInErp, DuplicateInErp, FieldMismatch, NoErpDecision];
 
     /// <summary>The types a run fixes; every other type is only reported.</summary>
     public static readonly string[] Fixable = [StuckInvoice, FailedButInErp, UnknownEvent];

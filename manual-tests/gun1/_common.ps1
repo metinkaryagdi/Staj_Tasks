@@ -28,6 +28,8 @@ $SimulatorEnvKeys = @(
     'Webhooks__ApprovalRate',
     'Webhooks__FirstEventMinSeconds',
     'Webhooks__FirstEventMaxSeconds',
+    'Webhooks__SecondEventMinSeconds',
+    'Webhooks__SecondEventMaxSeconds',
     'Webhooks__RetryDelaysSeconds__0',
     'Webhooks__RetryDelaysSeconds__1',
     'Webhooks__RetryDelaysSeconds__2',

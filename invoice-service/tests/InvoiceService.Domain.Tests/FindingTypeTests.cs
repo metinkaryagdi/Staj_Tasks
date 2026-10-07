@@ -1,3 +1,4 @@
+using InvoiceService.Domain.Operators;
 using InvoiceService.Domain.Reconciliation;
 
 namespace InvoiceService.Domain.Tests;
@@ -22,7 +23,7 @@ public class FindingTypeTests
     public void Constants_that_go_into_check_constraints_have_no_apostrophe()
     {
         // The constraints are built by wrapping each value in single quotes; an apostrophe would end the string early.
-        Assert.All(FindingType.All.Concat(FindingAction.All).Concat(ReconciliationStatus.All),
+        Assert.All(FindingType.All.Concat(FindingAction.All).Concat(ReconciliationStatus.All).Concat(OperatorActionType.All),
             value => Assert.DoesNotContain('\'', value));
     }
 }

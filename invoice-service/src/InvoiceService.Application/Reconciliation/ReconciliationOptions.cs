@@ -26,6 +26,12 @@ public sealed class ReconciliationOptions
 
     /// <summary>A waiting event for an invoice the service does not know is ignored after this many minutes.</summary>
     public int UnknownEventAfterMinutes { get; set; }
+
+    /// <summary>
+    /// A stuck invoice the ERP still has no decision for after this many minutes in its status is reported as
+    /// <c>ERP Karar Vermedi</c>. At least <see cref="StuckAfterMinutes"/>: only stuck invoices are asked.
+    /// </summary>
+    public int NoDecisionAfterMinutes { get; set; }
 }
 
 public sealed class ReconciliationOptionsValidator(IConfiguration configuration) : IValidateOptions<ReconciliationOptions>
@@ -40,7 +46,8 @@ public sealed class ReconciliationOptionsValidator(IConfiguration configuration)
     public static readonly string[] RequiredKeys =
     [
         nameof(ReconciliationOptions.IntervalMinutes), nameof(ReconciliationOptions.LookbackHours),
-        nameof(ReconciliationOptions.StuckAfterMinutes), nameof(ReconciliationOptions.UnknownEventAfterMinutes)
+        nameof(ReconciliationOptions.StuckAfterMinutes), nameof(ReconciliationOptions.UnknownEventAfterMinutes),
+        nameof(ReconciliationOptions.NoDecisionAfterMinutes)
     ];
 
     public ValidateOptionsResult Validate(string? name, ReconciliationOptions options)
@@ -61,7 +68,8 @@ public sealed class ReconciliationOptionsValidator(IConfiguration configuration)
                      (nameof(options.IntervalMinutes), options.IntervalMinutes),
                      (nameof(options.LookbackHours), options.LookbackHours),
                      (nameof(options.StuckAfterMinutes), options.StuckAfterMinutes),
-                     (nameof(options.UnknownEventAfterMinutes), options.UnknownEventAfterMinutes)
+                     (nameof(options.UnknownEventAfterMinutes), options.UnknownEventAfterMinutes),
+                     (nameof(options.NoDecisionAfterMinutes), options.NoDecisionAfterMinutes)
                  })
         {
             if (value <= 0)
@@ -72,6 +80,11 @@ public sealed class ReconciliationOptionsValidator(IConfiguration configuration)
             errors.Add($"{ReconciliationOptions.SectionName}:IntervalMinutes must be at most {MaxIntervalMinutes} (was {options.IntervalMinutes}).");
         if (options.LookbackHours > MaxLookbackHours)
             errors.Add($"{ReconciliationOptions.SectionName}:LookbackHours must be at most {MaxLookbackHours} (was {options.LookbackHours}).");
+        if (options.NoDecisionAfterMinutes < options.StuckAfterMinutes)
+        {
+            errors.Add($"{ReconciliationOptions.SectionName}:NoDecisionAfterMinutes must be at least StuckAfterMinutes " +
+                       $"({options.StuckAfterMinutes}, was {options.NoDecisionAfterMinutes}): only stuck invoices are asked.");
+        }
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }
