@@ -1,13 +1,14 @@
 import { postJson, request } from './client'
-import type {
-  Invoice,
-  InvoiceDetails,
-  InvoiceList,
-  InvoiceQuery,
-  InvoiceSummary,
-  ReconciliationRun,
-  ReconciliationRunDetail,
-  ResendItem,
+import {
+  stuckFilter,
+  type Invoice,
+  type InvoiceDetails,
+  type InvoiceList,
+  type InvoiceQuery,
+  type InvoiceSummary,
+  type ReconciliationRun,
+  type ReconciliationRunDetail,
+  type ResendItem,
 } from './types'
 
 const invoices = '/api/v1/invoices'
@@ -19,7 +20,8 @@ export function getSummary() {
 
 export function getInvoices(query: InvoiceQuery) {
   const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) })
-  if (query.status) params.set('status', query.status)
+  if (query.status === stuckFilter) params.set('stuck', 'true')
+  else if (query.status) params.set('status', query.status)
   if (query.search) params.set('search', query.search)
   return request<InvoiceList>(`${invoices}?${params}`)
 }

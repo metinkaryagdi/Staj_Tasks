@@ -96,8 +96,12 @@ export interface ResendItem {
   currentStatus: string | null
 }
 
+// Bir durum değil: Gönderildi ya da İşleme Alındı'da özetteki süreden uzun kalanlar (servis stuck=true ile süzer).
+export const stuckFilter = 'Takılı'
+export type StatusFilter = InvoiceStatus | typeof stuckFilter | ''
+
 export interface InvoiceQuery {
-  status: InvoiceStatus | ''
+  status: StatusFilter
   search: string
   page: number
   pageSize: number

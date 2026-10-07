@@ -29,11 +29,14 @@ public sealed class InvoiceStore(InvoiceDbContext db) : IInvoiceStore
     public Task<Invoice> GetAsync(string invoiceNumber, CancellationToken ct) =>
         db.Invoices.AsNoTracking().SingleAsync(i => i.InvoiceNumber == invoiceNumber, ct);
 
-    public async Task<InvoicePage> ListPageAsync(string? status, string? search, int skip, int take, CancellationToken ct)
+    public async Task<InvoicePage> ListPageAsync(
+        string? status, string? search, DateTimeOffset? stuckBefore, int skip, int take, CancellationToken ct)
     {
         var query = db.Invoices.AsNoTracking();
         if (status is not null)
             query = query.Where(i => i.Status == status);
+        if (stuckBefore is not null)
+            query = Stuck(query, stuckBefore.Value);
         if (search is not null)
             query = query.Where(i => EF.Functions.ILike(i.InvoiceNumber, "%" + EscapeLike(search) + "%", "\\"));
 
@@ -52,8 +55,11 @@ public sealed class InvoiceStore(InvoiceDbContext db) : IInvoiceStore
             .ToDictionaryAsync(g => g.Status, g => g.Count, ct);
 
     public Task<int> CountStuckAsync(DateTimeOffset olderThan, CancellationToken ct) =>
-        db.Invoices.AsNoTracking().CountAsync(
-            i => (i.Status == InvoiceStatus.Sent || i.Status == InvoiceStatus.Processing) && i.UpdatedAt < olderThan, ct);
+        Stuck(db.Invoices.AsNoTracking(), olderThan).CountAsync(ct);
+
+    /// <summary>The one condition the summary's count and the list's filter share, so the two numbers cannot drift.</summary>
+    private static IQueryable<Invoice> Stuck(IQueryable<Invoice> query, DateTimeOffset olderThan) =>
+        query.Where(i => (i.Status == InvoiceStatus.Sent || i.Status == InvoiceStatus.Processing) && i.UpdatedAt < olderThan);
 
     /// <summary>The characters that mean something in a LIKE pattern are searched for as themselves.</summary>
     private static string EscapeLike(string text) =>

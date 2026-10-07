@@ -3,7 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { resendInvoices } from '../api/endpoints'
 import { invoicesQuery } from '../api/queries'
-import { failedStatus, invoiceStatuses, type Invoice, type InvoiceQuery, type InvoiceStatus, type ResendItem } from '../api/types'
+import {
+  failedStatus,
+  invoiceStatuses,
+  stuckFilter,
+  type Invoice,
+  type InvoiceQuery,
+  type ResendItem,
+  type StatusFilter,
+} from '../api/types'
 import { Notice } from '../components/Notice'
 import { QueryState } from '../components/QueryState'
 import { RefreshStamp } from '../components/RefreshStamp'
@@ -19,7 +27,7 @@ function readQuery(params: URLSearchParams): InvoiceQuery {
   const status = params.get('durum') ?? ''
   const pageSize = Number(params.get('boyut'))
   return {
-    status: (invoiceStatuses as readonly string[]).includes(status) ? (status as InvoiceStatus) : '',
+    status: [...invoiceStatuses, stuckFilter].includes(status) ? (status as StatusFilter) : '',
     search: params.get('ara') ?? '',
     page: Math.max(1, Number(params.get('sayfa')) || 1),
     pageSize: pageSizes.includes(pageSize) ? pageSize : pageSizes[0],
@@ -85,13 +93,14 @@ export function InvoiceListPage() {
       <div className="toolbar">
         <label>
           {tr.invoices.statusFilter}
-          <select value={query.status} onChange={(e) => update({ status: e.target.value as InvoiceStatus | '', page: 1 })}>
+          <select value={query.status} onChange={(e) => update({ status: e.target.value as StatusFilter, page: 1 })}>
             <option value="">{tr.invoices.allStatuses}</option>
             {invoiceStatuses.map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>
             ))}
+            <option value={stuckFilter}>{tr.invoices.stuckOption}</option>
           </select>
         </label>
         <label>

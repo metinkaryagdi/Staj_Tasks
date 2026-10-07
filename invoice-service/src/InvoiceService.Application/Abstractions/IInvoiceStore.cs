@@ -24,10 +24,12 @@ public interface IInvoiceStore
     Task<Invoice> GetAsync(string invoiceNumber, CancellationToken ct);
 
     /// <summary>
-    /// One page, newest first, not tracked. <paramref name="status"/> and <paramref name="search"/> (part of the invoice
-    /// number, any case) narrow the list when they are not null; the total counts every invoice they match.
+    /// One page, newest first, not tracked. <paramref name="status"/>, <paramref name="search"/> (part of the invoice
+    /// number, any case) and <paramref name="stuckBefore"/> (only the invoices <see cref="CountStuckAsync"/> counts with
+    /// that time) narrow the list when they are not null; the total counts every invoice they match.
     /// </summary>
-    Task<InvoicePage> ListPageAsync(string? status, string? search, int skip, int take, CancellationToken ct);
+    Task<InvoicePage> ListPageAsync(
+        string? status, string? search, DateTimeOffset? stuckBefore, int skip, int take, CancellationToken ct);
 
     /// <summary>How many invoices are in each status; a status nobody is in is missing.</summary>
     Task<IReadOnlyDictionary<string, int>> CountByStatusAsync(CancellationToken ct);

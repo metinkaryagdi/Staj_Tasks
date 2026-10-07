@@ -95,11 +95,13 @@ public sealed class FakeInvoiceStore : IInvoiceStore
 
     public Task<Invoice> GetAsync(string invoiceNumber, CancellationToken ct) => Task.FromResult(Invoices[invoiceNumber]);
 
-    public Task<InvoicePage> ListPageAsync(string? status, string? search, int skip, int take, CancellationToken ct)
+    public Task<InvoicePage> ListPageAsync(
+        string? status, string? search, DateTimeOffset? stuckBefore, int skip, int take, CancellationToken ct)
     {
         var matching = Invoices.Values
             .Where(i => (status is null || i.Status == status)
-                        && (search is null || i.InvoiceNumber.Contains(search, StringComparison.OrdinalIgnoreCase)))
+                        && (search is null || i.InvoiceNumber.Contains(search, StringComparison.OrdinalIgnoreCase))
+                        && (stuckBefore is null || IsStuck(i, stuckBefore.Value)))
             .OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.InvoiceNumber)
             .ToList();
         return Task.FromResult(new InvoicePage(matching.Skip(skip).Take(take).ToList(), matching.Count));
@@ -110,8 +112,10 @@ public sealed class FakeInvoiceStore : IInvoiceStore
             Invoices.Values.GroupBy(i => i.Status).ToDictionary(g => g.Key, g => g.Count()));
 
     public Task<int> CountStuckAsync(DateTimeOffset olderThan, CancellationToken ct) =>
-        Task.FromResult(Invoices.Values.Count(i =>
-            i.Status is InvoiceStatus.Sent or InvoiceStatus.Processing && i.UpdatedAt < olderThan));
+        Task.FromResult(Invoices.Values.Count(i => IsStuck(i, olderThan)));
+
+    private static bool IsStuck(Invoice i, DateTimeOffset olderThan) =>
+        i.Status is InvoiceStatus.Sent or InvoiceStatus.Processing && i.UpdatedAt < olderThan;
 
     /// <summary>Invoices whose resend fails, like a database that is gone for that moment.</summary>
     public HashSet<string> FailResend { get; } = [];

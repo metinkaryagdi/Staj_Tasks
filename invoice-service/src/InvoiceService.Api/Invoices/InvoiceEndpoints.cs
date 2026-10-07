@@ -47,7 +47,8 @@ public static class InvoiceEndpoints
             .WithSummary("One page of invoices, newest first")
             .WithDescription(
                 "status=Bekliyor, Gönderildi, İşleme Alındı, Onaylandı, Reddedildi or Başarısız narrows the list; search is part " +
-                "of the invoice number (any case). page starts at 1 (default 1), pageSize is 1 to 100 (default 20). The response " +
+                "of the invoice number (any case); stuck=true keeps only the invoices the summary counts as stuck (the same rule). " +
+                "page starts at 1 (default 1), pageSize is 1 to 100 (default 20). The response " +
                 "carries the page and the total number of invoices the filters match.")
             .Produces<InvoiceListResponse>()
             .ProducesValidationProblem();
@@ -117,7 +118,7 @@ public static class InvoiceEndpoints
     }
 
     private static async Task<IResult> ListInvoices(
-        string? status, string? search, int? page, int? pageSize, InvoiceQueries queries, CancellationToken ct)
+        string? status, string? search, bool? stuck, int? page, int? pageSize, InvoiceQueries queries, CancellationToken ct)
     {
         var errors = new Dictionary<string, string[]>();
         if (status is not null && !InvoiceStatus.All.Contains(status))
@@ -135,7 +136,7 @@ public static class InvoiceEndpoints
         if (errors.Count > 0)
             return Results.ValidationProblem(errors);
 
-        var result = await queries.ListAsync(status, search, currentPage, size, ct);
+        var result = await queries.ListAsync(status, search, stuck ?? false, currentPage, size, ct);
         return Results.Ok(new InvoiceListResponse(
             result.Items.Select(InvoiceResponse.From).ToList(), currentPage, size, result.TotalCount,
             (result.TotalCount + size - 1) / size));

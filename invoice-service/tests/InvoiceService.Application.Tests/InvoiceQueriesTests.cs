@@ -48,7 +48,7 @@ public class InvoiceQueriesTests
         for (var i = 1; i <= 5; i++)
             _s.Invoices.Add($"FTR-00000{i}", InvoiceStatus.Sent).CreatedAt = Scenario.Start.AddMinutes(i);
 
-        var second = await _s.InvoiceQueries().ListAsync(null, null, page: 2, pageSize: 2, CancellationToken.None);
+        var second = await _s.InvoiceQueries().ListAsync(null, null, false, page: 2, pageSize: 2, CancellationToken.None);
 
         Assert.Equal(["FTR-000003", "FTR-000002"], second.Items.Select(i => i.InvoiceNumber));
         Assert.Equal(5, second.TotalCount);
@@ -61,11 +61,30 @@ public class InvoiceQueriesTests
         _s.Invoices.Add("FTR-000012", InvoiceStatus.Failed);
         _s.Invoices.Add("FTR-000013", InvoiceStatus.Sent);
 
-        var result = await _s.InvoiceQueries().ListAsync(InvoiceStatus.Failed, " ftr-0000 ", 1, 20, CancellationToken.None);
+        var result = await _s.InvoiceQueries().ListAsync(InvoiceStatus.Failed, " ftr-0000 ", false, 1, 20, CancellationToken.None);
         Assert.Equal(2, result.TotalCount);
 
-        var narrowed = await _s.InvoiceQueries().ListAsync(InvoiceStatus.Failed, "12", 1, 20, CancellationToken.None);
+        var narrowed = await _s.InvoiceQueries().ListAsync(InvoiceStatus.Failed, "12", false, 1, 20, CancellationToken.None);
         Assert.Equal(["FTR-000012"], narrowed.Items.Select(i => i.InvoiceNumber));
+    }
+
+    [Fact]
+    public async Task Stuck_list_holds_exactly_the_invoices_the_summary_counts_as_stuck()
+    {
+        _s.Invoices.Add("FTR-000001", InvoiceStatus.Sent).UpdatedAt = Scenario.Start.AddMinutes(-3);
+        _s.Invoices.Add("FTR-000002", InvoiceStatus.Processing).UpdatedAt = Scenario.Start.AddMinutes(-3);
+        _s.Invoices.Add("FTR-000003", InvoiceStatus.Sent).UpdatedAt = Scenario.Start.AddMinutes(-1);
+        _s.Invoices.Add("FTR-000004", InvoiceStatus.Failed).UpdatedAt = Scenario.Start.AddMinutes(-30);
+
+        var queries = _s.InvoiceQueries();
+        var list = await queries.ListAsync(null, null, true, 1, 20, CancellationToken.None);
+        var summary = await queries.SummaryAsync(CancellationToken.None);
+
+        Assert.Equal(["FTR-000001", "FTR-000002"], list.Items.Select(i => i.InvoiceNumber).Order());
+        Assert.Equal(summary.StuckCount, list.TotalCount);
+
+        var sentOnly = await queries.ListAsync(InvoiceStatus.Sent, null, true, 1, 20, CancellationToken.None);
+        Assert.Equal(["FTR-000001"], sentOnly.Items.Select(i => i.InvoiceNumber));
     }
 
     [Fact]

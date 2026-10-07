@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { runsQuery, summaryQuery } from '../api/queries'
-import type { ReconciliationRun } from '../api/types'
+import { stuckFilter, type ReconciliationRun } from '../api/types'
 import { QueryState } from '../components/QueryState'
 import { RefreshStamp } from '../components/RefreshStamp'
 import { StatusBadge } from '../components/StatusBadge'
@@ -35,11 +35,14 @@ export function SummaryPage() {
                 <span className="card-label">{tr.summary.total}</span>
                 <span className="card-value">{data.total}</span>
               </div>
-              <div className={`card ${data.stuckCount > 0 ? 'card-alert' : ''}`}>
+              <Link
+                to={`/faturalar?durum=${encodeURIComponent(stuckFilter)}`}
+                className={`card card-link ${data.stuckCount > 0 ? 'card-alert' : ''}`}
+              >
                 <span className="card-label">{tr.summary.stuck}</span>
                 <span className="card-value">{data.stuckCount}</span>
                 <span className="muted small">{tr.summary.stuckHint(data.stuckAfterMinutes)}</span>
-              </div>
+              </Link>
             </div>
           </>
         )}

@@ -42,6 +42,7 @@ export const tr = {
     title: 'Fatura Listesi',
     statusFilter: 'Durum',
     allStatuses: 'Tüm durumlar',
+    stuckOption: 'Takılı',
     search: 'Fatura numarası ara',
     searchPlaceholder: 'Örn. FTR-000123',
     pageSize: 'Sayfa başına',
