@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+
 namespace InvoiceService.Domain.Invoices;
 
 public sealed class Invoice
@@ -38,6 +40,16 @@ public sealed class Invoice
 
     /// <summary>What the ERP answered then, one of <see cref="ErpCheckResult"/>.</summary>
     public string? ErpCheckResult { get; set; }
+}
+
+/// <summary>
+/// Stuck: Gönderildi or İşleme Alındı and not changed since <c>cutoff</c> (now minus Reconciliation:StuckAfterMinutes).
+/// One expression for the database filter, the summary's count and the flag on each invoice, so they cannot disagree.
+/// </summary>
+public static class StuckInvoice
+{
+    public static Expression<Func<Invoice, bool>> Before(DateTimeOffset cutoff) =>
+        i => (i.Status == InvoiceStatus.Sent || i.Status == InvoiceStatus.Processing) && i.UpdatedAt < cutoff;
 }
 
 /// <summary>The ERP's answer as the reconciliation records it on the invoice.</summary>

@@ -16,6 +16,7 @@ import { Notice } from '../components/Notice'
 import { QueryState } from '../components/QueryState'
 import { RefreshStamp } from '../components/RefreshStamp'
 import { StatusBadge } from '../components/StatusBadge'
+import { StuckBadge } from '../components/StuckBadge'
 import { emptyValue, formatAmount, formatDateTime } from '../format'
 import { deselectMany, maxSelection, selectMany, toggle } from '../selection'
 import { describeResendError, describeResendRefusal, tr } from '../tr'
@@ -244,6 +245,7 @@ function InvoiceTable({ invoices, selected, onToggle, onSelectPage }: TableProps
                 <td className="num">{formatAmount(invoice.amount, invoice.currency)}</td>
                 <td>
                   <StatusBadge status={invoice.status} />
+                  {invoice.stuck && <StuckBadge since={invoice.updatedAt} />}
                 </td>
                 <td className="num">{invoice.sendAttemptCount}</td>
                 <td className="truncate" title={invoice.lastError ?? undefined}>

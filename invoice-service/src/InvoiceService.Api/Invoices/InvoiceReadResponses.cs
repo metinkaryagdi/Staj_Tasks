@@ -48,7 +48,7 @@ public sealed record InvoiceDetailsResponse(
     IReadOnlyList<ReconciliationFindingResponse> Findings, IReadOnlyList<OperatorActionResponse> OperatorActions)
 {
     public static InvoiceDetailsResponse From(InvoiceDetails d) => new(
-        InvoiceResponse.From(d.Invoice),
+        InvoiceResponse.From(d.Invoice, d.Stuck),
         d.Outbox is null ? null : OutboxEntryResponse.From(d.Outbox),
         d.Events.Select(InvoiceEventResponse.From).ToList(),
         d.Findings.Select(ReconciliationFindingResponse.From).ToList(),

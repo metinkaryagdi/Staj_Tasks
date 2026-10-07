@@ -19,10 +19,20 @@ public sealed class InvoiceQueries(
     /// Newest first; <paramref name="search"/> is part of the invoice number. <paramref name="stuck"/>: only the invoices
     /// the summary counts as stuck.
     /// </summary>
-    public Task<InvoicePage> ListAsync(string? status, string? search, bool stuck, int page, int pageSize, CancellationToken ct) =>
-        invoices.ListPageAsync(
+    public async Task<InvoiceListPage> ListAsync(
+        string? status, string? search, bool stuck, int page, int pageSize, CancellationToken ct)
+    {
+        // One moment for the filter and for the flags, so a listed invoice is never filtered as stuck and shown as not.
+        var cutoff = StuckBefore();
+        var result = await invoices.ListPageAsync(
             status, string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
-            stuck ? StuckBefore() : null, (page - 1) * pageSize, pageSize, ct);
+            stuck ? cutoff : null, (page - 1) * pageSize, pageSize, ct);
+        var isStuck = StuckInvoice.Before(cutoff).Compile();
+        return new InvoiceListPage(result.Items.Select(i => new ListedInvoice(i, isStuck(i))).ToList(), result.TotalCount);
+    }
+
+    /// <summary>Whether the summary counts the invoice as stuck right now.</summary>
+    public bool IsStuck(Invoice invoice) => StuckInvoice.Before(StuckBefore()).Compile()(invoice);
 
     /// <summary>Null if there is no such invoice.</summary>
     public Task<Invoice?> FindAsync(string invoiceNumber, CancellationToken ct) => invoices.FindAsync(invoiceNumber, ct);
@@ -61,6 +71,7 @@ public sealed class InvoiceQueries(
             await outbox.FindAsync(invoiceNumber, ct),
             await events.ListByInvoiceAsync(invoiceNumber, ct),
             WithoutRepeatedNoDecision(await reconciliation.ListFindingsOfInvoiceAsync(invoiceNumber, ct)),
-            await actions.ListOfInvoiceAsync(invoiceNumber, ct));
+            await actions.ListOfInvoiceAsync(invoiceNumber, ct),
+            IsStuck(invoice));
     }
 }

@@ -51,6 +51,18 @@ Check (Write-DbVerdict "10 dk önce Gönderildi olan 3 fatura listede" "$($inLis
 Check (Write-DbVerdict "az önce Gönderildi olan $fresh listede değil" $(if ($list.Numbers -contains $fresh) { 'listede' } else { 'listede değil' }) `
     (-not ($list.Numbers -contains $fresh)))
 
+# --- A2) Her faturadaki takılı işareti (ekranın "Takılı · süre" rozeti bunu gösterir) ----------------------------------
+Write-DbHeader 'Fatura Servisi' 'A2) Faturadaki stuck işareti: süzgeçtekilerin hepsinde var, süzgeçsiz listede yalnızca takılılarda'
+$flagged = @((Get-Api '/api/v1/invoices?stuck=true&pageSize=100').Json.items | Where-Object { -not $_.stuck })
+Check (Write-DbVerdict 'Takılı süzgecindeki her faturada stuck = true' "işaretsiz: $($flagged.Count)" ($flagged.Count -eq 0))
+$mine = @($numbers | ForEach-Object { (Get-Api "/api/v1/invoices?search=$_&pageSize=1").Json.items[0] })
+$marks = ($mine | ForEach-Object { "$($_.invoiceNumber)=$($_.stuck)" }) -join ', '
+$expectedMarks = (@($stuck | ForEach-Object { "$_=True" }) + "$fresh=False") -join ', '
+Check (Write-DbVerdict "süzgeçsiz listede: $expectedMarks" $marks ($marks -eq $expectedMarks))
+$detail = (Get-Api "/api/v1/invoices/$($stuck[0])/details").Json.invoice.stuck
+$freshDetail = (Get-Api "/api/v1/invoices/$fresh/details").Json.invoice.stuck
+Check (Write-DbVerdict "detayda: $($stuck[0]) takılı, $fresh değil" "$($stuck[0])=$detail, $fresh=$freshDetail" ($detail -eq $true -and $freshDetail -eq $false))
+
 # --- B) Diğer süzgeçlerle birlikte ve geçersiz değer ---------------------------------------------------------------
 Write-DbHeader 'Fatura Servisi' 'B) Takılı + durum, takılı + arama; geçersiz stuck değeri'
 $dbSent = Count-Service ((Get-StuckSql $minutes 'count(*)') + " AND status = 'Gönderildi';")

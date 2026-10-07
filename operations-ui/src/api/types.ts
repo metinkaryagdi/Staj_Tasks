@@ -21,6 +21,8 @@ export interface Invoice {
   // Mutabakatın ERP'ye bu faturayı en son ne zaman sorduğu ve cevabı; hiç sormadıysa null.
   erpCheckedAt: string | null
   erpCheckResult: string | null
+  // Özetin takılı saydığı fatura mı; servis süzgeçle aynı kuralla hesaplar.
+  stuck: boolean
 }
 
 export interface InvoiceList {

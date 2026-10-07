@@ -347,6 +347,13 @@ tr.row-selected td {
   background: var(--info-bg);
 }
 
+/* Takılı: durum rozetinin yanında, özetteki takılı kartıyla aynı uyarı rengi. */
+.badge-stuck {
+  color: var(--warn);
+  background: var(--warn-bg);
+  margin-left: 6px;
+}
+
 .badge-neutral {
   color: var(--muted);
   background: var(--neutral-bg);

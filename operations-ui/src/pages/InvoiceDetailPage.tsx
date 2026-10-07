@@ -7,6 +7,7 @@ import { Notice } from '../components/Notice'
 import { QueryState } from '../components/QueryState'
 import { RefreshStamp } from '../components/RefreshStamp'
 import { StatusBadge } from '../components/StatusBadge'
+import { StuckBadge } from '../components/StuckBadge'
 import { emptyValue, formatAmount, formatDate, formatDateTime } from '../format'
 import { describeResendError, eventTypeLabel, tr } from '../tr'
 
@@ -39,6 +40,7 @@ function Details({ data }: { data: InvoiceDetails }) {
     <>
       <div className="headline">
         <StatusBadge status={invoice.status} />
+        {invoice.stuck && <StuckBadge since={invoice.updatedAt} />}
         {invoice.status === failedStatus && (
           <button type="button" className="primary" disabled={resend.isPending} onClick={() => resend.mutate()}>
             {resend.isPending ? tr.details.resending : tr.details.resend}

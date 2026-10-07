@@ -57,9 +57,8 @@ public sealed class InvoiceStore(InvoiceDbContext db) : IInvoiceStore
     public Task<int> CountStuckAsync(DateTimeOffset olderThan, CancellationToken ct) =>
         Stuck(db.Invoices.AsNoTracking(), olderThan).CountAsync(ct);
 
-    /// <summary>The one condition the summary's count and the list's filter share, so the two numbers cannot drift.</summary>
     private static IQueryable<Invoice> Stuck(IQueryable<Invoice> query, DateTimeOffset olderThan) =>
-        query.Where(i => (i.Status == InvoiceStatus.Sent || i.Status == InvoiceStatus.Processing) && i.UpdatedAt < olderThan);
+        query.Where(StuckInvoice.Before(olderThan));
 
     /// <summary>The characters that mean something in a LIKE pattern are searched for as themselves.</summary>
     private static string EscapeLike(string text) =>

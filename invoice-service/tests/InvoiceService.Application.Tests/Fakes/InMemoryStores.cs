@@ -116,8 +116,7 @@ public sealed class FakeInvoiceStore : IInvoiceStore
     public Task<int> CountStuckAsync(DateTimeOffset olderThan, CancellationToken ct) =>
         Task.FromResult(Invoices.Values.Count(i => IsStuck(i, olderThan)));
 
-    private static bool IsStuck(Invoice i, DateTimeOffset olderThan) =>
-        i.Status is InvoiceStatus.Sent or InvoiceStatus.Processing && i.UpdatedAt < olderThan;
+    private static bool IsStuck(Invoice i, DateTimeOffset olderThan) => StuckInvoice.Before(olderThan).Compile()(i);
 
     /// <summary>Invoices whose resend fails, like a database that is gone for that moment.</summary>
     public HashSet<string> FailResend { get; } = [];

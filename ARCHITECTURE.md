@@ -262,8 +262,9 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   Pencerenin dışındaki kesinleşmemiş fatura ERP listesinde olmaz; ona `GET /{n}` ile tek tek sorulur (cevap kayıtları ve kararı taşır), böylece
   uzun bir kesintiden sonra takılı fatura kaçmaz. ERP listesini en eski faturadan başlatmak yerine tek tek sorulur: kalıcı olarak
   `Başarısız` kalan bir fatura her çalışmaya ERP'nin bütün geçmişini çektirirdi.
-- **Takılı tanımı tek yerde.** Özetteki sayı ve listedeki Takılı süzgeci `InvoiceStore`'daki aynı koşulu ve aynı süreyi
-  (`ReconciliationOptions.StuckAfter`) kullanır; ikisinin ayrı yazılması zamanla iki farklı sayı üretebilirdi.
+- **Takılı tanımı tek yerde.** `StuckInvoice.Before(cutoff)` (Domain) tek bir ifadedir: özetteki sayı ve listedeki süzgeç onu SQL'e
+  çevirir, her faturanın `stuck` alanı (ekrandaki rozet) aynı ifadeyi derleyip kullanır; süre `ReconciliationOptions.StuckAfter`.
+  Rozeti ekran kendi saatiyle hesaplasaydı tarayıcı saati farklıyken süzgeçle çelişebilirdi.
 - **ERP Karar Vermedi.** Takılı fatura için ERP'nin cevabı faturayı ilerletmiyorsa (kararı yok ya da yalnızca `received`) ve fatura
   `NoDecisionAfterMinutes`'tan uzun aynı durumdaysa raporlanır; düzeltme yoktur. Bulgu her çalışmada yeniden yazılır (o çalışmanın
   raporu eksik kalmasın), fatura detayı yalnızca en sonuncusunu gösterir. Yalnızca `none` sayılsaydı, `received` haberi gelmiş ve

@@ -6,6 +6,13 @@ import { apiUrl } from './config'
 export const tr = {
   appTitle: 'Fatura Operasyon Ekranı',
   nav: { summary: 'Özet', invoices: 'Fatura Listesi', reconciliation: 'Mutabakat' },
+  stuckBadge: {
+    label: (waited: string) => `Takılı · ${waited}`,
+    hint: 'Özetteki takılı sayısına giriyor: bu durumda beklenenden uzun kaldı. Süre, son güncellemeden bu yana geçen zaman.',
+    minutes: (n: number) => `${n} dk`,
+    hours: (n: number) => `${n} sa`,
+    days: (n: number) => `${n} gün`,
+  },
   operator: {
     title: 'Adınız',
     hint:

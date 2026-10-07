@@ -50,7 +50,8 @@ public static class InvoiceEndpoints
             .WithSummary("One page of invoices, newest first")
             .WithDescription(
                 "status=Bekliyor, Gönderildi, İşleme Alındı, Onaylandı, Reddedildi or Başarısız narrows the list; search is part " +
-                "of the invoice number (any case); stuck=true keeps only the invoices the summary counts as stuck (the same rule). " +
+                "of the invoice number (any case); stuck=true keeps only the invoices the summary counts as stuck (the same rule), and " +
+                "every listed invoice carries stuck by that rule. " +
                 "page starts at 1 (default 1), pageSize is 1 to 100 (default 20). The response " +
                 "carries the page and the total number of invoices the filters match.")
             .Produces<InvoiceListResponse>()
@@ -147,7 +148,7 @@ public static class InvoiceEndpoints
 
         var result = await queries.ListAsync(status, search, stuck ?? false, currentPage, size, ct);
         return Results.Ok(new InvoiceListResponse(
-            result.Items.Select(InvoiceResponse.From).ToList(), currentPage, size, result.TotalCount,
+            result.Items.Select(i => InvoiceResponse.From(i.Invoice, i.Stuck)).ToList(), currentPage, size, result.TotalCount,
             Paging.TotalPages(result.TotalCount, size)));
     }
 
@@ -168,7 +169,7 @@ public static class InvoiceEndpoints
     private static async Task<IResult> GetInvoice(string invoiceNumber, InvoiceQueries queries, CancellationToken ct)
     {
         var invoice = await queries.FindAsync(invoiceNumber, ct);
-        return invoice is null ? NotFound(invoiceNumber) : Results.Ok(InvoiceResponse.From(invoice));
+        return invoice is null ? NotFound(invoiceNumber) : Results.Ok(InvoiceResponse.From(invoice, queries.IsStuck(invoice)));
     }
 
     private static IResult NotFound(string invoiceNumber) =>
