@@ -47,6 +47,19 @@ public sealed class SubmitInvoiceHandler(
             return new SubmitInvoiceResult(SubmitOutcome.Invalid, errors);
         }
 
+        // Processing time, from its own random source so the seeded behavior sequence does not change. The client waits
+        // it after the behavior is carried out: the log line and received_at keep the request's arrival time (the
+        // per-second counts are read from them), and the invoice number lock is already released.
+        var settings = options.Value;
+        var processingMs = Random.Shared.Next(settings.ProcessingMinMilliseconds, settings.ProcessingMaxMilliseconds + 1);
+        var result = await CarryOutAsync(request, processingMs, requestAborted);
+        if (processingMs > 0)
+            await Task.Delay(processingMs, CancellationToken.None);
+        return result;
+    }
+
+    private async Task<SubmitInvoiceResult> CarryOutAsync(CreateInvoiceRequest request, int processingMs, CancellationToken requestAborted)
+    {
         var settings = options.Value;
 
         // With IdempotentInvoices on, requests for the same invoice number wait for each other (a lock held until the
@@ -66,14 +79,14 @@ public sealed class SubmitInvoiceHandler(
         if (decision.Behavior == Behavior.Busy)
         {
             _logger.LogInformation(
-                "ERP request #{Sequence} invoice={InvoiceNumber} behavior={Behavior} status=429 reason=busy retryAfter={RetryAfter}s",
-                decision.Sequence, request.InvoiceNumber, decision.Behavior, decision.RetryAfterSeconds);
+                "ERP request #{Sequence} invoice={InvoiceNumber} behavior={Behavior} status=429 reason=busy retryAfter={RetryAfter}s processing={ProcessingMs}ms",
+                decision.Sequence, request.InvoiceNumber, decision.Behavior, decision.RetryAfterSeconds, processingMs);
         }
         else
         {
             _logger.LogInformation(
-                "ERP request #{Sequence} invoice={InvoiceNumber} behavior={Behavior} status={Status}",
-                decision.Sequence, request.InvoiceNumber, decision.Behavior, StatusFor(decision.Behavior));
+                "ERP request #{Sequence} invoice={InvoiceNumber} behavior={Behavior} status={Status} processing={ProcessingMs}ms",
+                decision.Sequence, request.InvoiceNumber, decision.Behavior, StatusFor(decision.Behavior), processingMs);
         }
 
         switch (decision.Behavior)

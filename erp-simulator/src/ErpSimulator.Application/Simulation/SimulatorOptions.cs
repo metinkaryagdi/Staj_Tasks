@@ -26,6 +26,14 @@ public sealed class SimulatorOptions
 
     public int RetryAfterMaxSeconds { get; set; }
 
+    /// <summary>
+    /// Each request that passes the rate limit takes a random time in [min, max] milliseconds to process, like a real ERP
+    /// under load: the answer is sent when it is over; the record and the log line are written on arrival.
+    /// </summary>
+    public int ProcessingMinMilliseconds { get; set; }
+
+    public int ProcessingMaxMilliseconds { get; set; }
+
     /// <summary>RFC 9110 allows Retry-After as delay-seconds ("17") or as an HTTP-date.</summary>
     public RetryAfterFormat RetryAfterFormat { get; set; }
 
@@ -70,7 +78,9 @@ public sealed class SimulatorOptionsValidator(IConfiguration configuration) : IV
         "RetryAfterMinSeconds",
         "RetryAfterMaxSeconds",
         "RetryAfterFormat",
-        "IdempotentInvoices"
+        "IdempotentInvoices",
+        "ProcessingMinMilliseconds",
+        "ProcessingMaxMilliseconds"
     ];
 
     public ValidateOptionsResult Validate(string? name, SimulatorOptions options)
@@ -112,6 +122,10 @@ public sealed class SimulatorOptionsValidator(IConfiguration configuration) : IV
 
         if (options.RetryAfterMinSeconds < 0 || options.RetryAfterMaxSeconds < options.RetryAfterMinSeconds)
             errors.Add("Simulator:RetryAfterMinSeconds/RetryAfterMaxSeconds must satisfy 0 <= min <= max.");
+
+        if (options.ProcessingMinMilliseconds < 0 || options.ProcessingMaxMilliseconds < options.ProcessingMinMilliseconds)
+            errors.Add("Simulator:ProcessingMinMilliseconds/ProcessingMaxMilliseconds must satisfy 0 <= min <= max " +
+                       $"(was {options.ProcessingMinMilliseconds}-{options.ProcessingMaxMilliseconds}).");
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }

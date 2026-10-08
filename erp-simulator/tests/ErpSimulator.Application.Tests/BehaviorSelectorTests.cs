@@ -37,7 +37,9 @@ public class BehaviorSelectorTests
             ["Simulator:RetryAfterMinSeconds"] = "5",
             ["Simulator:RetryAfterMaxSeconds"] = "30",
             ["Simulator:RetryAfterFormat"] = "Seconds",
-            ["Simulator:IdempotentInvoices"] = "false"
+            ["Simulator:IdempotentInvoices"] = "false",
+            ["Simulator:ProcessingMinMilliseconds"] = "50",
+            ["Simulator:ProcessingMaxMilliseconds"] = "200"
         };
         if (withoutKey is not null)
             values.Remove($"Simulator:{withoutKey}");
@@ -202,6 +204,35 @@ public class BehaviorSelectorTests
         Assert.Equal(30, options.RetryAfterMaxSeconds);
         Assert.Equal(RetryAfterFormat.Seconds, options.RetryAfterFormat);
         Assert.False(options.IdempotentInvoices);
+        Assert.Equal(50, options.ProcessingMinMilliseconds);
+        Assert.Equal(200, options.ProcessingMaxMilliseconds);
+    }
+
+    [Theory]
+    [InlineData("-1", "200")]
+    [InlineData("201", "200")]
+    public void Validator_rejects_a_processing_range_that_is_negative_or_reversed(string min, string max)
+    {
+        var configuration = SettingsFile(overrides: new Dictionary<string, string?>
+        {
+            ["Simulator:ProcessingMinMilliseconds"] = min, ["Simulator:ProcessingMaxMilliseconds"] = max
+        });
+
+        var result = new SimulatorOptionsValidator(configuration).Validate(null, Bind(configuration));
+
+        Assert.True(result.Failed);
+        Assert.Contains("ProcessingMinMilliseconds/ProcessingMaxMilliseconds", result.FailureMessage);
+    }
+
+    [Fact]
+    public void Validator_accepts_a_fixed_processing_time()
+    {
+        var configuration = SettingsFile(overrides: new Dictionary<string, string?>
+        {
+            ["Simulator:ProcessingMinMilliseconds"] = "0", ["Simulator:ProcessingMaxMilliseconds"] = "0"
+        });
+
+        Assert.True(new SimulatorOptionsValidator(configuration).Validate(null, Bind(configuration)).Succeeded);
     }
 
     [Fact]

@@ -12,12 +12,12 @@ public class SubmitInvoiceHandlerTests
 {
     private readonly FakeErpInvoiceStore _store = new();
 
-    private SubmitInvoiceHandler Handler(BehaviorRates rates, bool idempotent = false)
+    private SubmitInvoiceHandler Handler(BehaviorRates rates, bool idempotent = false, int processingMs = 0)
     {
         var simulator = Options.Create(new SimulatorOptions
         {
             Seed = 42, Rates = rates, LateResponseDelaySeconds = 0, RetryAfterMinSeconds = 5, RetryAfterMaxSeconds = 30,
-            IdempotentInvoices = idempotent
+            IdempotentInvoices = idempotent, ProcessingMinMilliseconds = processingMs, ProcessingMaxMilliseconds = processingMs
         });
         var webhooks = Options.Create(new WebhookOptions
         {
@@ -53,6 +53,19 @@ public class SubmitInvoiceHandlerTests
         Assert.Equal(saved, _store.Records.Count);
         // A saved invoice always gets its two events (received + decision).
         Assert.Equal(saved * 2, _store.Deliveries.Count);
+    }
+
+    [Theory]
+    [InlineData(Behavior.Success)]
+    [InlineData(Behavior.Busy)]
+    public async Task Every_behavior_waits_the_processing_time_first(Behavior behavior)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        await Handler(Only(behavior), processingMs: 120).HandleAsync(Request(), CancellationToken.None);
+
+        // A lower bound only: the machine may be slower, never faster.
+        Assert.True(watch.ElapsedMilliseconds >= 115, $"took {watch.ElapsedMilliseconds} ms");
     }
 
     [Fact]

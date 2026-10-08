@@ -14,10 +14,11 @@ public static class SettingsLogger
         app.Logger.LogInformation(
             "Simulator settings: seed={Seed} success={Success}% busy={Busy}% serverError={ServerError}% " +
             "saveThenError={SaveThenError}% lateResponse={LateResponse}% (total={Total}) lateDelay={LateDelay}s " +
-            "retryAfter={RetryMin}-{RetryMax}s format={RetryFormat} idempotentInvoices={IdempotentInvoices}",
+            "retryAfter={RetryMin}-{RetryMax}s format={RetryFormat} idempotentInvoices={IdempotentInvoices} " +
+            "processing={ProcessingMin}-{ProcessingMax}ms",
             simulator.Seed, Pct(rates.Success), Pct(rates.Busy), Pct(rates.ServerError), Pct(rates.SaveThenError), Pct(rates.LateResponse), rates.Total,
             simulator.LateResponseDelaySeconds, simulator.RetryAfterMinSeconds, simulator.RetryAfterMaxSeconds, simulator.RetryAfterFormat,
-            simulator.IdempotentInvoices);
+            simulator.IdempotentInvoices, simulator.ProcessingMinMilliseconds, simulator.ProcessingMaxMilliseconds);
 
         var rateLimit = app.Services.GetRequiredService<IOptions<RateLimitOptions>>().Value;
         app.Logger.LogInformation("Rate limit: {PermitsPerSecond} invoice requests per second, shared by every client",

@@ -19,6 +19,8 @@ public static class InvoiceEndpoints
             .WithDescription(
                 "At most RateLimit:PermitsPerSecond requests per clock second are accepted, shared by every client; the rest get " +
                 "429 with Retry-After: 1 (title 'Rate limit exceeded'), before any behavior is drawn. " +
+                "Each accepted request is answered after Simulator:ProcessingMinMilliseconds-ProcessingMaxMilliseconds (random); " +
+                "the record is saved on arrival. " +
                 "The simulator picks one behavior per accepted request from the configured rates: " +
                 "Success (202, saved), Busy (429 + Retry-After, not saved), ServerError (500, not saved), " +
                 "SaveThenError (500, but saved), LateResponse (saved, 202 after the configured delay, default 30s). " +

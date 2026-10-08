@@ -2,8 +2,8 @@
 # dahil). Doğrudan çalıştırılmaz.
 . "$PSScriptRoot\..\gun7\_common.ps1"
 
-# Restart-Simulator'ın her seferinde temizlediği değişkenlere hız sınırı da eklenir.
-$SimulatorEnvKeys += 'RateLimit__PermitsPerSecond'
+# Restart-Simulator'ın her seferinde temizlediği değişkenlere hız sınırı ve işlem süresi de eklenir.
+$SimulatorEnvKeys += 'RateLimit__PermitsPerSecond', 'Simulator__ProcessingMinMilliseconds', 'Simulator__ProcessingMaxMilliseconds'
 
 # k6 sabit sürümlü imajla, compose'un apps ağında çalışır: simülatöre ve servise container adlarıyla gider.
 $K6Image = 'grafana/k6:1.3.0'

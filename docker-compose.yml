@@ -39,6 +39,8 @@ services:
       Simulator__LateResponseDelaySeconds:
       Simulator__RetryAfterFormat:
       Simulator__IdempotentInvoices:
+      Simulator__ProcessingMinMilliseconds:
+      Simulator__ProcessingMaxMilliseconds:
       RateLimit__PermitsPerSecond:
       # Optional overrides of the event problem rates (e.g. all 0 for a run without event problems), passed through
       # like the ones above.

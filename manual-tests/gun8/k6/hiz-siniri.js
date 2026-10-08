@@ -16,7 +16,7 @@ export const options = {
       preAllocatedVUs: 50, maxVUs: 200,
     },
   },
-  summaryTrendStats: ['med', 'p(95)', 'max'],
+  summaryTrendStats: ['min', 'med', 'p(95)', 'max'],
 };
 
 export default function () {
@@ -41,7 +41,7 @@ export function handleSummary(data) {
   const checks = data.root_group.checks.map((c) => ({ name: c.name, passes: c.passes, fails: c.fails }));
   const lines = checks.map((c) => `  ${c.name}: ${c.passes} geçti, ${c.fails} kaldı`).join('\n');
   return {
-    [`/out/${__ENV.SUMMARY_FILE || 'hiz-siniri-k6.json'}`]: JSON.stringify({ requests: data.metrics.http_reqs.values.count, checks }, null, 2),
+    [`/out/${__ENV.SUMMARY_FILE || 'hiz-siniri-k6.json'}`]: JSON.stringify({ requests: data.metrics.http_reqs.values.count, duration: data.metrics.http_req_duration.values, checks }, null, 2),
     stdout: `k6: ${data.metrics.http_reqs.values.count} istek\n${lines}\n`,
   };
 }
