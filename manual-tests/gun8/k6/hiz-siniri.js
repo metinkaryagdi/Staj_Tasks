@@ -1,5 +1,6 @@
 // Simülatöre doğrudan, saniyede RATE istek (varsayılan 50), DURATION boyunca (varsayılan 10s). Her istek farklı fatura
-// numarasıyla (PREFIX + sıra). 429 cevabında Retry-After'ın 1 olduğu ve başlığın hız sınırı olduğu kontrol edilir.
+// numarasıyla (PREFIX + sıra). 429'lar cevabın başlığından ayrılır: hız sınırı ("Rate limit exceeded", Retry-After: 1
+// olmalı) ve Meşgul davranışı ("ERP is busy").
 import http from 'k6/http';
 import { check } from 'k6';
 import exec from 'k6/execution';
@@ -24,11 +25,14 @@ export default function () {
     customerCode: 'C-RL', amount: 10.5, currency: 'TRY', invoiceDate: '2026-10-08',
   });
   const res = http.post(`${BASE}/api/v1/invoices`, body, { headers: { 'Content-Type': 'application/json' } });
+  const rateLimited = res.status === 429 && res.body.includes('Rate limit exceeded');
+  const busy = res.status === 429 && res.body.includes('ERP is busy');
   check(res, {
     'kabul (202)': (r) => r.status === 202,
-    'hız sınırı (429)': (r) => r.status === 429,
-    '429 cevabında Retry-After: 1 ve hız sınırı başlığı': (r) =>
-      r.status !== 429 || (r.headers['Retry-After'] === '1' && r.body.includes('Rate limit exceeded')),
+    'hız sınırı 429 (Rate limit exceeded)': () => rateLimited,
+    'meşgul 429 (ERP is busy)': () => busy,
+    'her 429 iki türden biri': (r) => r.status !== 429 || rateLimited || busy,
+    'hız sınırı 429 cevabında Retry-After: 1': (r) => !rateLimited || r.headers['Retry-After'] === '1',
   });
 }
 

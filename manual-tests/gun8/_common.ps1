@@ -34,3 +34,16 @@ function Invoke-K6([string]$Script, [hashtable]$Env = @{}) {
 function Get-SimulatorLogSince([string]$FromUtc) {
     @(Get-SimulatorLog | ForEach-Object { "$_" } | Where-Object { $_.Length -ge 19 -and $_.Substring(0, 19) -ge $FromUtc })
 }
+
+# k6 script'inin handleSummary ile yazdığı özet. -Encoding UTF8 şart: PowerShell 5.1 aksi halde ANSI okur ve Türkçe
+# kontrol adları ("hız", "meşgul") bozulur, adla yapılan aramalar boş döner.
+function Read-K6Summary([string]$File) {
+    Get-Content (Join-Path $OutputDir $File) -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+
+# Özetteki, adı verilen kalıba uyan tek kontrol; bulunamazsa hata (sessizce 0 sayılmasın).
+function Get-K6Check($Summary, [string]$Like) {
+    $found = @($Summary.checks | Where-Object { $_.name -like $Like })
+    if ($found.Count -ne 1) { throw "k6 özetinde '$Like' kalıbına uyan $($found.Count) kontrol var (1 bekleniyordu)." }
+    $found[0]
+}

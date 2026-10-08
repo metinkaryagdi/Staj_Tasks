@@ -66,7 +66,7 @@ public sealed class SubmitInvoiceHandler(
         if (decision.Behavior == Behavior.Busy)
         {
             _logger.LogInformation(
-                "ERP request #{Sequence} invoice={InvoiceNumber} behavior={Behavior} status=429 retryAfter={RetryAfter}s",
+                "ERP request #{Sequence} invoice={InvoiceNumber} behavior={Behavior} status=429 reason=busy retryAfter={RetryAfter}s",
                 decision.Sequence, request.InvoiceNumber, decision.Behavior, decision.RetryAfterSeconds);
         }
         else
