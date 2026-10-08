@@ -154,6 +154,26 @@ services:
       invoice-db:
         condition: service_healthy
 
+  # Yük testi (load-test/invoices.js): k6, sabit sürümlü imajla ve bu ağın içinden çalışır, kurulum gerekmez. Profilde
+  # olduğu için `docker compose up` başlatmaz; tek komut:
+  #   docker compose run --rm k6
+  # Sonuç load-test/results/<RUN_ID>.json'a yazılır.
+  k6:
+    image: grafana/k6:1.3.0
+    profiles: ["yuk-testi"]
+    command: ["run", "--quiet", "/scripts/invoices.js"]
+    environment:
+      # İsteğe bağlı, yalnızca kabukta verilirse geçer (açıklamaları load-test/invoices.js'te).
+      BASE_URLS:
+      RATE:
+      DURATION:
+      RUN_ID:
+    volumes:
+      - ./load-test:/scripts:ro
+      - ./load-test/results:/results
+    networks:
+      - apps
+
 networks:
   # Each database sits on its own network, so the other application cannot even resolve its name; the two
   # applications talk over "apps". This does not block traffic by IP on every Docker host (it does not on Docker

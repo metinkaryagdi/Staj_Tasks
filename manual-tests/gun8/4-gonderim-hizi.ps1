@@ -23,13 +23,12 @@ try {
 
     $customer = 'HIZ-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
     $seconds = [math]::Ceiling($Count / $Rate)
-    Write-Step "k6: saniyede $Rate fatura, $seconds sn, iki kopyaya dağıtılarak (müşteri kodu $customer)"
+    Write-Step "Yük testi (load-test/invoices.js): saniyede $Rate fatura, $seconds sn, iki kopyaya dağıtılarak (müşteri kodu $customer)"
     $from = (Get-Date).ToUniversalTime().AddSeconds(-1).ToString('yyyy-MM-dd HH:mm:ss')
-    Invoke-K6 'fatura-gonder.js' @{
+    $k6 = Invoke-LoadTest @{
         BASE_URLS = 'http://invoice-service:8080,http://invoice-service-2:8080'; RATE = $Rate; DURATION = "${seconds}s"
-        CUSTOMER = $customer; SUMMARY_FILE = 'gonderim-hizi-k6.json'
-    } | ForEach-Object { Write-Host "  $_" }
-    $k6 = Read-K6Summary 'gonderim-hizi-k6.json'
+        RUN_ID = $customer
+    }
 
     Write-Step 'Kuyruğun boşalması bekleniyor'
     $pendingSql = "SELECT count(*) FROM erp_outbox o JOIN invoices i ON i.invoice_number = o.invoice_number " +

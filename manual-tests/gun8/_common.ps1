@@ -47,3 +47,27 @@ function Get-K6Check($Summary, [string]$Like) {
     if ($found.Count -ne 1) { throw "k6 özetinde '$Like' kalıbına uyan $($found.Count) kontrol var (1 bekleniyordu)." }
     $found[0]
 }
+
+# Repodaki yük testini (load-test/invoices.js) tek komutla çalıştırır: docker compose run --rm k6. $Env'deki değerler
+# (BASE_URLS, RATE, DURATION, RUN_ID) kabuktan compose'a geçer; RUN_ID zorunlu (sonuç dosyası onunla bulunur). k6'nın
+# ekran çıktısını gösterir, load-test/results/<RUN_ID>.json'u döner.
+function Invoke-LoadTest([hashtable]$Env) {
+    if (-not $Env.RUN_ID) { throw 'Invoke-LoadTest: RUN_ID verilmeli.' }
+    foreach ($key in $Env.Keys) { Set-Item "Env:$key" ([string]$Env[$key]) }
+    Push-Location $RepoRoot
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & docker compose run --rm k6 2>&1 | ForEach-Object { "$_" } |
+            Where-Object { $_ -notmatch '^\s*Container ' } | ForEach-Object { Write-Host "  $_" }
+        $exit = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+        Pop-Location
+        foreach ($key in $Env.Keys) { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
+    }
+    $file = Join-Path $RepoRoot "load-test\results\$($Env.RUN_ID).json"
+    if (-not (Test-Path $file)) { throw "Yük testi sonuç dosyası yok: $file (k6 çıkış kodu $exit)." }
+    Get-Content $file -Raw -Encoding UTF8 | ConvertFrom-Json
+}

@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 # Manual test outputs
 manual-tests/output/
+
+# Load test results (docker compose run --rm k6)
+load-test/results/
