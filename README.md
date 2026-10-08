@@ -387,8 +387,8 @@ Hemen önceki veritabanı okuması 10.367 / 234 sn / 376, hemen sonraki 10.625 /
 ### Bilinen sınırlar
 
 - **Saniye başına gönderim 18'i aşabilir:** sıra veritabanı saatiyle saniyenin 1/18'i aralıkla verilir, ama simülatör isteği
-  vardığı anda sayar; ağ ve HTTP gecikmesi bir isteği komşu saniyeye kaydırır. Yük testlerinde en çok 19 görüldü. Adım
-  script'inde servisler yeni açıldığında ilk saniyede 20 görüldü. 20'yi aşan saniye ve hız sınırından 429 görülmedi.
+  vardığı anda sayar; ağ ve HTTP gecikmesi bir isteği komşu saniyeye kaydırır. Yük testlerinde en çok 19 görüldü; 20'ye
+  ulaşan saniye ve hız sınırından 429 görülmedi.
 - **Saniye sınırı ve log:** rate limit token'ı istek gelince alınır, log satırı birkaç ms sonra yazılır; saniyenin son ms'lerinde
   kabul edilen istek logda bir sonraki saniyede görünebilir (koşularda görülmedi). Bucket her saat saniyesinde dolduğu için davranış
   saniyede 20'lik fixed window ile aynıdır.
@@ -403,7 +403,7 @@ Hemen önceki veritabanı okuması 10.367 / 234 sn / 376, hemen sonraki 10.625 /
 - **Ölçümler:** k6 ve bütün servisler aynı makinede (Docker Desktop) çalıştı. Bellek `docker stats` ile yaklaşık 1,5 sn'de bir
   okundu; 4,1 sn'lik mutabakatta 3 okuma oldu, tepe değer biraz yüksek olabilir. Ölçüm script'i simülatörün logunu okur; simülatör
   yük testiyle ölçüm arasında yeniden başlatılmamalıdır.
-- **Yerel test verisi:** 1. maddenin simülatöre doğrudan gönderdiği 206 fatura her mutabakatta `Serviste Yok` olarak raporlanır.
+- **Yerel test verisi:** 1. maddenin simülatöre doğrudan gönderdiği faturalar her mutabakatta `Serviste Yok` olarak raporlanır.
 
 ---
 
