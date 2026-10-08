@@ -42,6 +42,41 @@ public class InvoiceQueriesTests
         Assert.Equal(2, summary.StuckAfterMinutes);
     }
 
+    private void Entry(string number, string status, DateTimeOffset createdAt, DateTimeOffset? processedAt = null) =>
+        _s.Outbox.Entries[number] = new ErpOutboxEntry
+        {
+            InvoiceNumber = number, Status = status, CreatedAt = createdAt, NextAttemptAt = createdAt, ProcessedAt = processedAt
+        };
+
+    [Fact]
+    public async Task Summary_shows_the_queue_its_oldest_wait_and_the_sends_of_the_last_minute()
+    {
+        Entry("FTR-000001", OutboxStatus.Pending, Scenario.Start.AddSeconds(-90));
+        Entry("FTR-000002", OutboxStatus.Pending, Scenario.Start.AddSeconds(-30));
+        Entry("FTR-000003", OutboxStatus.Completed, Scenario.Start.AddMinutes(-5), Scenario.Start.AddSeconds(-60));
+        Entry("FTR-000004", OutboxStatus.Completed, Scenario.Start.AddMinutes(-5), Scenario.Start.AddSeconds(-61));
+        Entry("FTR-000005", OutboxStatus.Failed, Scenario.Start.AddMinutes(-5), Scenario.Start.AddSeconds(-10));
+
+        var summary = await _s.InvoiceQueries().SummaryAsync(CancellationToken.None);
+
+        Assert.Equal(2, summary.QueuedCount);
+        Assert.Equal(90, summary.OldestQueuedSeconds);
+        // Exactly 60 seconds ago is still in the last minute; 61 is not; Başarısız is not a send.
+        Assert.Equal(1, summary.SentLastMinute);
+    }
+
+    [Fact]
+    public async Task Summary_of_an_empty_queue_has_no_oldest_wait()
+    {
+        Entry("FTR-000001", OutboxStatus.Completed, Scenario.Start.AddMinutes(-5), Scenario.Start.AddMinutes(-5));
+
+        var summary = await _s.InvoiceQueries().SummaryAsync(CancellationToken.None);
+
+        Assert.Equal(0, summary.QueuedCount);
+        Assert.Null(summary.OldestQueuedSeconds);
+        Assert.Equal(0, summary.SentLastMinute);
+    }
+
     [Fact]
     public async Task List_pages_newest_first_and_reports_the_total_of_the_filtered_list()
     {

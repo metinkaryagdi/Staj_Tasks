@@ -12,9 +12,10 @@ public sealed record InvoiceListResponse(IReadOnlyList<InvoiceResponse> Items, i
 
 public sealed record StatusCountResponse(string Status, int Count);
 
-/// <summary>The number of invoices in each status and how many of them are stuck.</summary>
+/// <summary>The number of invoices in each status, how many of them are stuck, and the queue to the ERP.</summary>
 public sealed record InvoiceSummaryResponse(
-    IReadOnlyList<StatusCountResponse> Counts, int Total, int StuckCount, int StuckAfterMinutes);
+    IReadOnlyList<StatusCountResponse> Counts, int Total, int StuckCount, int StuckAfterMinutes,
+    int QueuedCount, long? OldestQueuedSeconds, int SentLastMinute);
 
 /// <summary>The invoice's erp_outbox entry (its internal lock and claim columns are left out).</summary>
 public sealed record OutboxEntryResponse(

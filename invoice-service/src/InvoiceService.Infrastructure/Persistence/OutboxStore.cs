@@ -38,6 +38,16 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
             FROM claimed
             """).ToListAsync(ct);
 
+    public async Task<OutboxQueueStats> QueueStatsAsync(DateTimeOffset completedSince, CancellationToken ct)
+    {
+        var queued = db.ErpOutbox.AsNoTracking().Where(o => o.Status == OutboxStatus.Pending);
+        var count = await queued.CountAsync(ct);
+        var oldest = await queued.MinAsync(o => (DateTimeOffset?)o.CreatedAt, ct);
+        var completed = await db.ErpOutbox.AsNoTracking()
+            .CountAsync(o => o.Status == OutboxStatus.Completed && o.ProcessedAt >= completedSince, ct);
+        return new OutboxQueueStats(count, oldest, completed);
+    }
+
     public Task<bool> IsHeldAsync(long id, Guid claimToken, DateTimeOffset now, CancellationToken ct) =>
         db.ErpOutbox.AsNoTracking().AnyAsync(
             o => o.Id == id && o.ClaimToken == claimToken && o.LockedUntil > now, ct);

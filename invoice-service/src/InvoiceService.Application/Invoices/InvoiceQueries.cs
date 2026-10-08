@@ -38,14 +38,22 @@ public sealed class InvoiceQueries(
     /// <summary>Null if there is no such invoice.</summary>
     public Task<Invoice?> FindAsync(string invoiceNumber, CancellationToken ct) => invoices.FindAsync(invoiceNumber, ct);
 
+    /// <summary>The summary's "sent in the last minute".</summary>
+    public static readonly TimeSpan SentWindow = TimeSpan.FromMinutes(1);
+
     public async Task<InvoiceSummary> SummaryAsync(CancellationToken ct)
     {
         var options = reconciliationOptions.Value;
         var byStatus = await invoices.CountByStatusAsync(ct);
         var stuck = await invoices.CountStuckAsync(StuckBefore(), ct);
 
+        var now = time.GetUtcNow();
+        var queue = await outbox.QueueStatsAsync(now - SentWindow, ct);
+        var oldestSeconds = queue.OldestQueuedAt is { } oldest ? (long)Math.Max(0, (now - oldest).TotalSeconds) : (long?)null;
+
         var counts = InvoiceStatus.All.Select(s => new StatusCount(s, byStatus.GetValueOrDefault(s))).ToList();
-        return new InvoiceSummary(counts, counts.Sum(c => c.Count), stuck, options.StuckAfterMinutes);
+        return new InvoiceSummary(
+            counts, counts.Sum(c => c.Count), stuck, options.StuckAfterMinutes, queue.Queued, oldestSeconds, queue.CompletedSince);
     }
 
     /// <summary>

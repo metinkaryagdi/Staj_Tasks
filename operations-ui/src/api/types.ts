@@ -40,6 +40,10 @@ export interface InvoiceSummary {
   total: number
   stuckCount: number
   stuckAfterMinutes: number
+  queuedCount: number
+  // Kuyruk boşken null.
+  oldestQueuedSeconds: number | null
+  sentLastMinute: number
 }
 
 export interface OutboxEntry {

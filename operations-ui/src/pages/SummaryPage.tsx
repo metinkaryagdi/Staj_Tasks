@@ -5,7 +5,7 @@ import { stuckFilter, type ReconciliationRun } from '../api/types'
 import { QueryState } from '../components/QueryState'
 import { RefreshStamp } from '../components/RefreshStamp'
 import { StatusBadge } from '../components/StatusBadge'
-import { emptyValue, formatDateTime } from '../format'
+import { emptyValue, formatDateTime, formatWait } from '../format'
 import { tr } from '../tr'
 
 export function SummaryPage() {
@@ -44,6 +44,25 @@ export function SummaryPage() {
                 <span className="card-value">{data.stuckCount}</span>
                 <span className="muted small">{tr.summary.stuckHint(data.stuckAfterMinutes)}</span>
               </Link>
+            </div>
+
+            <h2>{tr.summary.queue}</h2>
+            <div className="cards">
+              <div className="card">
+                <span className="card-label">{tr.summary.queued}</span>
+                <span className="card-value">{data.queuedCount}</span>
+                <span className="muted small">{tr.summary.queuedHint}</span>
+              </div>
+              <div className="card">
+                <span className="card-label">{tr.summary.oldestWait}</span>
+                <span className="card-value">{formatWait(data.oldestQueuedSeconds)}</span>
+                <span className="muted small">{tr.summary.oldestWaitHint}</span>
+              </div>
+              <div className="card">
+                <span className="card-label">{tr.summary.sentLastMinute}</span>
+                <span className="card-value">{data.sentLastMinute}</span>
+                <span className="muted small">{tr.summary.sentLastMinuteHint}</span>
+              </div>
             </div>
           </>
         )}

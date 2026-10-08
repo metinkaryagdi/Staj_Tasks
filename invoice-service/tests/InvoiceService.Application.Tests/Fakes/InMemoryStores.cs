@@ -171,6 +171,14 @@ public sealed class FakeOutboxStore : IOutboxStore
     public Task<ErpOutboxEntry?> FindAsync(string invoiceNumber, CancellationToken ct) =>
         Task.FromResult(Entries.GetValueOrDefault(invoiceNumber));
 
+    public Task<OutboxQueueStats> QueueStatsAsync(DateTimeOffset completedSince, CancellationToken ct)
+    {
+        var queued = Entries.Values.Where(e => e.Status == OutboxStatus.Pending).ToList();
+        return Task.FromResult(new OutboxQueueStats(
+            queued.Count, queued.Count == 0 ? null : queued.Min(e => e.CreatedAt),
+            Entries.Values.Count(e => e.Status == OutboxStatus.Completed && e.ProcessedAt >= completedSince)));
+    }
+
     public Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
     {
         Completed.Add(invoiceNumber);

@@ -3,9 +3,17 @@ using InvoiceService.Domain.Outbox;
 
 namespace InvoiceService.Application.Abstractions;
 
+/// <param name="Queued">Entries in Bekliyor.</param>
+/// <param name="OldestQueuedAt">created_at of the oldest Bekliyor entry; null when none is waiting.</param>
+/// <param name="CompletedSince">Tamamlandı entries whose processed_at is at or after the given moment.</param>
+public sealed record OutboxQueueStats(int Queued, DateTimeOffset? OldestQueuedAt, int CompletedSince);
+
 /// <summary>Storage of the queued ERP sends (the erp_outbox table).</summary>
 public interface IOutboxStore
 {
+    /// <summary>The queue as the summary shows it.</summary>
+    Task<OutboxQueueStats> QueueStatsAsync(DateTimeOffset completedSince, CancellationToken ct);
+
     /// <summary>
     /// Takes up to <paramref name="limit"/> due entries that nobody holds (two instances never get the same row) and
     /// counts the attempt before it is made.

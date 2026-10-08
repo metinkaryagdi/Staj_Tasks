@@ -79,10 +79,13 @@ public static class InvoiceEndpoints
 
         group.MapGet("/summary", Summary)
             .WithName("InvoiceSummary")
-            .WithSummary("How many invoices are in each status, and how many are stuck")
+            .WithSummary("How many invoices are in each status, how many are stuck, and the queue to the ERP")
             .WithDescription(
                 "Every status is listed, with 0 when no invoice is in it. Stuck: Gönderildi or İşleme Alındı for longer than " +
-                "Reconciliation:StuckAfterMinutes, the same rule the reconciliation uses to ask the ERP for the decision.")
+                "Reconciliation:StuckAfterMinutes, the same rule the reconciliation uses to ask the ERP for the decision. " +
+                "queuedCount: erp_outbox entries in Bekliyor; oldestQueuedSeconds: how long the oldest of them has waited since " +
+                "its entry was created (null when the queue is empty); sentLastMinute: entries that became Tamamlandı in the " +
+                "last 60 seconds.")
             .Produces<InvoiceSummaryResponse>();
 
         group.MapGet("/{invoiceNumber}/details", GetDetails)
@@ -177,7 +180,8 @@ public static class InvoiceEndpoints
         var summary = await queries.SummaryAsync(ct);
         return Results.Ok(new InvoiceSummaryResponse(
             summary.Counts.Select(c => new StatusCountResponse(c.Status, c.Count)).ToList(),
-            summary.Total, summary.StuckCount, summary.StuckAfterMinutes));
+            summary.Total, summary.StuckCount, summary.StuckAfterMinutes,
+            summary.QueuedCount, summary.OldestQueuedSeconds, summary.SentLastMinute));
     }
 
     private static async Task<IResult> GetDetails(string invoiceNumber, InvoiceQueries queries, CancellationToken ct)
