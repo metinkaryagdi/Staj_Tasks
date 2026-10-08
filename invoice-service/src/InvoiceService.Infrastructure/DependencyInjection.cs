@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IInvoiceStore, InvoiceStore>();
         services.AddScoped<IOutboxStore, OutboxStore>();
+        services.AddScoped<IErpSendPacer, PostgresSendPacer>();
         services.AddScoped<IWebhookEventStore, WebhookEventStore>();
         services.AddScoped<IReconciliationStore, ReconciliationStore>();
         services.AddScoped<IOperatorActionStore, OperatorActionStore>();

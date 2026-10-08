@@ -248,6 +248,18 @@ public sealed class FakeWebhookEventStore : IWebhookEventStore
             .OrderBy(e => e.ReceivedAt).ThenBy(e => e.OccurredAt).ToList());
 }
 
+/// <summary>Never waits; records, for every turn taken, how many ERP calls had been made by then.</summary>
+public sealed class FakeErpSendPacer(FakeErpGateway erp) : IErpSendPacer
+{
+    public List<int> TurnsAtCall { get; } = [];
+
+    public Task WaitForTurnAsync(CancellationToken ct)
+    {
+        TurnsAtCall.Add(erp.Calls.Count);
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>Answers from queues set up by the test and records every call.</summary>
 public sealed class FakeErpGateway : IErpGateway
 {

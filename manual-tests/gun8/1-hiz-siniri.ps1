@@ -32,7 +32,7 @@ try {
 
     # Simülatör logu: kabul edilen her istek "ERP request #... invoice=<önek>", reddedilen her istek "reason=rateLimited".
     $lines = Get-SimulatorLogSince $from
-    $accepted = @($lines | Where-Object { $_ -match 'ERP request #' -and $_.Contains("invoice=$prefix") })
+    $accepted = @($lines | Where-Object { $_ -match 'ERP request #\d+ invoice=\S+ behavior=' -and $_.Contains("invoice=$prefix") })
     $rejected = @($lines | Where-Object { $_ -match 'reason=rateLimited' })
 
     Write-Step 'Simülatör logundan saniye saniye (UTC)'

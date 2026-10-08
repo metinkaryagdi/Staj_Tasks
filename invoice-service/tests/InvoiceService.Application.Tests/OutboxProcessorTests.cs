@@ -27,6 +27,8 @@ public class OutboxProcessorTests
         await Send(Entry(1));
 
         Assert.Equal(["POST " + Number], _s.Erp.Calls);
+        // The turn is taken right before the POST.
+        Assert.Equal([0], _s.Pacer.TurnsAtCall);
         Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices[Number].Status);
         Assert.Equal("ERP-1", _s.Invoices.Invoices[Number].ErpReference);
         var outcome = Assert.Single(_s.Outbox.Outcomes);
@@ -44,6 +46,8 @@ public class OutboxProcessorTests
         await Send(Entry(2));
 
         Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        // No POST, so no turn: lookups are not paced.
+        Assert.Empty(_s.Pacer.TurnsAtCall);
         Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices[Number].Status);
         Assert.Equal("ERP-7", _s.Invoices.Invoices[Number].ErpReference);
     }
@@ -58,6 +62,8 @@ public class OutboxProcessorTests
         await Send(Entry(2));
 
         Assert.Equal(["GET " + Number, "POST " + Number], _s.Erp.Calls);
+        // After the lookup, before the POST.
+        Assert.Equal([1], _s.Pacer.TurnsAtCall);
         Assert.Equal("ERP-2", _s.Invoices.Invoices[Number].ErpReference);
     }
 
@@ -70,6 +76,7 @@ public class OutboxProcessorTests
         await Send(Entry(2));
 
         Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        Assert.Empty(_s.Pacer.TurnsAtCall);
         Assert.Equal(InvoiceStatus.Pending, _s.Invoices.Invoices[Number].Status);
         var outcome = Assert.Single(_s.Outbox.Outcomes);
         Assert.Equal(OutboxStatus.Pending, outcome.Status);
@@ -85,6 +92,8 @@ public class OutboxProcessorTests
 
         await Send(Entry(1));
 
+        // The claim is checked after the turn, as the last thing before the POST: the turn is used up, nothing is sent.
+        Assert.Equal([0], _s.Pacer.TurnsAtCall);
         Assert.Empty(_s.Erp.Calls);
         Assert.Empty(_s.Outbox.Outcomes);
         Assert.Equal(0, _s.UnitOfWork.Begun);

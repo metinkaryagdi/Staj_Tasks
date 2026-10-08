@@ -18,6 +18,7 @@ public class OutboxOptionsTests
         {
             ["Erp:TimeoutSeconds"] = "10",
             ["Outbox:MaxConcurrentSends"] = "10",
+            ["Outbox:SendsPerSecond"] = "18",
             ["Outbox:MaxAttempts"] = "10",
             ["Outbox:MaxBackoffSeconds"] = "60",
             ["Outbox:MaxJitterMilliseconds"] = "1000",
@@ -38,12 +39,14 @@ public class OutboxOptionsTests
 
     [Theory]
     [InlineData("Outbox:MaxConcurrentSends", null, "Outbox:MaxConcurrentSends is missing")]
+    [InlineData("Outbox:SendsPerSecond", null, "Outbox:SendsPerSecond is missing")]
     [InlineData("Outbox:MaxAttempts", null, "Outbox:MaxAttempts is missing")]
     [InlineData("Outbox:MaxBackoffSeconds", null, "Outbox:MaxBackoffSeconds is missing")]
     [InlineData("Outbox:MaxJitterMilliseconds", null, "Outbox:MaxJitterMilliseconds is missing")]
     [InlineData("Outbox:LockSeconds", null, "Outbox:LockSeconds is missing")]
     [InlineData("Outbox:IdleDelayMilliseconds", null, "Outbox:IdleDelayMilliseconds is missing")]
     [InlineData("Outbox:MaxConcurrentSends", "0", "Outbox:MaxConcurrentSends must be greater than 0")]
+    [InlineData("Outbox:SendsPerSecond", "0", "Outbox:SendsPerSecond must be greater than 0")]
     [InlineData("Outbox:MaxAttempts", "0", "Outbox:MaxAttempts must be greater than 0")]
     [InlineData("Outbox:MaxBackoffSeconds", "0", "Outbox:MaxBackoffSeconds must be greater than 0")]
     [InlineData("Outbox:MaxJitterMilliseconds", "60000", "Outbox:MaxJitterMilliseconds must be at least 0 and less than")]

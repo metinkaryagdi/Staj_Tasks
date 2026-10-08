@@ -47,7 +47,8 @@ public class ShippedSettingsTests
         var options = BindOutbox(configuration);
 
         Assert.True(new OutboxOptionsValidator(configuration).Validate(null, options).Succeeded);
-        Assert.Equal(10, options.MaxConcurrentSends);
+        Assert.Equal(40, options.MaxConcurrentSends);
+        Assert.Equal(18, options.SendsPerSecond);
         Assert.Equal(10, options.MaxAttempts);
         Assert.Equal(60, options.MaxBackoffSeconds);
     }

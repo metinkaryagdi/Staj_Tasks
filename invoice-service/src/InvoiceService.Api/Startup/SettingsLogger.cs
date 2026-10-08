@@ -12,9 +12,9 @@ public static class SettingsLogger
         var erp = app.Services.GetRequiredService<IOptions<ErpOptions>>().Value;
         var outbox = app.Services.GetRequiredService<IOptions<OutboxOptions>>().Value;
         app.Logger.LogInformation(
-            "ERP settings: baseUrl={BaseUrl} timeout={Timeout}s maxConcurrentSends={Max} maxAttempts={MaxAttempts} " +
+            "ERP settings: baseUrl={BaseUrl} timeout={Timeout}s maxConcurrentSends={Max} sendsPerSecond={SendsPerSecond} (all copies) maxAttempts={MaxAttempts} " +
             "backoff=2^n s (max {MaxBackoff}s with jitter up to {MaxJitter}ms) 429=Retry-After lock={Lock}s idleDelay={Idle}ms",
-            erp.BaseUrl, erp.TimeoutSeconds, outbox.MaxConcurrentSends, outbox.MaxAttempts, outbox.MaxBackoffSeconds,
+            erp.BaseUrl, erp.TimeoutSeconds, outbox.MaxConcurrentSends, outbox.SendsPerSecond, outbox.MaxAttempts, outbox.MaxBackoffSeconds,
             outbox.MaxJitterMilliseconds, outbox.LockSeconds, outbox.IdleDelayMilliseconds);
 
         // The secret itself is never logged.

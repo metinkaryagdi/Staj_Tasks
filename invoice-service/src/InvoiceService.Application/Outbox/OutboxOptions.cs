@@ -11,6 +11,12 @@ public sealed class OutboxOptions
     /// <summary>How many ERP sends the worker runs at the same time (per service instance).</summary>
     public int MaxConcurrentSends { get; set; }
 
+    /// <summary>
+    /// How many invoice POSTs all running service copies together make per second at most; kept under the ERP's rate
+    /// limit.
+    /// </summary>
+    public int SendsPerSecond { get; set; }
+
     /// <summary>How many attempts an invoice gets; after the last one fails it is Başarısız.</summary>
     public int MaxAttempts { get; set; }
 
@@ -34,7 +40,8 @@ public sealed class OutboxOptionsValidator(IConfiguration configuration) : IVali
 {
     public static readonly string[] RequiredKeys =
     [
-        nameof(OutboxOptions.MaxConcurrentSends), nameof(OutboxOptions.MaxAttempts), nameof(OutboxOptions.MaxBackoffSeconds),
+        nameof(OutboxOptions.MaxConcurrentSends), nameof(OutboxOptions.SendsPerSecond), nameof(OutboxOptions.MaxAttempts),
+        nameof(OutboxOptions.MaxBackoffSeconds),
         nameof(OutboxOptions.MaxJitterMilliseconds),
         nameof(OutboxOptions.LockSeconds), nameof(OutboxOptions.IdleDelayMilliseconds)
     ];
@@ -60,6 +67,8 @@ public sealed class OutboxOptionsValidator(IConfiguration configuration) : IVali
 
         if (options.MaxConcurrentSends <= 0)
             errors.Add($"Outbox:MaxConcurrentSends must be greater than 0 (was {options.MaxConcurrentSends}).");
+        if (options.SendsPerSecond <= 0)
+            errors.Add($"Outbox:SendsPerSecond must be greater than 0 (was {options.SendsPerSecond}).");
         if (options.MaxAttempts <= 0)
             errors.Add($"Outbox:MaxAttempts must be greater than 0 (was {options.MaxAttempts}).");
         if (options.MaxBackoffSeconds <= 0)

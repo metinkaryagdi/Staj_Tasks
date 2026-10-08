@@ -39,9 +39,10 @@ public sealed record SendAttempt(ErpSendResult Result, SendPath Path)
 
 /// <summary>
 /// Makes one attempt to get an invoice to the ERP: the first time it POSTs; later it asks the ERP first and POSTs
-/// only if the ERP clearly does not have the invoice. Does not retry and writes nothing.
+/// only if the ERP clearly does not have the invoice. Every POST waits for its turn (<see cref="IErpSendPacer"/>).
+/// Does not retry and writes nothing.
 /// </summary>
-public sealed class ErpSendStrategy(IErpGateway erp, IOutboxStore outbox, TimeProvider time)
+public sealed class ErpSendStrategy(IErpGateway erp, IErpSendPacer pacer, IOutboxStore outbox, TimeProvider time)
 {
     /// <summary>
     /// Asks the ERP whether it has the invoice, without sending it. Found -> accepted with the ERP's reference;
@@ -66,16 +67,22 @@ public sealed class ErpSendStrategy(IErpGateway erp, IOutboxStore outbox, TimePr
     {
         // send_attempt_count already includes this attempt and is never reset: 1 means the ERP cannot have the
         // invoice yet.
+        // The turn is waited for before the claim is checked, so the check is the last thing before the POST.
         if (invoice.SendAttemptCount <= 1)
         {
+            await pacer.WaitForTurnAsync(CancellationToken.None);
             return await StillHeldAsync(entry)
                 ? new(await erp.SendAsync(invoice, CancellationToken.None), SendPath.First)
                 : new(new ErpSendResult(false, null, null, null, TimeSpan.Zero), SendPath.NotHeld);
         }
 
         var lookup = await erp.FindAsync(invoice.InvoiceNumber, CancellationToken.None);
-        if (lookup.Lookup == ErpLookup.NotFound && !await StillHeldAsync(entry))
-            return new(new ErpSendResult(false, null, null, null, lookup.Elapsed), SendPath.NotHeld);
+        if (lookup.Lookup == ErpLookup.NotFound)
+        {
+            await pacer.WaitForTurnAsync(CancellationToken.None);
+            if (!await StillHeldAsync(entry))
+                return new(new ErpSendResult(false, null, null, null, lookup.Elapsed), SendPath.NotHeld);
+        }
 
         return lookup.Lookup switch
         {

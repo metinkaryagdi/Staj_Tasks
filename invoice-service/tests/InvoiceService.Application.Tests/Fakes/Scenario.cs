@@ -19,12 +19,13 @@ public sealed class Scenario
     public FakeOutboxStore Outbox { get; } = new();
     public FakeWebhookEventStore Events { get; } = new();
     public FakeErpGateway Erp { get; } = new();
+    public FakeErpSendPacer Pacer { get; }
     public FakeOperatorActionStore OperatorActions { get; } = new();
     public FakeInvoiceFollowUpStore FollowUps { get; } = new();
 
     public OutboxOptions OutboxSettings { get; } = new()
     {
-        MaxConcurrentSends = 10, MaxAttempts = 3, MaxBackoffSeconds = 60, MaxJitterMilliseconds = 1000,
+        MaxConcurrentSends = 10, SendsPerSecond = 18, MaxAttempts = 3, MaxBackoffSeconds = 60, MaxJitterMilliseconds = 1000,
         LockSeconds = 60, IdleDelayMilliseconds = 250
     };
 
@@ -39,7 +40,7 @@ public sealed class Scenario
         Options.Create(WebhookSettings), NullLogger<WebhookEventProcessor>.Instance);
 
     public OutboxProcessor OutboxProcessor() => new(
-        Outbox, Invoices, new ErpSendStrategy(Erp, Outbox, Time),
+        Outbox, Invoices, new ErpSendStrategy(Erp, Pacer, Outbox, Time),
         new OutboxOutcomeWriter(UnitOfWork, Outbox, Invoices, WebhookEventProcessor()),
         new RetryPolicy(OutboxSettings), Options.Create(OutboxSettings), Time, NullLogger<OutboxProcessor>.Instance);
 
@@ -55,6 +56,7 @@ public sealed class Scenario
     public Scenario()
     {
         Reconciliation = new FakeReconciliationStore(Invoices, Events);
+        Pacer = new FakeErpSendPacer(Erp);
     }
 
     public FixApplier FixApplier() => new(UnitOfWork, Invoices, Outbox, Events, Reconciliation, WebhookEventProcessor(), Time);
