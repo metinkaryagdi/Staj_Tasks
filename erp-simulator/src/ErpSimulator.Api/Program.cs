@@ -11,6 +11,7 @@ builder.AddConsoleLogging();
 builder.Services.AddSimulatorApplication(builder.Configuration);
 builder.Services.AddSimulatorInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<WebhookDispatcher>();
+builder.Services.AddHostedService<RateLimitRefiller>();
 
 builder.Services.AddProblemDetails();
 builder.Services.AddSimulatorOpenApi();

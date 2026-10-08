@@ -13,10 +13,13 @@ public static class InvoiceEndpoints
         var group = app.MapGroup("/api/v1/invoices").WithTags("Invoices");
 
         group.MapPost("/", CreateInvoice)
+            .AddEndpointFilter(LimitRate)
             .WithName("CreateInvoice")
             .WithSummary("Submit an invoice to the ERP")
             .WithDescription(
-                "The simulator picks one behavior per request from the configured rates: " +
+                "At most RateLimit:PermitsPerSecond requests per clock second are accepted, shared by every client; the rest get " +
+                "429 with Retry-After: 1 (title 'Rate limit exceeded'), before any behavior is drawn. " +
+                "The simulator picks one behavior per accepted request from the configured rates: " +
                 "Success (202, saved), Busy (429 + Retry-After, not saved), ServerError (500, not saved), " +
                 "SaveThenError (500, but saved), LateResponse (saved, 202 after the configured delay, default 30s). " +
                 "By default duplicates are NOT prevented: the same invoice number creates a new record with a new ERP reference. " +
@@ -50,6 +53,30 @@ public static class InvoiceEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
+    }
+
+    /// <summary>A rejected client may try again after this long: the bucket is refilled at every clock second.</summary>
+    private const int RateLimitRetryAfterSeconds = 1;
+
+    /// <summary>
+    /// Runs before the handler: a request over the rate limit draws no behavior and saves nothing. Logged as
+    /// reason=rateLimited, apart from the Busy behavior's 429.
+    /// </summary>
+    private static async ValueTask<object?> LimitRate(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        var http = context.HttpContext;
+        var limiter = http.RequestServices.GetRequiredService<InvoiceRateLimiter>();
+        if (limiter.TryAcquire())
+            return await next(context);
+
+        http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ErpSimulator.Invoices")
+            .LogInformation("Invoice request rejected status=429 reason=rateLimited limit={Limit}/s retryAfter={RetryAfter}s",
+                limiter.PermitsPerSecond, RateLimitRetryAfterSeconds);
+        http.Response.Headers.RetryAfter = RateLimitRetryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+        return Results.Problem(
+            statusCode: StatusCodes.Status429TooManyRequests,
+            title: "Rate limit exceeded",
+            detail: $"At most {limiter.PermitsPerSecond} invoice requests per second are accepted. Try again in {RateLimitRetryAfterSeconds} second.");
     }
 
     private static async Task<IResult> CreateInvoice(

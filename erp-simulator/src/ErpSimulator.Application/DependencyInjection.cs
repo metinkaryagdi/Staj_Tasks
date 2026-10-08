@@ -16,6 +16,12 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<SimulatorOptions>, SimulatorOptionsValidator>();
         services.AddSingleton<BehaviorSelector>();
 
+        services.AddOptions<RateLimitOptions>()
+            .Bind(configuration.GetSection(RateLimitOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<RateLimitOptions>, RateLimitOptionsValidator>();
+        services.AddSingleton<InvoiceRateLimiter>();
+
         services.AddOptions<WebhookOptions>()
             .Bind(configuration.GetSection(WebhookOptions.SectionName))
             .ValidateOnStart();

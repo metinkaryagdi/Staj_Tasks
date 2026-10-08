@@ -19,6 +19,10 @@ public static class SettingsLogger
             simulator.LateResponseDelaySeconds, simulator.RetryAfterMinSeconds, simulator.RetryAfterMaxSeconds, simulator.RetryAfterFormat,
             simulator.IdempotentInvoices);
 
+        var rateLimit = app.Services.GetRequiredService<IOptions<RateLimitOptions>>().Value;
+        app.Logger.LogInformation("Rate limit: {PermitsPerSecond} invoice requests per second, shared by every client",
+            rateLimit.PermitsPerSecond);
+
         // The secret itself is never logged.
         var webhooks = app.Services.GetRequiredService<IOptions<WebhookOptions>>().Value;
         app.Logger.LogInformation(
