@@ -60,10 +60,7 @@ public static class InvoiceEndpoints
     /// <summary>A rejected client may try again after this long: the bucket is refilled at every clock second.</summary>
     private const int RateLimitRetryAfterSeconds = 1;
 
-    /// <summary>
-    /// Runs before the handler: a request over the rate limit draws no behavior and saves nothing. Logged as
-    /// reason=rateLimited, apart from the Busy behavior's 429.
-    /// </summary>
+    /// <summary>Runs before the handler: a request over the rate limit saves nothing; logged as reason=rateLimited.</summary>
     private static async ValueTask<object?> LimitRate(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         var http = context.HttpContext;

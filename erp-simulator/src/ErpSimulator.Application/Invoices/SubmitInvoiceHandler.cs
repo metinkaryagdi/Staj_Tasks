@@ -47,9 +47,8 @@ public sealed class SubmitInvoiceHandler(
             return new SubmitInvoiceResult(SubmitOutcome.Invalid, errors);
         }
 
-        // Processing time, from its own random source so the seeded behavior sequence does not change. The client waits
-        // it after the behavior is carried out: the log line and received_at keep the request's arrival time (the
-        // per-second counts are read from them), and the invoice number lock is already released.
+        // Own random source, so the seeded behavior sequence does not change. Waited after the behavior: the log line
+        // and received_at keep the arrival time.
         var settings = options.Value;
         var processingMs = Random.Shared.Next(settings.ProcessingMinMilliseconds, settings.ProcessingMaxMilliseconds + 1);
         var result = await CarryOutAsync(request, processingMs, requestAborted);

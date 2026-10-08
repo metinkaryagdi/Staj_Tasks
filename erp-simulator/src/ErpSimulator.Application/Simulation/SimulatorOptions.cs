@@ -26,10 +26,7 @@ public sealed class SimulatorOptions
 
     public int RetryAfterMaxSeconds { get; set; }
 
-    /// <summary>
-    /// Each request that passes the rate limit takes a random time in [min, max] milliseconds to process, like a real ERP
-    /// under load: the answer is sent when it is over; the record and the log line are written on arrival.
-    /// </summary>
+    /// <summary>Each accepted request takes a random time in [min, max] milliseconds before it is answered.</summary>
     public int ProcessingMinMilliseconds { get; set; }
 
     public int ProcessingMaxMilliseconds { get; set; }

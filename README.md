@@ -5,7 +5,7 @@ webhook'larla bildiren ERP Simulator, ve sistemi izleyip müdahale etmek için o
 
 | Uygulama | Klasör | Ne yapar |
 |---|---|---|
-| ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; her isteğe seed'li rastgele bir hata davranışı uygular; kaydettiği faturalar için Invoice Service'e imzalı webhook gönderir (bilerek sorunlu) |
+| ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; saniyede sınırlı sayıda isteği kabul eder; her isteğe seed'li rastgele bir hata davranışı uygular; kaydettiği faturalar için Invoice Service'e imzalı webhook gönderir (bilerek sorunlu) |
 | Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir; ERP'den gelen webhook event'lerini doğrulayıp faturaya işler; belirli aralıklarla kendi kayıtlarını ERP'ninkiyle karşılaştırır (mutabakat), düzeltebildiğini düzeltir, düzeltemediğini raporlar |
 | Operasyon Ekranı | `operations-ui/` | Faturaların ve mutabakatın durumunu veritabanına bakmadan gösterir; Başarısız faturaları tek tek ya da toplu yeniden kuyruğa alır, mutabakatı başlatır. Yalnızca Invoice Service'in API'siyle konuşur |
 
@@ -43,7 +43,7 @@ Her uygulamanın yalnızca kendi veritabanının bağlantı bilgisi vardır; iki
 
 | Endpoint | Davranış |
 |---|---|
-| `POST /api/v1/invoices` | Body: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Seçilen davranışa göre cevap verir (aşağıda). Eksik/geçersiz alan `400`; tutarda virgülden sonra en fazla iki basamak. |
+| `POST /api/v1/invoices` | Body: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Saniyede en fazla 20 istek kabul edilir ([Hız sınırı](#hız-sınırı)); kabul edilen istek seçilen davranışa göre cevap verir (aşağıda) ve cevabı 50–200 ms sonra döner. Eksik/geçersiz alan `400`; tutarda virgülden sonra en fazla iki basamak. |
 | `GET /api/v1/invoices/{invoiceNumber}` | `200` + `registered`, `erpReference` (ilk kayıt), `recordCount`, `records[]`, `decision` (`none` / `received` / `approved` / `rejected`), `reason` (yalnızca `rejected`), `decided_at`. Karar ilk kaydın event'lerinden türetilir; event'i hiç gönderilmemiş olsa bile zamanı gelince görünür. Kayıt yoksa `404`. Hata üretmez. |
 | `GET /api/v1/invoices?from=…&to=…&page=1&pageSize=100` | `receivedAt`'i `[from, to)` içinde kalan kayıtlar, `(receivedAt, id)` sıralı ve sayfalı: `{page, pageSize, totalCount, items[]}`. `from` ve `to` zorunlu, `from < to`; `pageSize` en çok 500 (üstü `400`). Çift kayıtlar ayrı satırdır. |
 
@@ -70,6 +70,17 @@ dizi; yeniden başlayınca dizi baştan başlar). Oranlar gerçek yüzdedir:
 
 Çift kayıt varsayılan olarak engellenmez: kaydeden bir davranış seçilirse aynı fatura numarası tekrar kaydedilebilir.
 `IdempotentInvoices` açılırsa aynı numara ikinci kez kaydedilmez (aşağıda).
+
+### Hız sınırı
+
+- `POST /api/v1/invoices` için bütün istemcilere ortak tek bir token bucket vardır (`RateLimit:PermitsPerSecond`, 20). Bucket her
+  saat saniyesinin başında yeniden dolar; bu yüzden hiçbir saniyede 20'den fazla istek kabul edilmez. Sınırı aşan istek davranış
+  seçilmeden `429` + `Retry-After: 1` alır ve kaydedilmez.
+- İki 429 logda ayrı yazılır: hız sınırı `Invoice request rejected status=429 reason=rateLimited`, `Busy` davranışı
+  `ERP request #… behavior=Busy status=429 reason=busy`.
+- Kabul edilen her istek 50–200 ms (rastgele, `Simulator:ProcessingMin/MaxMilliseconds`) işlenir: davranış uygulanır, kayıt ve log
+  satırı isteğin geldiği anda yazılır, cevap bu süre dolunca döner. Log satırında `processing=<ms>ms` yazar. Süre seed'li davranış
+  dizisini değiştirmez.
 
 ### Webhook'lar
 
@@ -99,6 +110,8 @@ uygulama açılmaz ve nedenini yazar (ör. oranların toplamı 100 değilse gele
   Kontrol ve kayıt, numaradan üretilen PostgreSQL advisory lock'u altında yapılır; unique index eklenmedi, çünkü eski
   çift kayıtlar silinmez ve ayar geri kapatılabilir.
 - `Success` 100, hata oranlarının hepsi 0 ise ERP Simulator kusursuz bir ERP gibi davranır.
+- `RateLimit:PermitsPerSecond` (20) ve `Simulator:ProcessingMinMilliseconds` / `ProcessingMaxMilliseconds` (50 / 200): hız sınırı ve
+  işlem süresi ([Hız sınırı](#hız-sınırı)).
 
 Tek seferlik değişiklik ortam değişkeniyle de yapılabilir (toplam yine 100 olmalı):
 
@@ -128,6 +141,7 @@ da başka nedenle ERP'den ayrışan faturalar için mutabakat işi servisin içi
 | `reconciliation_runs` | Bir mutabakat çalışması: durum (`Çalışıyor` / `Tamamlandı` / `Başarısız`), karşılaştırılan, düzeltilen ve raporlanan sayısı, hata, `started_by` (başlatan kişi ya da `Zamanlayıcı`; başlatanın kaydedilmesinden önceki çalışmalarda boş) |
 | `reconciliation_findings` | Çalışmanın bulduğu fark: tür, eylem (`Düzeltildi` / `Raporlandı`), ayrıntı. `Düzeltildi` yalnızca düzeltilen üç türde olabilir (check constraint). Fatura tablosuna foreign key yoktur: ERP'de olup serviste olmayan fatura da raporlanır |
 | `operator_actions` | Ekrandan yapılan her müdahale: `operator_name`, `action` (`Yeniden Gönderme`, `Toplu Yeniden Gönderme`, `Mutabakat Başlatma`, `Takibe Alma`, `Takibi Kapatma`), `invoice_number` (mutabakat başlatmada boş), `result` (`Kuyruğa alındı`, `Reddedildi: fatura Bekliyor`, `Başlatıldı: çalışma 12` …), `created_at`. Reddedilen istekler de yazılır; toplu gönderimde fatura başına bir satır |
+| `erp_send_pace` | Tek satır: bütün servis kopyalarının paylaştığı bir sonraki boş gönderim sırası (`next_turn_at`). Yalnızca gönderim hızı için kullanılır ([Outbox Worker](#outbox-worker)); EF modelinde yoktur, migration'da SQL ile oluşturulur |
 | `invoice_follow_ups` | Takılı bir faturanın elle takibi: `operator_name`, `note`, `opened_at`, `closed_at` / `closed_by` (açıkken boş). Fatura başına en fazla bir açık takip (kısmi benzersiz indeks); kapatılanlar geçmiş olarak kalır. Faturanın durumunu değiştirmez |
 
 `invoices.status`: `Bekliyor` → `Gönderildi` ya da `Başarısız`; ERP event'leriyle `Gönderildi` → `İşleme Alındı` →
@@ -143,7 +157,7 @@ yeniden kuyruğa alır. Durum değerleri ve alanlar veritabanında check constra
 | `POST /api/v1/invoices/{invoiceNumber}/resend` | `X-Operator-Name` gerekir (aşağıya bakın). Yalnızca `Başarısız` fatura için: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen), faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409` (`code: invoice_not_failed`, `currentStatus`), yoksa `404` (`code: invoice_not_found`). Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
 | `POST /api/v1/invoices/resend` | `X-Operator-Name` gerekir. Body `{"invoiceNumbers": [...]}`, 1-100 numara (aksi `400`). Her fatura tekli resend'in kurallarıyla, kendi transaction'ında; tekrarlanan numara bir kez. Her zaman `200` + fatura başına sonuç: `queued`, `not_found`, `not_failed` (+ `currentStatus`), `error`. |
 | `GET /api/v1/invoices` | Sayfalı liste, en yeni üstte: `status` (geçersizse `400`), `stuck=true` (yalnızca özetin takılı saydığı faturalar; aynı koşul; her faturada `stuck` alanı da bu koşulla gelir), `search` (numaranın bir parçası, büyük/küçük harf fark etmez), `page` (1'den), `pageSize` (1-100, varsayılan 20). Cevap `{items, page, pageSize, totalCount, totalPages}`. |
-| `GET /api/v1/invoices/summary` | Her durumdaki fatura sayısı (0 olanlar dahil), toplam ve takılı sayısı (`Gönderildi` / `İşleme Alındı`'da `StuckAfterMinutes`'tan uzun kalan). |
+| `GET /api/v1/invoices/summary` | Her durumdaki fatura sayısı (0 olanlar dahil), toplam, takılı sayısı (`Gönderildi` / `İşleme Alındı`'da `StuckAfterMinutes`'tan uzun kalan) ve ERP'ye gönderim kuyruğu: `queuedCount` (`erp_outbox`'ta `Bekliyor`), `oldestQueuedSeconds` (en eski `Bekliyor` kaydın oluşturulmasından bu yana; kuyruk boşsa `null`), `sentLastMinute` (son 60 sn'de `Tamamlandı` olan). |
 | `GET /api/v1/invoices/{invoiceNumber}` | Faturanın servisteki hali (`200`, `rejectReason` dahil) ya da `404`. |
 | `GET /api/v1/invoices/{invoiceNumber}/details` | Fatura, `erp_outbox` kaydı, haberleri (geliş sırasıyla), mutabakat bulguları (en yeni üstte; `ERP Karar Vermedi`'den yalnızca en sonuncusu) ve müdahaleler (`operatorActions`, en yeni üstte) tek cevapta; yoksa `404`. |
 | `POST /api/v1/reconciliation-runs` | `X-Operator-Name` gerekir. Mutabakatı elle başlatır: `202` + `Location` + çalışma (`Çalışıyor`); çalışma arka planda sürer. Başka bir çalışma sürüyorsa (zamanlanmış, elle ya da servisin diğer kopyasında) `409` (`code: reconciliation_running`). |
@@ -162,7 +176,7 @@ yoksa ya da boşsa `400` (`code: operator_name_required`), 100 karakterden uzuns
 
 Worker, zamanı gelmiş ve lock'u olmayan kayıtları tek bir SQL cümlesiyle alır (`FOR UPDATE SKIP LOCKED`), kayda
 süreli sahiplik (`locked_until`) ve yeni bir `claim_token` yazar, deneme sayısını gönderimden **önce** artırır. Bir
-servis instance'ı aynı anda en fazla 10 gönderim yapar. Retry kuralları (`RetryPolicy`):
+servis instance'ı aynı anda en fazla 10 gönderim yapar (`MaxConcurrentSends`). Retry kuralları (`RetryPolicy`):
 
 | ERP Simulator cevabı | Ne olur |
 |---|---|
@@ -175,6 +189,10 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar. Retry kuralları (`Re
 - **Çift kayıt kontrolü:** fatura daha önce gönderilmeye çalışıldıysa POST'tan önce ERP Simulator'a `GET` ile sorulur:
   varsa referans alınır (POST yok), açıkça `404` ise gönderilir, sorulamazsa gönderilmez ve sonra tekrar denenir.
   Haklar bitince `Başarısız` yapmadan önce bir kez daha sorulur.
+- **Gönderim hızı:** bütün servis kopyalarının POST'ları saniyede `Outbox:SendsPerSecond`'a (18) göre sıraya konur; ERP Simulator'ın
+  sınırı 20'dir, ağ gecikmesi için biraz altında. Her POST, `erp_send_pace` satırını tek bir `UPDATE … RETURNING` ile bir sıra
+  ilerletir ve sırası gelene kadar bekler; sıra ve "şimdi" veritabanı saatinden alınır. Sıra bekledikten sonra kaydın hâlâ o alıma
+  ait olduğu kontrol edilir, sonra POST yapılır. "ERP'de var mı?" sorguları (`GET`) bu sınıra girmez.
 - **Servis öldürülürse** kayıt veritabanında kalır; lock `LockSeconds` (60 sn) sonra dolar ve kayıt yeniden alınabilir.
   Sonuç yalnızca kayıt hâlâ o alımın `claim_token`'ını taşıyorsa yazılır. Son denemesi yarıda kalan kayıt yeniden POST
   edilmez, yalnızca sorulur.
@@ -259,7 +277,7 @@ React + TypeScript (Vite), nginx ile sunulur. Tarayıcı doğrudan Invoice Servi
 
 | Sayfa | İçerik |
 |---|---|
-| Özet | Her durumdaki fatura sayısı, takılı fatura sayısı (kart listeyi Takılı süzgeciyle açar), son mutabakat çalışmasının durumu ve bulgu sayıları |
+| Özet | Her durumdaki fatura sayısı, takılı fatura sayısı (kart listeyi Takılı süzgeciyle açar), ERP'ye gönderim kuyruğu (kuyrukta bekleyen, en eski bekleme, son 1 dakikada gönderilen), son mutabakat çalışmasının durumu ve bulgu sayıları |
 | Fatura Listesi | Durum süzgeci (altı durum ve Takılı; takılı faturada durumun yanında "Takılı · süre" rozeti, takipteyse "Takipte: ad"), numarayla arama, sayfalama (20/50/100). Kolonlar: fatura no, müşteri kodu, tutar, durum, deneme sayısı (toplam), son hata, son güncelleme, detay bağlantısı. Başarısız faturalar seçilip (en fazla 100) toplu yeniden gönderilir; sonuçta kaçının kuyruğa alındığı, kaçının alınamadığı ve nedeni görünür |
 | Fatura Detayı | Fatura bilgileri (mutabakatın ERP'ye son sorusu ve cevabı dahil), `erp_outbox` kaydı, gelen bütün haberler, faturanın mutabakat bulguları, müdahaleler (kim, ne, sonuç); Başarısız faturada "Yeniden Gönder"; takılı faturada "Takibe Al" (not ile) / "Takibi Kapat", açık takip ve takip geçmişi |
 | Mutabakat | Sayfalı çalışma listesi (20'şer, başlatan dahil), seçili çalışmanın bulguları (Raporlanan ve Düzeltilen ayrı), "Mutabakatı Şimdi Çalıştır" |
@@ -282,6 +300,8 @@ testler `npm test --prefix operations-ui`.
 | Ne | Komut |
 |---|---|
 | Unit testler | `dotnet test erp-simulator`, `dotnet test invoice-service`, `npm test --prefix operations-ui` |
+| Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Gün 8 kontrol listesi | [`manual-tests/gun8/`](manual-tests/gun8/) |
 | Gün 7 kontrol listesi (script'li maddeler) ve ekrandan yapılan maddelerin adımları | [`manual-tests/gun7/`](manual-tests/gun7/README.md) |
 | Gün 6 kontrol listesi | [`manual-tests/gun6/`](manual-tests/gun6/README.md) |
 | Gün 5 kontrol listesi (2-9. maddeler; 1. madde Gün 3 ve Gün 4 listeleridir), adım ve ek test | [`manual-tests/gun5/`](manual-tests/gun5/) |
@@ -294,6 +314,20 @@ testler `npm test --prefix operations-ui`.
 `manual-tests/gun2/` script'leri Gün 2'deki eşzamanlı gönderimi test eder ve [gun-2](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-2)
 tag'inde çalıştırılmalıdır.
 
+### Yük testi
+
+[`load-test/invoices.js`](load-test/invoices.js) Invoice Service'e dakikada 3000 fatura (saniyede 50) gönderir, 5 dakika boyunca,
+toplam 15.000. k6 kurulmaz: compose'daki `k6` servisi (profil `yuk-testi`, sabit sürümlü imaj) aynı ağın içinden çalışır.
+
+```bash
+docker compose run --rm k6
+```
+
+Ortam değişkenleri: `BASE_URLS` (virgülle birden fazla adres; istekler sırayla dağıtılır), `RATE`, `DURATION`, `RUN_ID` (faturaların
+müşteri kodu; verilmezse `LOAD-<zaman>`). Sonuç ekrana ve `load-test/results/<RUN_ID>.json`'a yazılır (istek sayısı,
+`POST /api/v1/invoices` p50 / p95 / p99); p95 200 ms'yi geçerse k6 hata koduyla biter. Kuyruk boşaldıktan sonraki sonuç tablosu:
+`.\manual-tests\gun8\6-yuk-olcum.ps1 -RunId <RUN_ID>`.
+
 Manuel deneme: Swagger UI veya `.http` dosyaları
 ([ERP Simulator](erp-simulator/src/ErpSimulator.Api/ErpSimulator.Api.http), [Invoice Service](invoice-service/src/InvoiceService.Api/InvoiceService.Api.http));
 loglar için `docker compose logs -f erp-simulator` / `docker compose logs -f invoice-service`.
@@ -301,84 +335,75 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 7 — Operasyon ekranındaki eksikler
+## Gün 8 — Yoğun dönem
 
-Bugünün işi: Gün 6'da ekranın cevaplayamadığı sorular kapatıldı ve mutabakattaki gereksiz ERP sorguları kaldırıldı.
+Bugünün işi: sistem dakikada binlerce faturanın geldiği bir döneme hazırlandı ve yükle sınandı.
 
-- **Takılı faturalar:** fatura listesinde `Takılı` süzgeci (`GET /invoices?stuck=true`); özetteki kart listeyi bu süzgeçle açar.
-  Liste, özet ve her faturadaki `stuck` alanı aynı koşulu kullanır. Ek olarak takılı faturada durumun yanında
-  "Takılı · süre" rozeti gösterilir (listede ve detayda).
-- **ERP'nin karar vermediği fatura:** `ERP Karar Vermedi` bulgusu (`NoDecisionAfterMinutes`, 30 dk); fatura detayında ve
-  mutabakat sayfasında görünür, detayda yalnızca en sonuncusu.
-- **Müdahaleyi kimin yaptığı:** ekran ilk açılışta adı sorar; yeniden gönderme, toplu yeniden gönderme ve mutabakat başlatma
-  `X-Operator-Name` ister (yoksa `400`) ve `operator_actions`'a yazılır; fatura detayında müdahaleler, mutabakat sayfasında
-  başlatan görünür.
-- **Mutabakatta gereksiz sorgular:** ERP'nin "yok" dediği Başarısız fatura `NotFoundRecheckHours` (24 saat) yeniden sorulmaz;
-  takip `invoices.erp_checked_at` / `erp_check_result` ile yapılır, fatura detayında "mutabakatın ERP'ye son sorusu" olarak da
-  görünür (bulgu olmasa da). Çalışma listesi sayfalıdır (en çok 50).
-- **Ek — elle takip:** takılı fatura detaydan bir notla "takibe alınabilir" ve takip kapatılabilir (`invoice_follow_ups`;
-  `operator_actions`'a `Takibe Alma` / `Takibi Kapatma`). Fatura takılı kalır, sayıyı ve süzgeci etkilemez; karar gelince
-  mutabakat yine düzeltir. Gün 4'te önerilen "karar alınamazsa elle takibe alma" adımının karşılığıdır; görevde istenmedi.
+- **ERP Simulator'da hız sınırı:** `POST /api/v1/invoices` saniyede en fazla 20 istek kabul eder; sınır bütün istemcilere ortaktır
+  ve ayar dosyasından okunur. Aşan istek `429` + `Retry-After: 1` alır. İki tür 429 logda ayrı yazılır (`reason=rateLimited` /
+  `reason=busy`). Kabul edilen her istek 50–200 ms işlenir ([Hız sınırı](#hız-sınırı)).
+- **Invoice Service'in gönderim hızı:** bütün kopyaların POST'ları saniyede 18'e göre sıraya konur (`Outbox:SendsPerSecond`). Ortak
+  sıra veritabanındaki `erp_send_pace` satırında tutulur; yeni bir altyapı bileşeni eklenmedi ([Outbox Worker](#outbox-worker)).
+- **Özet sayfası:** kuyrukta bekleyen fatura sayısı, kuyruktaki en eski faturanın bekleme süresi ve son bir dakikada gönderilen
+  fatura sayısı; diğer değerlerle birlikte 10 saniyede bir yenilenir.
+- **Yük testi:** `docker compose run --rm k6` ([Yük testi](#yük-testi)).
 
-Kontrol listesi: [`manual-tests/gun7/`](manual-tests/gun7/README.md) (1, 3, 5-8. maddelerin script'leri ve
-`kontrol-listesi.ps1`; 2 ve 4. maddelerin ekranda adımları; ekler: zamanlayıcı, elle takip, 24 saat sınırı ve sorgu ayarı).
+Kontrol listesi: [`manual-tests/gun8/`](manual-tests/gun8/) — `1-hiz-siniri.ps1` (1. madde), `6-yuk-olcum.ps1` (2. ve 3. madde,
+yük testinden sonra), `5-ozet-kuyruk.ps1` (4. madde), `7-mutabakat-olcum.ps1` (5. madde); adım script'leri `2-iki-429.ps1`,
+`3-islem-suresi.ps1`, `4-gonderim-hizi.ps1`.
 
-### Son doğrulama — 7 Ekim 2026
+### Son doğrulama — 8 Ekim 2026
 
-Sekiz madde gerçek PostgreSQL, HTTP ve tarayıcıyla koşuldu ve hepsi geçti; her maddede sonuç veritabanıyla karşılaştırıldı.
-Son koşu: kontrol listesi 15:34 (ekler dahil, bütün script'ler tek seferde); script'lerin bakmadığı ekran kısımları ardından tarayıcıda yeniden yapıldı.
-Birim testler: Invoice Service 346, ERP Simulator 103, operasyon ekranı 22, hepsi geçti. Gün 6 kontrol listesi de yeniden
-koşuldu: ilk koşuda 2. madde (düzeltmesi hata veren fatura) kaldı; ERP'nin cevabı bütün faturalara tek UPDATE ile yazıldığı için
-bir faturanın hatası çalışmanın tamamını düşürüyordu. Cevap fatura başına yazılacak şekilde düzeltildi, iki liste de baştan
-koşuldu ve hepsi geçti.
+Veritabanları sıfırlandıktan sonra kontrol listesi gerçek PostgreSQL, HTTP ve tarayıcıyla koşuldu; beş madde de geçti. Simülatör
+varsayılan oranlarla, haberler açık. Birim testler: Invoice Service 350, ERP Simulator 121, operasyon ekranı 24, hepsi geçti.
 
-| # | Senaryo | Sonuç |
+**1. Hız sınırı:** saniyede 50 istek, 10 sn: 501 istek, 206 kabul, 295 `429`. Hiçbir saniyede 20'den fazla kabul yok; bütün
+`429`'larda `Retry-After: 1`; simülatörde 206 kayıt.
+
+**2. ve 3. Yük testi** (`docker compose run --rm k6`; iki kopyada `BASE_URLS` iki adres):
+
+| Ölçü | Tek kopya | İki kopya |
 |---|---|---|
-| 1 | Takılı süzgeci = özetteki sayı = veritabanı | 3 fatura 10 dk önce, 1 fatura az önce `Gönderildi` yapıldı: API'de, özette ve veritabanında 6 takılı fatura, numaralar aynı; yeni olan listede yok. Ekranda ayrıca kart 5 = listede "5 fatura" = veritabanı 5, aynı numaralar. Bir fatura 2 dk'yı geçtiği anda üç sayı birlikte değişti. Süzgeç durum ve aramayla birlikte de doğru |
-| 2 | Özetteki takılı kartı | Kart listeyi `?durum=Takılı` ile açtı, Durum seçiminde Takılı, listede karttaki sayı kadar (5) fatura; yenilemede süzgeç korunuyor |
-| 3 | ERP'nin kararı gecikince | Simülatörde karar 240 sn sonraya alındı (`Webhooks:SecondEventMin/MaxSeconds`) ve karar haberi gönderilmedi; `Reconciliation:StuckAfterMinutes` / `NoDecisionAfterMinutes` ortam değişkeniyle 1 / 2 dk'ya indirildi. İki çalışma `ERP Karar Vermedi` raporladı (ERP cevabı `received`); detayda yalnızca sonuncusu, mutabakat sayfasında çalışmanın raporlanan bulgusu. Karar oluştuktan sonraki çalışma faturayı ERP'nin kararına göre düzeltti (bu koşuda `Reddedildi`; `Takılı Fatura`, Düzeltildi) |
-| 4 | Ad | Tarayıcı verisi silinince sayfa yerine ad formu geldi; boş ad kabul edilmedi; ad girildikten sonra yenilemede ve başka sayfa doğrudan açıldığında sormadı; ad üst çubukta |
-| 5 | `operator_actions` | Tekli yeniden gönderme: `Kuyruğa alındı`, ikinci deneme `Reddedildi: fatura Bekliyor`. Toplu (3 Başarısız, 1 Onaylandı, 1 olmayan): 5 satır, her biri kendi sonucuyla; ekrandan toplu gönderimde 2 fatura için 2 satır. Mutabakat: aynı anda iki başlatma, biri `Başlatıldı: çalışma N` (çalışmanın `started_by`'ı aynı ad), diğeri `Reddedildi: başka bir çalışma sürüyor`, fatura numarası boş. Türkçe karakterli ad doğru kaydedildi |
-| 6 | Başlıksız istekler | Üç istek, başlık yok / boş / yalnızca boşluk: `400` (`operator_name_required`); hiçbir şey yazılmadı, fatura değişmedi, çalışma başlamadı |
-| 7 | ERP'nin hiç almadığı 50 eski Başarısız fatura | Servis logu: ilk çalışmada bu 50 fatura için 50 `Reconciliation asked the ERP … answer=NotFound` satırı ve `ERP lookups … asked=53 notFound=50`; ikinci çalışmada bu faturalar için satır yok, `asked=3` (3 takılı faturanın kararı). Faturalardan biri değişince sonraki çalışma yalnızca onu sordu |
-| 8 | 120 çalışma | Tam 120 çalışmayla (48 mevcut + 72 eklenen) 50'lik sayfalar 50/50/20; son koşuda 240 çalışma 50/50/50/50/40, ekranda 192 çalışma 20'lik 10 sayfa. Tekrar ya da kayıp yok, sıra veritabanıyla aynı; `pageSize=51`, `pageSize=0` ve `page=0` `400` |
+| Gönderilen fatura | 15.000 | 15.000 |
+| Kuyruğun boşalma süresi (ilk istekten itibaren) | 40 dk 36 sn | 23 dk 34 sn |
+| Ortalama ve en yüksek gönderim hızı (saniyede) | 8,4 / 19 POST | 14,8 / 19 POST |
+| Hız sınırından kaynaklanan 429 oranı | %0 (0 / 20.076) | %0 (0 / 20.076) |
+| POST /api/v1/invoices cevap süresi p50, p95, p99 | 3,7 / 4,5 / 5,5 ms | 3,4 / 4,3 / 5,2 ms |
+| Kuyruktaki en uzun bekleme süresi | 38 dk 43 sn | 22 dk 12 sn |
+| Haberlerden 503 alanların oranı | %0 (0 / 33.558) | %0 (0 / 33.558) |
+| Kaybolan fatura | 0 | 0 |
+| Simülatörde birden fazla kaydı olan fatura | 0 | 0 |
 
-Ekler:
-- Elle takip (`ek-elle-takip.ps1`): başlıksız istek `400`; takibe alma `201`, ikinci istek ve aynı anda gelen iki istekten biri
-  `409`; takılı olmayan faturaya `409`; takip açıkken özet = takılı listesi = veritabanı; kapatma ve detaydaki geçmiş doğru.
-  Ekranda takibe alma, listede ve detayda "Takipte: ad" rozeti ve kapatma denendi.
-- Zamanlayıcının başlattığı çalışmada `started_by` `Zamanlayıcı`, `operator_actions`'a kayıt yok.
-- Gün 6'da ERP'nin hiç karar vermediği üç fatura (FTR-004135..137) artık her çalışmada `ERP Karar Vermedi` alıyor.
-- 24 saat sınırı (`ek-24-saat-siniri.ps1`): "Kayıt yok" cevabı 23 sa 59 dk önce alınmış fatura sorulmadı, 75 sn sonra soruldu.
-- Sorgu ayarı (`ek-sorgu-ayari.ps1`): `NotFoundRecheckHours` 1 yapılınca 61 dk önce "yok" denmiş fatura soruldu, 59 dk önce
-  denmiş olan sorulmadı ve 1 saat dolunca soruldu; ayar dosyasındaki 24 ile ikisi de sorulmadı.
+İki kopyada simülatör logundan saniye saniye: hiçbir saniyede 20 POST yok, en çok 19 (14 saniye). Kopyalar 9.967 ve 10.109 POST
+yaptı. Saniye saniye tablo `6-yuk-olcum.ps1` ile `manual-tests/output`'a yazılır.
 
-Testte izlenen yol: 1. maddede takılı faturalar, 7. maddede eski Başarısız faturalar, 8. maddede eksik kalan çalışmalar SQL ile
-üretildi. 3. maddede simülatörün `Webhooks:SecondEventMin/MaxSeconds` ve `LostDecisionRate` ayarları ile servisin
-`StuckAfterMinutes` / `NoDecisionAfterMinutes` ayarları geçici olarak değiştirildi; sonunda varsayılana döndü.
+**4. Özet sayfası yük sırasında:** ekran (yenileme 14:38:08 UTC) kuyrukta 10.408, en eski bekleme 3 dk 55 sn, son 1 dakikada 379.
+Hemen önceki veritabanı okuması 10.367 / 234 sn / 376, hemen sonraki 10.625 / 239 sn / 363. Yük sürerken API değerleri tek kopyada
+6, iki kopyada 10 kez veritabanıyla karşılaştırıldı; hepsi tutarlı.
+
+**5. Yük sonrası mutabakat:** 4,1 sn sürdü (15.206 fatura kontrol edildi). Servisin belleği boşta 111,5 MiB, çalışırken en çok
+175,5 MiB. Takılı fatura önce 744, sonra 0.
 
 ### Bilinen sınırlar
 
-- **Ad bir kayıttır, kimlik değildir:** ekranı açan herkes istediği adı yazabilir; API'yi doğrudan çağıran herhangi bir adı gönderebilir.
-- **Takılı sayısı zamana bağlıdır:** özet ve liste aynı koşulu kullanır, ama farklı anlarda istenirlerse (ekran 10 sn'de bir
-  yeniler) arada 2 dakikayı geçen bir fatura birinde sayılıp diğerinde sayılmayabilir.
-- **Kuyrukta (`Bekliyor`) uzun kalan fatura takılı sayılmaz.** Gönderim en geç ~15 dk'da sonuçlandığından bu, gönderim worker'ının
-  çalışmadığına işaret eder; Özet'te kuyrukta en uzun bekleyen faturanın süresinin gösterilmesi bir sonraki adım olarak önerildi.
-- **`ERP Karar Vermedi` her çalışmada yazılır:** ERP sessiz kaldıkça bulgu tablosu fatura başına çalışma sayısı kadar büyür (detay yalnızca
-  sonuncusunu gösterir). Elle takip faturayı değiştirmez ve kendiliğinden kapanmaz; karar gelince mutabakat faturayı düzeltir, takip
-  açık kalır ve detay bunu belirtir.
-- **"ERP'ye son soru" yalnızca tek tek sorulan faturalarda tutulur** (pencerenin dışındaki kesinleşmemiş faturalar ve takılı
-  faturalar). ERP listesiyle karşılaştırılan faturalarda detay bunu yazar; bu günden önceki sorgular kayıtlı değildir.
-- **Yalnızca Başarısız faturada atlanır:** pencerenin dışındaki `Gönderildi` fatura ERP'de yoksa her çalışmada sorulur ve
-  `ERP Kaydı Yok` olarak raporlanır. ERP'ye ulaşılamadığı için başarısız olan çalışmada o ana kadar alınan cevaplar kaydedilmez;
-  faturaya yazılamayan cevap da yalnızca loga düşer. İkisinde de o fatura sonraki çalışmada yeniden sorulur.
-- **Kayıtların yazılamadığı durum:** toplu gönderimde hata veren faturanın `Hata` kaydı ve mutabakat zaten çalışırken gelen başlatma
-  isteğinin kaydı ayrı yazılır; veritabanı o anda da yazmıyorsa yalnızca loga düşer.
-- **Eski çalışmalar:** Gün 7'den önceki çalışmaların başlatanı bilinmez (ekranda `—`).
-- **Çalışma listesi:** sayfalar arasında yeni bir çalışma başlarsa sonraki sayfa bir kayıt kayar (listeler id'ye göre en yeni üstte).
-- **Detay tek anlık görüntü değildir** ve **ekranın adresi derlemede gömülür** (değişmedi).
-- **Yerel test verisi:** 300 `QA7-ESKI` ve 50 `QA7-TEKRAR` Başarısız fatura, 72 `QA7-sayfa` çalışması, 9 takip (4'ü açık) ve 3 kalıcı
-  takılı fatura (FTR-004135..137) veritabanında kaldı; ek script'ler her koşuda `QA7-24SAAT` / `QA7-AYAR` Başarısız faturaları ekler.
+- **Saniye başına gönderim 18'i aşabilir:** sıra veritabanı saatiyle saniyenin 1/18'i aralıkla verilir, ama simülatör isteği
+  vardığı anda sayar; ağ ve HTTP gecikmesi bir isteği komşu saniyeye kaydırır. Yük testlerinde en çok 19 görüldü. Adım
+  script'inde servisler yeni açıldığında ilk saniyede 20 görüldü. 20'yi aşan saniye ve hız sınırından 429 görülmedi.
+- **Saniye sınırı ve log:** rate limit token'ı istek gelince alınır, log satırı birkaç ms sonra yazılır; saniyenin son ms'lerinde
+  kabul edilen istek logda bir sonraki saniyede görünebilir (koşularda görülmedi). Bucket her saat saniyesinde dolduğu için davranış
+  saniyede 20'lik fixed window ile aynıdır.
+- **Ortak gönderim sırası:** iki kopyanın aynı `SendsPerSecond` değerini kullanması gerekir. Veritabanına ulaşılamazken sıra
+  alınamaz ve gönderim yapılmaz (denenmedi). Sırasını bekledikten sonra kaydı kaybeden gönderim sırasını boşa harcar. İki kopyanın
+  birlikte sınırı aşmadığı otomatik testle değil, gerçek veritabanıyla script'le sınandı.
+- **Kuyruk sırası:** tekrar denenecek fatura, deneme zamanına göre sıralı kuyrukta birikmiş faturaların arkasına geçer; birkaç kez
+  denenen faturalar uzun bekler (tek kopyada en uzun 38 dk 43 sn).
+- **Özet kartları:** yeniden gönderilen faturanın bekleme süresi ilk kuyruğa girişinden sayılır. Mutabakatın ERP'de bulup
+  `Tamamlandı`'ya çektiği Başarısız fatura "son 1 dakika"ya girer. `processed_at`'te index yoktur; tablo büyüdükçe bu sayım
+  tablo taranarak yapılır.
+- **Ölçümler:** k6 ve bütün servisler aynı makinede (Docker Desktop) çalıştı. Bellek `docker stats` ile yaklaşık 1,5 sn'de bir
+  okundu; 4,1 sn'lik mutabakatta 3 okuma oldu, tepe değer biraz yüksek olabilir. Ölçüm script'i simülatörün logunu okur; simülatör
+  yük testiyle ölçüm arasında yeniden başlatılmamalıdır.
+- **Yerel test verisi:** 1. maddenin simülatöre doğrudan gönderdiği 206 fatura her mutabakatta `Serviste Yok` olarak raporlanır.
 
 ---
 
@@ -393,3 +418,4 @@ Testte izlenen yol: 1. maddede takılı faturalar, 7. maddede eski Başarısız 
 | `gun-5` | Mutabakat | [tree/gun-5](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-5) |
 | `gun-6` | Operasyon Ekranı | [tree/gun-6](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-6) |
 | `gun-7` | Operasyon ekranındaki eksikler | [tree/gun-7](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-7) |
+| `gun-8` | Yoğun Dönem | [tree/gun-8](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-8) |

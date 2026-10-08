@@ -11,10 +11,7 @@ public sealed class OutboxOptions
     /// <summary>How many ERP sends the worker runs at the same time (per service instance).</summary>
     public int MaxConcurrentSends { get; set; }
 
-    /// <summary>
-    /// How many invoice POSTs all running service copies together make per second at most; kept under the ERP's rate
-    /// limit.
-    /// </summary>
+    /// <summary>Invoice POSTs per second at most, all service copies together.</summary>
     public int SendsPerSecond { get; set; }
 
     /// <summary>How many attempts an invoice gets; after the last one fails it is Başarısız.</summary>

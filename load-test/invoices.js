@@ -18,6 +18,8 @@ import exec from 'k6/execution';
 const BASES = (__ENV.BASE_URLS || 'http://invoice-service:8080').split(',');
 const RATE = Number(__ENV.RATE || 50);
 const DURATION = __ENV.DURATION || '5m';
+// constant-arrival-rate sürenin tam sonunda bazen bir iterasyon fazla başlatır; RATE × süreden fazlası istek göndermez.
+const TOTAL = RATE * Number(DURATION.slice(0, -1)) * (DURATION.endsWith('m') ? 60 : 1);
 
 export const options = {
   scenarios: {
@@ -39,6 +41,7 @@ export function setup() {
 }
 
 export default function (data) {
+  if (exec.scenario.iterationInTest >= TOTAL) return;
   const base = BASES[exec.scenario.iterationInTest % BASES.length];
   const body = JSON.stringify({ customerCode: data.runId, amount: 100.5, currency: 'TRY', invoiceDate: '2026-10-08' });
   const res = http.post(`${base}/api/v1/invoices`, body, { headers: { 'Content-Type': 'application/json' } });

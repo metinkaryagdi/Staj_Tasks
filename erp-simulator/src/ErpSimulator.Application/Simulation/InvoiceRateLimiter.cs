@@ -1,10 +1,8 @@
 namespace ErpSimulator.Application.Simulation;
 
 /// <summary>
-/// One token bucket for invoice submissions, shared by every client. The bucket holds PermitsPerSecond tokens, each
-/// accepted request takes one, and <see cref="Refill"/> fills it back up at the start of every clock second: so no
-/// clock second accepts more than PermitsPerSecond requests (a bucket refilled on its own timer could accept a full
-/// bucket at the end of one second and another at the start of the next).
+/// One token bucket for invoice submissions, shared by every client; refilled at the start of every clock second, so no
+/// clock second accepts more than PermitsPerSecond requests.
 /// </summary>
 public sealed class InvoiceRateLimiter(IOptions<RateLimitOptions> options)
 {

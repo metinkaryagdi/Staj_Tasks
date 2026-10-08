@@ -10,8 +10,7 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // One row: the next free turn for an invoice POST, shared by every service copy (PostgresSendPacer). Not
-            // in the EF model on purpose: it is only ever read and moved by that one UPDATE.
+            // One row: the next free turn for an invoice POST (PostgresSendPacer); not in the EF model.
             migrationBuilder.Sql("""
                 CREATE TABLE erp_send_pace (
                     id integer PRIMARY KEY CHECK (id = 1),

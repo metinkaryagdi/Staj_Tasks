@@ -24,6 +24,15 @@ $stuckSql = Get-StuckSql $stuckMinutes 'count(*)'
 $pending = [int]@(Get-ServiceRows "SELECT count(*) FROM erp_outbox WHERE status = 'Bekliyor';")[0]
 if ($pending -gt 0) { throw "Kuyrukta $pending fatura var; mutabakat kuyruk boşaldıktan sonra ölçülmeli." }
 
+# Kuyruğun son faturaları henüz takılı sayılmıyor olabilir: kesinleşmemiş ve StuckAfterMinutes'ı doldurmamış fatura kalmayana
+# kadar beklenir, yoksa mutabakat onlara dokunmaz ve sonra takılı fatura görünür.
+$youngSql = "SELECT count(*) FROM invoices WHERE status IN ('Gönderildi','İşleme Alındı') AND updated_at > now() - interval '$stuckMinutes minutes';"
+$deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+while (($young = [int]@(Get-ServiceRows $youngSql)[0]) -gt 0 -and (Get-Date) -lt $deadline) {
+    Write-Host "  $(Get-Date -Format 'HH:mm:ss') henüz $stuckMinutes dakikayı doldurmamış kesinleşmemiş fatura: $young; bekleniyor" -ForegroundColor DarkGray
+    Start-Sleep -Seconds 15
+}
+
 Write-DbHeader 'Mutabakattan önce' "Takılı: Gönderildi / İşleme Alındı'da $stuckMinutes dakikadan uzun"
 Show-ServiceQuery "SELECT status, count(*) FROM invoices GROUP BY 1 ORDER BY 1;"
 $stuckBefore = [int]@(Get-ServiceRows "$stuckSql;")[0]

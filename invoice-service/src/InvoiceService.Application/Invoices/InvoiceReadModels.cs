@@ -21,10 +21,8 @@ public sealed record StatusCount(string Status, int Count);
 /// <param name="Counts">Every status, in <see cref="InvoiceStatus.All"/> order, with 0 for an empty one.</param>
 /// <param name="StuckAfterMinutes">The wait after which a Gönderildi or İşleme Alındı invoice counts as stuck.</param>
 /// <param name="QueuedCount">Invoices waiting in the queue to be sent to the ERP (erp_outbox Bekliyor).</param>
-/// <param name="OldestQueuedSeconds">How long the oldest of them has been waiting, from when its entry was created (a
-/// resent invoice keeps its entry, so it counts from its first queueing); null when the queue is empty.</param>
-/// <param name="SentLastMinute">Entries that became Tamamlandı in the last 60 seconds: the ERP took the invoice (a failed
-/// invoice the reconciliation finds at the ERP is counted too).</param>
+/// <param name="OldestQueuedSeconds">How long the oldest of them has waited since its entry was created; null when none.</param>
+/// <param name="SentLastMinute">Entries that became Tamamlandı in the last 60 seconds.</param>
 public sealed record InvoiceSummary(
     IReadOnlyList<StatusCount> Counts, int Total, int StuckCount, int StuckAfterMinutes,
     int QueuedCount, long? OldestQueuedSeconds, int SentLastMinute);

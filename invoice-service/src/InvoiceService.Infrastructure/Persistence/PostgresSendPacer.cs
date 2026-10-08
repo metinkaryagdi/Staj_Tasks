@@ -5,10 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace InvoiceService.Infrastructure.Persistence;
 
 /// <summary>
-/// The turns live in one row (erp_send_pace) of the database every copy uses: one UPDATE moves the next free turn on by
-/// 1/SendsPerSecond and returns the one taken, so two copies can never take the same turn. The database clock is used
-/// for both the turn and "now", so the copies' own clocks do not matter. A turn is never earlier than now: time without
-/// sends is not saved up for a burst later.
+/// Turns live in one row (erp_send_pace): one UPDATE takes a turn and moves the next on by 1/SendsPerSecond, using the
+/// database clock, so two copies never take the same turn.
 /// </summary>
 public sealed class PostgresSendPacer(InvoiceDbContext db, IOptions<OutboxOptions> options, TimeProvider time) : IErpSendPacer
 {

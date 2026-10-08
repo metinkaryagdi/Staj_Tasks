@@ -2,15 +2,12 @@ using Microsoft.Extensions.Options;
 
 namespace ErpSimulator.Application.Simulation;
 
-/// <summary>
-/// Bound from the "RateLimit" section: how many invoice submissions the simulator accepts per second, shared by every
-/// client. No default in code: a missing value stops the app at startup.
-/// </summary>
+/// <summary>Bound from the "RateLimit" section; no default in code, a missing value stops the app at startup.</summary>
 public sealed class RateLimitOptions
 {
     public const string SectionName = "RateLimit";
 
-    /// <summary>Requests accepted per second; the bucket holds this many tokens and is refilled once a second.</summary>
+    /// <summary>Invoice requests accepted per second, shared by every client.</summary>
     public int PermitsPerSecond { get; set; }
 }
 
