@@ -398,9 +398,9 @@ Yakalanmayan iki değişiklik bu tabloda değil, senaryoları koruyan satırlar 
 `SKIP LOCKED` sözcüğünü tek başına silmek (senaryo 1) ve `GREATEST(...)` → `next_turn_at` (senaryo 8).
 
 **4. Art arda 20 çalıştırma:** `dotnet test invoice-service/InvoiceService.slnx` 20 kez art arda çalıştırıldı; 20 çalışmanın
-hepsinde beş test projesi de geçti (100 / 100). Bir çalışma (derleme hariç) 17,8-21,1 sn sürdü.
+hepsinde beş test projesi de geçti (100 / 100). Bir çalışma (derleme hariç) 18,7-21,4 sn sürdü.
 
-**5. Entegrasyon testlerinin süresi:** 11-12 sn (container açma ve 10 testin veritabanlarını kurması dahil; imaj yereldeyken).
+**5. Entegrasyon testlerinin süresi:** 12-13 sn (container açma ve 10 testin veritabanlarını kurması dahil; imaj yereldeyken).
 
 **Senaryo 7'de bulunan:** kod okumasıyla varılan sonuç (iki taraf da önce faturanın satır kilidini alır, gelen kilidi bekleyip durumu
 yeniden okur; tutarsız durum ve deadlock yok) test ile doğrulandı. 40 fatura çiftinde üç çalışmada düzeltme 12, 15, 15; resend 28, 25, 25
