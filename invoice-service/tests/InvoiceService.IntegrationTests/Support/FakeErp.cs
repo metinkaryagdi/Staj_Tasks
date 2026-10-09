@@ -24,6 +24,13 @@ public sealed class FakeErp : IAsyncDisposable
     /// <summary>The answer to GET api/v1/invoices/{number}.</summary>
     public Func<string, IResult> OnGet { get; set; } = _ => Results.NotFound();
 
+    /// <summary>From now on every invoice is refused with 400, which the service treats as final: the invoice is
+    /// Başarısız at once.</summary>
+    public void RefuseInvoices() => OnPost = _ => Results.Problem(statusCode: 400, title: "reddedildi");
+
+    /// <summary>From now on every invoice is accepted again.</summary>
+    public void AcceptInvoices() => OnPost = number => Results.Json(new { erpReference = $"ERP-{number}" }, statusCode: 202);
+
     public string BaseUrl { get; }
 
     /// <summary>The invoice numbers posted so far, in the order they arrived.</summary>

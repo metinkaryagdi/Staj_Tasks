@@ -2,6 +2,7 @@ using System.Text.Json;
 using InvoiceService.Application;
 using InvoiceService.Application.Invoices;
 using InvoiceService.Application.Outbox;
+using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
 using InvoiceService.Domain.Webhooks;
 using InvoiceService.Infrastructure;
@@ -75,6 +76,37 @@ public abstract class IntegrationTest(PostgresFixture postgres) : IAsyncLifetime
         var processor = scope.ServiceProvider.GetRequiredService<OutboxProcessor>();
         foreach (var entry in await processor.ClaimAsync(10, workerId, CancellationToken.None))
             await processor.SendAsync(entry, workerId);
+    }
+
+    /// <summary>Sends every queued invoice, as the workers would, until none is waiting any more.</summary>
+    protected async Task SendAllAsync()
+    {
+        while (await ScalarAsync<long>("SELECT count(*) FROM erp_outbox WHERE status = 'Bekliyor'") > 0)
+            await SendToErpAsync();
+    }
+
+    /// <summary>Starts a reconciliation run (so findings have a run to belong to) and lets its lock go; returns its id.</summary>
+    protected async Task<long> StartRunAsync()
+    {
+        await using var scope = NewScope();
+        var started = await scope.ServiceProvider.GetRequiredService<ReconciliationService>()
+            .TryStartAsync(operatorName: null, CancellationToken.None);
+        await started!.Lease.DisposeAsync();
+        return started.Run.Id;
+    }
+
+    /// <summary>Writes one planned fix of a reconciliation run, in a service copy of its own.</summary>
+    protected async Task<bool> ApplyFixAsync(long runId, PlannedFinding finding)
+    {
+        await using var scope = NewScope();
+        return await scope.ServiceProvider.GetRequiredService<FixApplier>().ApplyAsync(runId, finding);
+    }
+
+    protected async Task ExecuteAsync(string sql)
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
     }
 
     /// <summary>An ERP event about the invoice, with the reference the fake ERP gives it.</summary>
