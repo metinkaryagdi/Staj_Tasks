@@ -47,13 +47,8 @@ public sealed class FakeUnitOfWork : IUnitOfWork
         return Task.FromResult<IUnitOfWorkTransaction>(new Transaction(this));
     }
 
-    public int Snapshots { get; private set; }
-
-    public Task<IUnitOfWorkTransaction> BeginSnapshotAsync(CancellationToken ct)
-    {
-        Snapshots++;
-        return Task.FromResult<IUnitOfWorkTransaction>(new Transaction(this));
-    }
+    public Task<IUnitOfWorkTransaction> BeginSnapshotAsync(CancellationToken ct) =>
+        Task.FromResult<IUnitOfWorkTransaction>(new Transaction(this));
 
     public Task SaveChangesAsync(CancellationToken ct)
     {

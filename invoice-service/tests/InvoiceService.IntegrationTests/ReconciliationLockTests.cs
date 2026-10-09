@@ -17,8 +17,12 @@ public class ReconciliationLockTests(PostgresFixture postgres) : IntegrationTest
         return await service.TryStartAsync(operatorName: null, CancellationToken.None);
     }
 
+    // Only the locks of this test's own database: pg_locks lists the locks of the whole server.
+    private const string AdvisoryLocksOfThisDatabase =
+        "locktype = 'advisory' AND granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())";
+
     private Task<long> AdvisoryLocksHeldAsync() =>
-        ScalarAsync<long>("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted");
+        ScalarAsync<long>($"SELECT count(*) FROM pg_locks WHERE {AdvisoryLocksOfThisDatabase}");
 
     // Scenario 5
     [Fact]
@@ -53,7 +57,7 @@ public class ReconciliationLockTests(PostgresFixture postgres) : IntegrationTest
         await using (var connection = await OpenConnectionAsync())
         {
             await using var kill = new Npgsql.NpgsqlCommand(
-                "SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND granted", connection);
+                $"SELECT pg_terminate_backend(pid) FROM pg_locks WHERE {AdvisoryLocksOfThisDatabase}", connection);
             await kill.ExecuteNonQueryAsync();
         }
         await Eventually.WaitUntilAsync(async () => await AdvisoryLocksHeldAsync() == 0, "the dead copy's lock to fall");

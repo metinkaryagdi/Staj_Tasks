@@ -23,35 +23,52 @@ public class ReconciliationFixRaceTests(PostgresFixture postgres) : IntegrationT
         return numbers;
     }
 
-    // Scenario 6
+    /// <summary>
+    /// Scenario 6. For each invoice the ERP has decided "approved": the run fixes it and the event for the same decision
+    /// arrives. The collision is made certain: the test holds the invoice's row lock, starts the fix and the event, and
+    /// lets go only when both are waiting. Without the row lock in <c>InvoiceStore.LockAsync</c> both would have read the
+    /// invoice as Gönderildi before either wrote.
+    /// </summary>
     [Fact]
     public async Task A_fix_and_an_event_for_the_same_invoice_at_the_same_moment_do_not_spoil_each_other()
     {
-        const int pairs = 40;
         var runId = await StartRunAsync();
-        var numbers = await SentInvoicesAsync(pairs);
+        var numbers = await SentInvoicesAsync(10);
 
-        // For each invoice the ERP has decided "approved": the run fixes it, and the event for the same decision arrives.
-        var start = new TaskCompletionSource();
-        var work = numbers.SelectMany(number => new[]
+        foreach (var number in numbers)
         {
-            Task.Run(async () =>
+            await using var holder = await OpenConnectionAsync();
+            await using var held = await holder.BeginTransactionAsync();
+            await using (var take = new Npgsql.NpgsqlCommand("SELECT 1 FROM invoices WHERE invoice_number = @n FOR UPDATE", holder, held))
             {
-                await start.Task;
-                var fix = new Fix(FixKind.ApplyDecision, number, InvoiceStatus.Sent, $"ERP-{number}", new ErpDecision(ErpDecisionKind.Approved));
-                return await ApplyFixAsync(runId, new PlannedFinding(number, FindingType.StuckInvoice, "karar uygulandı", fix));
-            }),
-            Task.Run(async () =>
-            {
-                await start.Task;
-                await DeliverAsync(ErpEvent($"evt-{number}", WebhookEventType.Approved, number));
-                return false;
-            })
-        }).ToList();
-        start.SetResult();
-        await Task.WhenAll(work);
+                take.Parameters.AddWithValue("n", number);
+                await take.ExecuteScalarAsync();
+            }
 
-        // Whoever got the invoice first changed it; the other found it already Onaylandı and left it alone. Never both.
+            var fix = Task.Run(() => ApplyFixAsync(runId, ApproveFinding(number)));
+            var received = Task.Run(() => DeliverAsync(ErpEvent($"evt-{number}", WebhookEventType.Approved, number)));
+            await Eventually.WaitUntilAsync(
+                async () => await ScalarAsync<long>(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'") >= 2,
+                "the fix and the event to wait for the invoice's row lock");
+            await held.CommitAsync();
+            await Task.WhenAll(fix, received);
+        }
+
+        Assert.Empty(await InconsistentAfterFixAndEventAsync(numbers));
+    }
+
+    /// <summary>For an invoice the ERP has approved: the run's fix, as the planner would write it.</summary>
+    private static PlannedFinding ApproveFinding(string number) => new(
+        number, FindingType.StuckInvoice, "karar uygulandı",
+        new Fix(FixKind.ApplyDecision, number, InvoiceStatus.Sent, $"ERP-{number}", new ErpDecision(ErpDecisionKind.Approved)));
+
+    /// <summary>
+    /// Whoever got the invoice first changed it; the other found it already Onaylandı and left it alone. Never both and
+    /// never neither. Returns what is wrong, per invoice.
+    /// </summary>
+    private async Task<List<string>> InconsistentAfterFixAndEventAsync(IEnumerable<string> numbers)
+    {
         var inconsistent = new List<string>();
         foreach (var number in numbers)
         {
@@ -65,7 +82,7 @@ public class ReconciliationFixRaceTests(PostgresFixture postgres) : IntegrationT
             if (status != InvoiceStatus.Approved || fixWon == eventWon)
                 inconsistent.Add($"{number}: invoice={status}, fixes={fixes}, event={eventStatus}");
         }
-        Assert.Empty(inconsistent);
+        return inconsistent;
     }
 
     // Scenario 7
