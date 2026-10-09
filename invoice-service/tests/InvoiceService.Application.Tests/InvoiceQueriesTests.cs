@@ -66,6 +66,14 @@ public class InvoiceQueriesTests
     }
 
     [Fact]
+    public async Task Summary_reads_all_its_numbers_inside_one_snapshot()
+    {
+        await _s.InvoiceQueries().SummaryAsync(CancellationToken.None);
+
+        Assert.Equal(1, _s.UnitOfWork.Snapshots);
+    }
+
+    [Fact]
     public async Task Summary_of_an_empty_queue_has_no_oldest_wait()
     {
         Entry("FTR-000001", OutboxStatus.Completed, Scenario.Start.AddMinutes(-5), Scenario.Start.AddMinutes(-5));

@@ -11,6 +11,12 @@ public interface IUnitOfWork
     /// </summary>
     Task<IUnitOfWorkTransaction> BeginAsync(CancellationToken ct);
 
+    /// <summary>
+    /// Starts a transaction in which every read sees the database as it was when the first read ran, so several reads
+    /// show one moment even while other writers commit.
+    /// </summary>
+    Task<IUnitOfWorkTransaction> BeginSnapshotAsync(CancellationToken ct);
+
     /// <summary>Writes the changes made to tracked entities.</summary>
     Task SaveChangesAsync(CancellationToken ct);
 }

@@ -7,7 +7,7 @@ namespace InvoiceService.Application.Invoices;
 
 /// <summary>Reads invoices as stored by the service.</summary>
 public sealed class InvoiceQueries(
-    IInvoiceStore invoices, IOutboxStore outbox, IWebhookEventStore events, IReconciliationStore reconciliation,
+    IUnitOfWork unitOfWork, IInvoiceStore invoices, IOutboxStore outbox, IWebhookEventStore events, IReconciliationStore reconciliation,
     IOperatorActionStore actions, IInvoiceFollowUpStore followUps, IOptions<ReconciliationOptions> reconciliationOptions, TimeProvider time)
 {
     public const int DefaultPageSize = 20;
@@ -44,10 +44,12 @@ public sealed class InvoiceQueries(
     public async Task<InvoiceSummary> SummaryAsync(CancellationToken ct)
     {
         var options = reconciliationOptions.Value;
-        var byStatus = await invoices.CountByStatusAsync(ct);
-        var stuck = await invoices.CountStuckAsync(StuckBefore(), ct);
-
         var now = time.GetUtcNow();
+
+        // One moment for every number: the counts are read in a snapshot, and the time limits come from one clock reading.
+        await using var snapshot = await unitOfWork.BeginSnapshotAsync(ct);
+        var byStatus = await invoices.CountByStatusAsync(ct);
+        var stuck = await invoices.CountStuckAsync(now - options.StuckAfter, ct);
         var queue = await outbox.QueueStatsAsync(now - SentWindow, ct);
         var oldestSeconds = queue.OldestQueuedAt is { } oldest ? (long)Math.Max(0, (now - oldest).TotalSeconds) : (long?)null;
 

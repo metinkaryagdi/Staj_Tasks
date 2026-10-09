@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using Microsoft.EntityFrameworkCore;
 
 namespace InvoiceService.Infrastructure.Persistence;
 
@@ -10,6 +11,9 @@ public sealed class UnitOfWork(InvoiceDbContext db) : IUnitOfWork
 {
     public async Task<IUnitOfWorkTransaction> BeginAsync(CancellationToken ct) =>
         new Transaction(await db.Database.BeginTransactionAsync(ct));
+
+    public async Task<IUnitOfWorkTransaction> BeginSnapshotAsync(CancellationToken ct) =>
+        new Transaction(await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, ct));
 
     public Task SaveChangesAsync(CancellationToken ct) => db.SaveChangesAsync(ct);
 

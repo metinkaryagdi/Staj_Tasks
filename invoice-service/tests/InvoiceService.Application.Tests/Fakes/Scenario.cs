@@ -88,7 +88,7 @@ public sealed class Scenario
         new(UnitOfWork, Invoices, FollowUps, OperatorActions, Time, Options.Create(ReconciliationSettings));
 
     public InvoiceQueries InvoiceQueries() => new(
-        Invoices, Outbox, Events, Reconciliation, OperatorActions, FollowUps, Options.Create(ReconciliationSettings), Time);
+        UnitOfWork, Invoices, Outbox, Events, Reconciliation, OperatorActions, FollowUps, Options.Create(ReconciliationSettings), Time);
 
     public CreateInvoiceHandler CreateInvoiceHandler() => new(Invoices, Time, NullLoggerFactory.Instance);
 }
