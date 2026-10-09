@@ -131,7 +131,7 @@ cevap her fatura için ayrı sonuçtur (`queued`, `not_found`, `not_failed` + ş
 takılı değilse ya da açık takibi varsa reddedilir; takip ve `operator_actions` kaydı aynı transaction'dadır. Fatura değişmez.
 
 **Ekranın okumaları** — `InvoiceQueries`: sayfalı liste, arama ve takılı süzgeci (`ListPageAsync`), özet (`CountByStatusAsync`,
-`CountStuckAsync`), detay (fatura, outbox kaydı, haberler, bulgular ve müdahaleler; ayrı okumalar, tek anlık görüntü değil).
+`CountStuckAsync`, `QueueStatsAsync`; hepsi tek `REPEATABLE READ` anlık görüntüsünde), detay (fatura, outbox kaydı, haberler, bulgular ve müdahaleler; ayrı okumalar, tek anlık görüntü değil).
 `ReconciliationQueries`: sayfalı çalışma listesi ve bir çalışmanın bulguları.
 
 ## ERP Simulator

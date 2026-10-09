@@ -434,7 +434,7 @@ kez kazandı; iki yön de oluşuyor, hiçbirinde karışık durum çıkmadı. Te
 - **`SKIP LOCKED`:** senaryo 1'in testi `FOR UPDATE SKIP LOCKED`'ın `SKIP LOCKED` kısmı kaldırılınca kırılmaz: kilit süresi koşulu aynı
   kaydın iki kez alınmasını yine önler, `SKIP LOCKED` yalnızca ikinci worker'ın beklemesini engeller ve bunu ölçen bir test yoktur.
 - **Actions kapsamı:** iş akışı Invoice Service testlerini çalıştırır; ERP Simulator ve operasyon ekranı testleri çalıştırılmaz.
-- **Yerel test verisi:** 1. maddenin simülatöre doğrudan gönderdiği faturalar her mutabakatta `Serviste Yok` olarak raporlanır.
+- **Yerel test verisi:** Gün 8'in 1. maddesinde simülatöre doğrudan gönderilen faturalar her mutabakatta `Serviste Yok` olarak raporlanır.
 
 ---
 
