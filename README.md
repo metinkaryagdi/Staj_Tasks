@@ -433,8 +433,6 @@ kez kazandı; iki yön de oluşuyor, hiçbirinde karışık durum çıkmadı. Te
   ölçmez. Bekleme kaldırılırsa (`GREATEST(...)` yerine `next_turn_at`) sıra aralıkları aynı kalır ve test kırılmaz.
 - **`SKIP LOCKED`:** senaryo 1'in testi `FOR UPDATE SKIP LOCKED`'ın `SKIP LOCKED` kısmı kaldırılınca kırılmaz: kilit süresi koşulu aynı
   kaydın iki kez alınmasını yine önler, `SKIP LOCKED` yalnızca ikinci worker'ın beklemesini engeller ve bunu ölçen bir test yoktur.
-- **Resend ve çift kayıt (sınanmadı):** resend deneme sayısını sıfırlar; ilk denemede worker ERP'ye sormadan POST'lar. Fatura ERP'de
-  zaten kayıtlıysa (`Başarısız Ama ERP Kayıtlı`) ERP'de ikinci kayıt oluşabilir.
 - **Actions kapsamı:** iş akışı Invoice Service testlerini çalıştırır; ERP Simulator ve operasyon ekranı testleri çalıştırılmaz.
 - **Yerel test verisi:** 1. maddenin simülatöre doğrudan gönderdiği faturalar her mutabakatta `Serviste Yok` olarak raporlanır.
 
