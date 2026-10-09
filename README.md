@@ -378,22 +378,24 @@ okundu; kuyruktaki sayı 242'den 6.172'ye çıkarken `Bekliyor` sayısı her oku
 
 **2. Senaryolar:** sekiz senaryonun hepsi için en az bir entegrasyon testi var (yukarıdaki tablo); 10 test geçti.
 
-**3. Mekanizmanın geçici kaldırılması:** her değişiklikten sonra ilgili test çalıştırıldı, dosya geri alındı ve test yeniden geçti.
+**3. Mekanizmanın geçici kaldırılması:** her senaryo için onu koruyan satır geçici değiştirildi, ilgili test çalıştırıldı, dosya geri
+alındı ve test yeniden geçti (hepsinde geri koyunca geçti). "Kırılma": değişiklikle test kaç çalıştırmada kırıldı.
 
-| Senaryo | Değiştirilen satır | Testin hatası |
-|---|---|---|
-| 1 | `OutboxStore.cs:17` `AND (locked_until IS NULL OR locked_until < {now})` → `AND TRUE` | Expected 60, Actual 300 (aynı kayıtlar tekrar tekrar alındı) |
-| 1 | `OutboxStore.cs:20` `FOR UPDATE SKIP LOCKED` → `FOR UPDATE` | **kırılmadı** ([Bilinen sınırlar](#bilinen-sınırlar)) |
-| 2 | `OutboxStore.cs:60` `o.ClaimToken == claimToken` koşulu çıkarıldı | `Assert.False()` Expected False, Actual True (geç sonuç yazıldı) |
-| 3 | `OutboxOutcomeWriter.cs:46` `ApplyWaitingAsync` çağrısı çıkarıldı | Expected "Onaylandı", Actual "Gönderildi" |
-| 4 | `WebhookEventStore.cs:27` `RETURNING (xmax = 0)` → `RETURNING true` | `DbUpdateException`, `ck_erp_webhook_events_processed_at` ihlali (olay ikinci kez uygulanmak istendi) |
-| 5 | `AdvisoryReconciliationLock.cs:32` kilit sonucu kontrolü → `if (true)` | `Assert.Single()`: 2 çalışma başladı |
-| 5 | `ReconciliationStore.cs:28` `WHERE r.status = Çalışıyor` → `WHERE false` | Expected "Başarısız", Actual "Çalışıyor" (çöken çalışma kapatılmadı) |
-| 6 | `InvoiceStore.cs:87` `FOR UPDATE` çıkarıldı | `FTR-000001: invoice=Onaylandı, fixes=1, event=İşlendi` (düzeltme de haber de uygulanmış; 10 faturanın hepsinde) |
-| 7 | `InvoiceStore.cs:69` `i.Status == Failed` koşulu çıkarıldı | `fix=True, resend=Queued, ...` (iki taraf da kazandı) |
-| 7 | `InvoiceStore.cs:87` `FOR UPDATE` çıkarıldı | `fix=True, resend=Queued, invoice=Gönderildi ...` |
-| 8 | `PostgresSendPacer.cs:19` `GREATEST(next_turn_at, clock_timestamp())` → `clock_timestamp()` | Expected 0, Actual 99 (99 sıra aralıktan kısa) |
-| 8 | aynı satır → `next_turn_at` | **kırılmadı** ([Bilinen sınırlar](#bilinen-sınırlar)) |
+| Senaryo | Değiştirilen satır | Testin hatası | Kırılma |
+|---|---|---|---|
+| 1 | `OutboxStore.cs:20` `FOR UPDATE SKIP LOCKED` satırının tamamı kaldırıldı | `Assert.Equal` Expected 60, Actual 90 (aynı kayıtlar iki worker'a verildi) | 3 / 3 |
+| 2 | `OutboxStore.cs:60` `o.ClaimToken == claimToken` koşulu kaldırıldı | `Assert.False()` Expected False, Actual True (geç sonuç yazıldı) | 3 / 3 |
+| 3 | `OutboxOutcomeWriter.cs:46` `ApplyWaitingAsync` çağrısı kaldırıldı | Expected "Onaylandı", Actual "Gönderildi" (bekleyen haber işlenmedi) | 3 / 3 |
+| 4 | `WebhookEventProcessor.cs:29` `if (!inserted)` → `if (false)` (tekrar kontrolü) | `DbUpdateException`: `ck_erp_webhook_events_processed_at` ihlali (olay ikinci kez uygulanmak istendi, veritabanı reddetti) | 10 / 10 |
+| 5 | `AdvisoryReconciliationLock.cs:32` kilit sonucu kontrolü → `if (true)` | `Assert.Single()`: 2 çalışma başladı | 3 / 3 |
+| 5 | `ReconciliationStore.cs:28` `WHERE r.status = Çalışıyor` → `WHERE false` | Expected "Başarısız", Actual "Çalışıyor" (çöken çalışma kapatılmadı) | 3 / 3 |
+| 6 | `InvoiceStore.cs:87` `FOR UPDATE` kaldırıldı | `Assert.Empty()`: `FTR-000001: invoice=Onaylandı, fixes=1, event=İşlendi` (düzeltme de haber de uygulanmış) | 10 / 10 |
+| 7 | `InvoiceStore.cs:69` `i.Status == Failed` koşulu kaldırıldı | `Assert.Empty()`: `fix=True, resend=Queued, ...` (iki taraf da kazandı) | 10 / 10 |
+| 7 | `InvoiceStore.cs:87` `FOR UPDATE` kaldırıldı | `Assert.Empty()`: `fix=True, resend=Queued, invoice=Gönderildi ...` | 10 / 10 |
+| 8 | `PostgresSendPacer.cs:19` aralık artışı (`+ make_interval(...)`) kaldırıldı | `Assert.Equal` Expected 0, Actual 99 (99 sıra aralıktan kısa) | 3 / 3 |
+
+Yakalanmayan iki değişiklik bu tabloda değil, senaryoları koruyan satırlar olmadıkları için ([Bilinen sınırlar](#bilinen-sınırlar)):
+`SKIP LOCKED` sözcüğünü tek başına silmek (senaryo 1) ve `GREATEST(...)` → `next_turn_at` (senaryo 8).
 
 **4. Art arda 20 çalıştırma:** `dotnet test invoice-service/InvoiceService.slnx` 20 kez art arda çalıştırıldı; 20 çalışmanın
 hepsinde beş test projesi de geçti (100 / 100). Bir çalışma (derleme hariç) 17,8-21,1 sn sürdü.
