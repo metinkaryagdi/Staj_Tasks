@@ -373,8 +373,8 @@ mekanizmalar için otomatik testler yazıldı; özet sayfasının sayıları tek
 Birim testler: Invoice Service 350 (Domain 26, Application 262, Infrastructure 49, Api 13), entegrasyon testleri 10; hepsi geçti.
 
 **1. Özet yük altında:** iki kopyayla 5 dakikalık yük testi (15.000 istek, hepsi 202, p95 4,3 ms) sürerken özet 100 kez, 1,5 sn arayla
-okundu; kuyruktaki sayı 242'den 6.172'ye çıkarken `Bekliyor` sayısı her okumada kuyruktaki sayıyla aynıydı (100 / 100). Aynı
-ölçüm özetin snapshot'ı geçici kaldırılarak yeniden yapıldığında (kuyruk boşalırken, 60 okuma) 57 / 60 aynı çıktı.
+okundu; kuyruktaki sayı 7.973'ten 13.936'ya çıkarken `Bekliyor` sayısı her okumada kuyruktaki sayıyla aynıydı (100 / 100; yük başlarken
+kuyrukta önceki yükten kalan 7.053 kayıt vardı).
 
 **2. Senaryolar:** sekiz senaryonun hepsi için en az bir entegrasyon testi var (yukarıdaki tablo); 10 test geçti.
 
