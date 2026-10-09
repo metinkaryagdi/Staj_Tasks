@@ -13,7 +13,6 @@ public class WebhookEventTests(PostgresFixture postgres) : IntegrationTest(postg
     private Task<string?> EventStatusAsync(string eventId) =>
         ScalarAsync<string>("SELECT status FROM erp_webhook_events WHERE event_id = @e", ("e", eventId));
 
-    // Scenario 3
     [Fact]
     public async Task An_event_that_comes_before_the_invoice_is_Gonderildi_waits_and_is_applied_when_it_is()
     {
@@ -33,7 +32,6 @@ public class WebhookEventTests(PostgresFixture postgres) : IntegrationTest(postg
         Assert.True(await ScalarAsync<bool>("SELECT processed_at IS NOT NULL FROM erp_webhook_events WHERE event_id = 'evt-1'"));
     }
 
-    // Scenario 4
     [Fact]
     public async Task The_same_event_arriving_ten_times_at_once_is_processed_once()
     {

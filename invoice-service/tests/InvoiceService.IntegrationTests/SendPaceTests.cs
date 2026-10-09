@@ -18,7 +18,6 @@ public class SendPaceTests(PostgresFixture postgres) : IntegrationTest(postgres)
             await pacer.WaitForTurnAsync(CancellationToken.None);
     }
 
-    // Scenario 8
     [Fact]
     public async Task Two_copies_taking_100_turns_at_the_same_time_never_get_turns_closer_than_the_set_interval()
     {

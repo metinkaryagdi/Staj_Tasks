@@ -20,7 +20,6 @@ public class OutboxClaimTests(PostgresFixture postgres) : IntegrationTest(postgr
         return await processor.ClaimAsync(limit, workerId, CancellationToken.None);
     }
 
-    // Scenario 1
     [Fact]
     public async Task Two_workers_taking_at_the_same_moment_never_take_the_same_entry()
     {
@@ -76,7 +75,6 @@ public class OutboxClaimTests(PostgresFixture postgres) : IntegrationTest(postgr
             entry, new RetryDecision(SendOutcome.Failed, TimeSpan.Zero, "geç gelen sonuç"), failed, DateTimeOffset.UtcNow);
     }
 
-    // Scenario 2
     [Fact]
     public async Task A_late_result_of_the_old_worker_does_not_overwrite_the_result_of_the_new_one()
     {

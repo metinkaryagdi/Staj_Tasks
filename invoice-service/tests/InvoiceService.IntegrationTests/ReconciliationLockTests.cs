@@ -24,7 +24,6 @@ public class ReconciliationLockTests(PostgresFixture postgres) : IntegrationTest
     private Task<long> AdvisoryLocksHeldAsync() =>
         ScalarAsync<long>($"SELECT count(*) FROM pg_locks WHERE {AdvisoryLocksOfThisDatabase}");
 
-    // Scenario 5
     [Fact]
     public async Task Two_runs_asked_at_the_same_moment_start_only_one()
     {

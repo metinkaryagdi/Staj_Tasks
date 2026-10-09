@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -11,18 +10,14 @@ namespace InvoiceService.IntegrationTests.Support;
 
 /// <summary>
 /// A small HTTP server inside the test that answers like the ERP: POST api/v1/invoices and GET api/v1/invoices/{number}.
-/// By default it accepts every invoice and has no record of any; a test changes the answers it needs.
+/// It accepts every invoice and has no record of any; a test can make it refuse invoices.
 /// </summary>
 public sealed class FakeErp : IAsyncDisposable
 {
     private readonly WebApplication _app;
-    private readonly ConcurrentQueue<string> _posted = new();
 
     /// <summary>The answer to POST api/v1/invoices, by invoice number.</summary>
     public Func<string, IResult> OnPost { get; set; } = number => Results.Json(new { erpReference = $"ERP-{number}" }, statusCode: 202);
-
-    /// <summary>The answer to GET api/v1/invoices/{number}.</summary>
-    public Func<string, IResult> OnGet { get; set; } = _ => Results.NotFound();
 
     /// <summary>From now on every invoice is refused with 400, which the service treats as final: the invoice is
     /// Başarısız at once.</summary>
@@ -32,9 +27,6 @@ public sealed class FakeErp : IAsyncDisposable
     public void AcceptInvoices() => OnPost = number => Results.Json(new { erpReference = $"ERP-{number}" }, statusCode: 202);
 
     public string BaseUrl { get; }
-
-    /// <summary>The invoice numbers posted so far, in the order they arrived.</summary>
-    public IReadOnlyCollection<string> Posted => _posted;
 
     private FakeErp(WebApplication app, string baseUrl)
     {
@@ -50,12 +42,8 @@ public sealed class FakeErp : IAsyncDisposable
         var app = builder.Build();
 
         FakeErp? erp = null;
-        app.MapPost("api/v1/invoices", (PostedInvoice body) =>
-        {
-            erp!._posted.Enqueue(body.InvoiceNumber);
-            return erp.OnPost(body.InvoiceNumber);
-        });
-        app.MapGet("api/v1/invoices/{number}", (string number) => erp!.OnGet(number));
+        app.MapPost("api/v1/invoices", (PostedInvoice body) => erp!.OnPost(body.InvoiceNumber));
+        app.MapGet("api/v1/invoices/{number}", () => Results.NotFound());
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();

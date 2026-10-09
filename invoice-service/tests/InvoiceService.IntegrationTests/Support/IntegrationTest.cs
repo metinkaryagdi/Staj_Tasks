@@ -25,15 +25,12 @@ public abstract class IntegrationTest(PostgresFixture postgres) : IAsyncLifetime
     protected FakeErp Erp { get; private set; } = null!;
     protected string ConnectionString { get; private set; } = "";
 
-    /// <summary>Settings of the service this test changes; read when <see cref="InitializeAsync"/> builds the services.</summary>
-    protected virtual IReadOnlyDictionary<string, string?>? SettingOverrides => null;
-
     public async Task InitializeAsync()
     {
         (_databaseName, ConnectionString) = await postgres.CreateDatabaseAsync();
         Erp = await FakeErp.StartAsync();
 
-        var configuration = TestSettings.Build(ConnectionString, Erp.BaseUrl, SettingOverrides);
+        var configuration = TestSettings.Build(ConnectionString, Erp.BaseUrl);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(configuration);

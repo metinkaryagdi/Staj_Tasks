@@ -24,7 +24,7 @@ public class ReconciliationFixRaceTests(PostgresFixture postgres) : IntegrationT
     }
 
     /// <summary>
-    /// Scenario 6. For each invoice the ERP has decided "approved": the run fixes it and the event for the same decision
+    /// For each invoice the ERP has decided "approved": the run fixes it and the event for the same decision
     /// arrives. The collision is made certain: the test holds the invoice's row lock, starts the fix and the event, and
     /// lets go only when both are waiting. Without the row lock in <c>InvoiceStore.LockAsync</c> both would have read the
     /// invoice as Gönderildi before either wrote.
@@ -85,7 +85,6 @@ public class ReconciliationFixRaceTests(PostgresFixture postgres) : IntegrationT
         return inconsistent;
     }
 
-    // Scenario 7
     [Fact]
     public async Task A_fix_of_a_Failed_invoice_and_a_resend_at_the_same_moment_leave_it_in_one_consistent_state()
     {
