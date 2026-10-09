@@ -29,19 +29,20 @@ public class OutboxClaimTests(PostgresFixture postgres) : IntegrationTest(postgr
             await CreateInvoiceAsync();
 
         var taken = new List<(string Worker, long Id)>();
-        while (true)
+        // 60 entries are gone after two rounds; the limit only stops a broken claim that keeps handing out the same entries.
+        for (var round = 0; round < 10; round++)
         {
             // Both claims are prepared first and released together, so they really overlap.
             var start = new TaskCompletionSource();
             var a = ClaimAsync("A", 15, start.Task);
             var b = ClaimAsync("B", 15, start.Task);
             start.SetResult();
-            var round = await Task.WhenAll(a, b);
+            var claimed = await Task.WhenAll(a, b);
 
-            if (round.All(r => r.Count == 0))
+            if (claimed.All(r => r.Count == 0))
                 break;
-            taken.AddRange(round[0].Select(e => ("A", e.Id)));
-            taken.AddRange(round[1].Select(e => ("B", e.Id)));
+            taken.AddRange(claimed[0].Select(e => ("A", e.Id)));
+            taken.AddRange(claimed[1].Select(e => ("B", e.Id)));
         }
 
         Assert.Equal(entries, taken.Count);

@@ -81,8 +81,12 @@ public abstract class IntegrationTest(PostgresFixture postgres) : IAsyncLifetime
     /// <summary>Sends every queued invoice, as the workers would, until none is waiting any more.</summary>
     protected async Task SendAllAsync()
     {
-        while (await ScalarAsync<long>("SELECT count(*) FROM erp_outbox WHERE status = 'Bekliyor'") > 0)
+        for (var round = 0; await ScalarAsync<long>("SELECT count(*) FROM erp_outbox WHERE status = 'Bekliyor'") > 0; round++)
+        {
+            if (round == 100)
+                throw new TimeoutException("Invoices are still queued after 100 rounds of sending.");
             await SendToErpAsync();
+        }
     }
 
     /// <summary>Starts a reconciliation run (so findings have a run to belong to) and lets its lock go; returns its id.</summary>
