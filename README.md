@@ -157,7 +157,7 @@ yeniden kuyruğa alır. Durum değerleri ve alanlar veritabanında check constra
 | `POST /api/v1/invoices/{invoiceNumber}/resend` | `X-Operator-Name` gerekir (aşağıya bakın). Yalnızca `Başarısız` fatura için: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen), faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409` (`code: invoice_not_failed`, `currentStatus`), yoksa `404` (`code: invoice_not_found`). Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
 | `POST /api/v1/invoices/resend` | `X-Operator-Name` gerekir. Body `{"invoiceNumbers": [...]}`, 1-100 numara (aksi `400`). Her fatura tekli resend'in kurallarıyla, kendi transaction'ında; tekrarlanan numara bir kez. Her zaman `200` + fatura başına sonuç: `queued`, `not_found`, `not_failed` (+ `currentStatus`), `error`. |
 | `GET /api/v1/invoices` | Sayfalı liste, en yeni üstte: `status` (geçersizse `400`), `stuck=true` (yalnızca özetin takılı saydığı faturalar; aynı koşul; her faturada `stuck` alanı da bu koşulla gelir), `search` (numaranın bir parçası, büyük/küçük harf fark etmez), `page` (1'den), `pageSize` (1-100, varsayılan 20). Cevap `{items, page, pageSize, totalCount, totalPages}`. |
-| `GET /api/v1/invoices/summary` | Her durumdaki fatura sayısı (0 olanlar dahil), toplam, takılı sayısı (`Gönderildi` / `İşleme Alındı`'da `StuckAfterMinutes`'tan uzun kalan) ve ERP'ye gönderim kuyruğu: `queuedCount` (`erp_outbox`'ta `Bekliyor`), `oldestQueuedSeconds` (en eski `Bekliyor` kaydın oluşturulmasından bu yana; kuyruk boşsa `null`), `sentLastMinute` (son 60 sn'de `Tamamlandı` olan). |
+| `GET /api/v1/invoices/summary` | Her durumdaki fatura sayısı (0 olanlar dahil), toplam, takılı sayısı (`Gönderildi` / `İşleme Alındı`'da `StuckAfterMinutes`'tan uzun kalan) ve ERP'ye gönderim kuyruğu: `queuedCount` (`erp_outbox`'ta `Bekliyor`), `oldestQueuedSeconds` (en eski `Bekliyor` kaydın oluşturulmasından bu yana; kuyruk boşsa `null`), `sentLastMinute` (son 60 sn'de `Tamamlandı` olan). Bütün sayılar tek snapshot'tan okunur. |
 | `GET /api/v1/invoices/{invoiceNumber}` | Faturanın servisteki hali (`200`, `rejectReason` dahil) ya da `404`. |
 | `GET /api/v1/invoices/{invoiceNumber}/details` | Fatura, `erp_outbox` kaydı, haberleri (geliş sırasıyla), mutabakat bulguları (en yeni üstte; `ERP Karar Vermedi`'den yalnızca en sonuncusu) ve müdahaleler (`operatorActions`, en yeni üstte) tek cevapta; yoksa `404`. |
 | `POST /api/v1/reconciliation-runs` | `X-Operator-Name` gerekir. Mutabakatı elle başlatır: `202` + `Location` + çalışma (`Çalışıyor`); çalışma arka planda sürer. Başka bir çalışma sürüyorsa (zamanlanmış, elle ya da servisin diğer kopyasında) `409` (`code: reconciliation_running`). |
@@ -299,8 +299,9 @@ testler `npm test --prefix operations-ui`.
 
 | Ne | Komut |
 |---|---|
-| Unit testler | `dotnet test erp-simulator`, `dotnet test invoice-service`, `npm test --prefix operations-ui` |
+| Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Gün 9 kontrol listesi | [`manual-tests/gun9/`](manual-tests/gun9/) |
 | Gün 8 kontrol listesi | [`manual-tests/gun8/`](manual-tests/gun8/) |
 | Gün 7 kontrol listesi (script'li maddeler) ve ekrandan yapılan maddelerin adımları | [`manual-tests/gun7/`](manual-tests/gun7/README.md) |
 | Gün 6 kontrol listesi | [`manual-tests/gun6/`](manual-tests/gun6/README.md) |
@@ -335,54 +336,73 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 8 — Yoğun dönem
+## Gün 9 — Gerçek veritabanıyla otomatik testler
 
-Bugünün işi: sistem dakikada binlerce faturanın geldiği bir döneme hazırlandı ve yükle sınandı.
+Bugünün işi: kilit, sahiplik, aynı anda gelen istek ve ortak hız sınırı gibi yalnızca gerçek veritabanında sınanabilen
+mekanizmalar için otomatik testler yazıldı; özet sayfasının sayıları tek snapshot'tan okunur hale getirildi.
 
-- **ERP Simulator'da hız sınırı:** `POST /api/v1/invoices` saniyede en fazla 20 istek kabul eder; sınır bütün istemcilere ortaktır
-  ve ayar dosyasından okunur. Aşan istek `429` + `Retry-After: 1` alır. İki tür 429 logda ayrı yazılır (`reason=rateLimited` /
-  `reason=busy`). Kabul edilen her istek 50–200 ms işlenir ([Hız sınırı](#hız-sınırı)).
-- **Invoice Service'in gönderim hızı:** bütün kopyaların POST'ları saniyede 18'e göre sıraya konur (`Outbox:SendsPerSecond`). Ortak
-  sıra veritabanındaki `erp_send_pace` satırında tutulur; yeni bir altyapı bileşeni eklenmedi ([Outbox Worker](#outbox-worker)).
-- **Özet sayfası:** kuyrukta bekleyen fatura sayısı, kuyruktaki en eski faturanın bekleme süresi ve son bir dakikada gönderilen
-  fatura sayısı; diğer değerlerle birlikte 10 saniyede bir yenilenir.
-- **Yük testi:** `docker compose run --rm k6` ([Yük testi](#yük-testi)).
+- **Özet tek snapshot:** `GET /api/v1/invoices/summary` bütün sayıları (durum sayıları, takılı, kuyruktaki, en eski bekleme, son
+  dakikada gönderilen) tek bir `REPEATABLE READ` transaction'ında okur; zaman sınırları da tek saat okumasından hesaplanır. Aynı
+  cevaptaki sayılar aynı anı gösterir. Ekrandaki son mutabakat çalışması ayrı bir istektir.
+- **Entegrasyon testleri:** [`invoice-service/tests/InvoiceService.IntegrationTests`](invoice-service/tests/InvoiceService.IntegrationTests).
+  Docker dışında bir şey gerekmez: Testcontainers bir PostgreSQL 17 container'ı açar, migration'ları bir şablon veritabanına uygular,
+  her test şablondan kendi veritabanını alır (testler birbirinin verisini görmez). ERP yerine testin içinde açılan küçük bir HTTP
+  sunucusu vardır. Beklemeler koşula bağlıdır (`Eventually.WaitUntilAsync`); sabit süreli bekleme yoktur.
+- **Komutlar:** `dotnet test invoice-service/InvoiceService.slnx` birim ve entegrasyon testlerini birlikte çalıştırır;
+  `dotnet test invoice-service/tests/InvoiceService.IntegrationTests` yalnızca entegrasyon testlerini. Birim testler bu projeye
+  eklenmedi, hızlı kalır.
+- **GitHub Actions:** [`.github/workflows/invoice-service-tests.yml`](.github/workflows/invoice-service-tests.yml) her push'ta
+  `dotnet test invoice-service/InvoiceService.slnx` çalıştırır.
 
-Kontrol listesi: [`manual-tests/gun8/`](manual-tests/gun8/) — `1-hiz-siniri.ps1` (1. madde), `6-yuk-olcum.ps1` (2. ve 3. madde,
-yük testinden sonra), `5-ozet-kuyruk.ps1` (4. madde), `7-mutabakat-olcum.ps1` (5. madde); adım script'leri `2-iki-429.ps1`,
-`3-islem-suresi.ps1`, `4-gonderim-hizi.ps1`.
+| Senaryo | Test |
+|---|---|
+| 1. İki worker aynı kaydı almaz | `OutboxClaimTests.Two_workers_taking_at_the_same_moment_never_take_the_same_entry` |
+| 2. Süresi dolan worker'ın geç sonucu ezmez | `OutboxClaimTests.A_late_result_of_the_old_worker_...` (2 test) |
+| 3. Gönderildi'den önce gelen haber kaybolmaz | `WebhookEventTests.An_event_that_comes_before_the_invoice_is_Gonderildi_...` |
+| 4. Aynı haber 10 kez aynı anda, bir kez işlenir | `WebhookEventTests.The_same_event_arriving_ten_times_at_once_is_processed_once` |
+| 5. Mutabakat iki kez çalışmaz, çöken kopyanın kilidi düşer | `ReconciliationLockTests` (2 test) |
+| 6. Mutabakat düzeltmesi ve haber birbirini bozmaz | `ReconciliationFixRaceTests.A_fix_and_an_event_...` |
+| 7. Başarısız faturada düzeltme ve resend aynı anda | `ReconciliationFixRaceTests.A_fix_of_a_Failed_invoice_and_a_resend_...` |
+| 8. İki kopya, 100 sıra, ardışık fark aralıktan kısa değil | `SendPaceTests.Two_copies_taking_100_turns_...` |
 
-### Son doğrulama — 8 Ekim 2026
+Özet sayısının yük altındaki ölçümü: [`manual-tests/gun9/1-ozet-yuk-altinda.ps1`](manual-tests/gun9/1-ozet-yuk-altinda.ps1)
+(yük testi sürerken çalıştırılır).
 
-Veritabanları sıfırlandıktan sonra kontrol listesi gerçek PostgreSQL, HTTP ve tarayıcıyla koşuldu; beş madde de geçti. Simülatör
-varsayılan oranlarla, haberler açık. Birim testler: Invoice Service 350, ERP Simulator 121, operasyon ekranı 24, hepsi geçti.
+### Son doğrulama — 9 Ekim 2026
 
-**1. Hız sınırı:** saniyede 50 istek, 10 sn: 501 istek, 206 kabul, 295 `429`. Hiçbir saniyede 20'den fazla kabul yok; bütün
-`429`'larda `Retry-After: 1`; simülatörde 206 kayıt.
+Birim testler: Invoice Service 351 (Domain 26, Application 263, Infrastructure 49, Api 13), entegrasyon testleri 10; hepsi geçti.
 
-**2. ve 3. Yük testi** (`docker compose run --rm k6`; iki kopyada `BASE_URLS` iki adres):
+**1. Özet yük altında:** iki kopyayla 5 dakikalık yük testi (15.000 istek, hepsi 202, p95 4,3 ms) sürerken özet 100 kez, 1,5 sn arayla
+okundu; kuyruktaki sayı 242'den 6.172'ye çıkarken `Bekliyor` sayısı her okumada kuyruktaki sayıyla aynıydı (100 / 100). Aynı
+ölçüm özetin snapshot'ı geçici kaldırılarak yeniden yapıldığında (kuyruk boşalırken, 60 okuma) 57 / 60 aynı çıktı.
 
-| Ölçü | Tek kopya | İki kopya |
+**2. Senaryolar:** sekiz senaryonun hepsi için en az bir entegrasyon testi var (yukarıdaki tablo); 10 test geçti.
+
+**3. Mekanizmanın geçici kaldırılması:** her değişiklikten sonra ilgili test çalıştırıldı, dosya geri alındı ve test yeniden geçti.
+
+| Senaryo | Değiştirilen satır | Testin hatası |
 |---|---|---|
-| Gönderilen fatura | 15.000 | 15.000 |
-| Kuyruğun boşalma süresi (ilk istekten itibaren) | 40 dk 36 sn | 23 dk 34 sn |
-| Ortalama ve en yüksek gönderim hızı (saniyede) | 8,4 / 19 POST | 14,8 / 19 POST |
-| Hız sınırından kaynaklanan 429 oranı | %0 (0 / 20.076) | %0 (0 / 20.076) |
-| POST /api/v1/invoices cevap süresi p50, p95, p99 | 3,7 / 4,5 / 5,5 ms | 3,4 / 4,3 / 5,2 ms |
-| Kuyruktaki en uzun bekleme süresi | 38 dk 43 sn | 22 dk 12 sn |
-| Haberlerden 503 alanların oranı | %0 (0 / 33.558) | %0 (0 / 33.558) |
-| Kaybolan fatura | 0 | 0 |
-| Simülatörde birden fazla kaydı olan fatura | 0 | 0 |
+| 1 | `OutboxStore.cs:17` `AND (locked_until IS NULL OR locked_until < {now})` → `AND TRUE` | Expected 60, Actual 300 (aynı kayıtlar tekrar tekrar alındı) |
+| 1 | `OutboxStore.cs:20` `FOR UPDATE SKIP LOCKED` → `FOR UPDATE` | **kırılmadı** ([Bilinen sınırlar](#bilinen-sınırlar)) |
+| 2 | `OutboxStore.cs:60` `o.ClaimToken == claimToken` koşulu çıkarıldı | `Assert.False()` Expected False, Actual True (geç sonuç yazıldı) |
+| 3 | `OutboxOutcomeWriter.cs:46` `ApplyWaitingAsync` çağrısı çıkarıldı | Expected "Onaylandı", Actual "Gönderildi" |
+| 4 | `WebhookEventStore.cs:27` `RETURNING (xmax = 0)` → `RETURNING true` | `DbUpdateException`, `ck_erp_webhook_events_processed_at` ihlali (olay ikinci kez uygulanmak istendi) |
+| 5 | `AdvisoryReconciliationLock.cs:32` kilit sonucu kontrolü → `if (true)` | `Assert.Single()`: 2 çalışma başladı |
+| 5 | `ReconciliationStore.cs:28` `WHERE r.status = Çalışıyor` → `WHERE false` | Expected "Başarısız", Actual "Çalışıyor" (çöken çalışma kapatılmadı) |
+| 6 | `InvoiceStore.cs:87` `FOR UPDATE` çıkarıldı | `FTR-000040: invoice=Onaylandı, fixes=1, event=İşlendi` (düzeltme de haber de uygulanmış) |
+| 7 | `InvoiceStore.cs:69` `i.Status == Failed` koşulu çıkarıldı | `fix=True, resend=Queued, ...` (iki taraf da kazandı) |
+| 7 | `InvoiceStore.cs:87` `FOR UPDATE` çıkarıldı | `fix=True, resend=Queued, invoice=Gönderildi ...` |
+| 8 | `PostgresSendPacer.cs:19` `GREATEST(next_turn_at, clock_timestamp())` → `clock_timestamp()` | Expected 0, Actual 99 (99 sıra aralıktan kısa) |
+| 8 | aynı satır → `next_turn_at` | "100 turns took only 5,31 s" (kopyalar beklemedi) |
 
-İki kopyada simülatör logundan saniye saniye: hiçbir saniyede 20 POST yok, en çok 19 (14 saniye). Kopyalar 9.967 ve 10.109 POST
-yaptı. Saniye saniye tablo `6-yuk-olcum.ps1` ile `manual-tests/output`'a yazılır.
+**4. Art arda 20 çalıştırma:** `dotnet test invoice-service/InvoiceService.slnx` 20 kez art arda çalıştırıldı; 20 çalışmanın
+hepsinde beş test projesi de geçti (100 / 100). Bir çalışma (derleme hariç) 20-22 sn sürdü.
 
-**4. Özet sayfası yük sırasında:** ekran (yenileme 14:38:08 UTC) kuyrukta 10.408, en eski bekleme 3 dk 55 sn, son 1 dakikada 379.
-Hemen önceki veritabanı okuması 10.367 / 234 sn / 376, hemen sonraki 10.625 / 239 sn / 363. Yük sürerken API değerleri tek kopyada
-6, iki kopyada 10 kez veritabanıyla karşılaştırıldı; hepsi tutarlı.
+**5. Entegrasyon testlerinin süresi:** 13-14 sn (container açma ve 10 testin veritabanlarını kurması dahil; imaj yereldeyken).
 
-**5. Yük sonrası mutabakat:** 4,1 sn sürdü (15.206 fatura kontrol edildi). Servisin belleği boşta 111,5 MiB, çalışırken en çok
-175,5 MiB. Takılı fatura önce 744, sonra 0.
+**Senaryo 7'de bulunan:** kod okumasıyla varılan sonuç (iki taraf da önce faturanın satır kilidini alır, gelen kilidi bekleyip durumu
+yeniden okur; tutarsız durum ve deadlock yok) test ile doğrulandı. 40 fatura çiftinde üç çalışmada düzeltme 12, 15, 15; resend 28, 25, 25
+kez kazandı; iki yön de oluşuyor, hiçbirinde karışık durum çıkmadı. Test bir sorun ortaya çıkarmadı.
 
 ### Bilinen sınırlar
 
@@ -394,7 +414,8 @@ Hemen önceki veritabanı okuması 10.367 / 234 sn / 376, hemen sonraki 10.625 /
   saniyede 20'lik fixed window ile aynıdır.
 - **Ortak gönderim sırası:** iki kopyanın aynı `SendsPerSecond` değerini kullanması gerekir. Veritabanına ulaşılamazken sıra
   alınamaz ve gönderim yapılmaz (denenmedi). Sırasını bekledikten sonra kaydı kaybeden gönderim sırasını boşa harcar. İki kopyanın
-  birlikte sınırı aşmadığı otomatik testle değil, gerçek veritabanıyla script'le sınandı.
+  birlikte sınırı aşmadığı gerçek veritabanıyla otomatik testle sınanır (senaryo 8); testin ölçtüğü sıraların aralığıdır,
+  simülatörün saniye sayımı değil.
 - **Kuyruk sırası:** tekrar denenecek fatura, deneme zamanına göre sıralı kuyrukta birikmiş faturaların arkasına geçer; birkaç kez
   denenen faturalar uzun bekler (tek kopyada en uzun 38 dk 43 sn).
 - **Özet kartları:** yeniden gönderilen faturanın bekleme süresi ilk kuyruğa girişinden sayılır. Mutabakatın ERP'de bulup
@@ -403,6 +424,13 @@ Hemen önceki veritabanı okuması 10.367 / 234 sn / 376, hemen sonraki 10.625 /
 - **Ölçümler:** k6 ve bütün servisler aynı makinede (Docker Desktop) çalıştı. Bellek `docker stats` ile yaklaşık 1,5 sn'de bir
   okundu; 4,1 sn'lik mutabakatta 3 okuma oldu, tepe değer biraz yüksek olabilir. Ölçüm script'i simülatörün logunu okur; simülatör
   yük testiyle ölçüm arasında yeniden başlatılmamalıdır.
+- **Aynı anda kazanan:** senaryo 6 ve 7 rastlantısal çakışmaya dayanır (40 çift aynı anda başlatılır). Kilit kaldırıldığında ilk
+  çalışmada kırıldılar, ama her çakışmanın gerçekleşeceği garanti değildir.
+- **`SKIP LOCKED`:** senaryo 1'in testi `FOR UPDATE SKIP LOCKED`'ın `SKIP LOCKED` kısmı kaldırılınca kırılmaz: kilit süresi koşulu aynı
+  kaydın iki kez alınmasını yine önler, `SKIP LOCKED` yalnızca ikinci worker'ın beklemesini engeller ve bunu ölçen bir test yoktur.
+- **Resend ve çift kayıt (sınanmadı):** resend deneme sayısını sıfırlar; ilk denemede worker ERP'ye sormadan POST'lar. Fatura ERP'de
+  zaten kayıtlıysa (`Başarısız Ama ERP Kayıtlı`) ERP'de ikinci kayıt oluşabilir.
+- **Actions kapsamı:** iş akışı Invoice Service testlerini çalıştırır; ERP Simulator ve operasyon ekranı testleri çalıştırılmaz.
 - **Yerel test verisi:** 1. maddenin simülatöre doğrudan gönderdiği faturalar her mutabakatta `Serviste Yok` olarak raporlanır.
 
 ---
@@ -419,3 +447,4 @@ Hemen önceki veritabanı okuması 10.367 / 234 sn / 376, hemen sonraki 10.625 /
 | `gun-6` | Operasyon Ekranı | [tree/gun-6](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-6) |
 | `gun-7` | Operasyon ekranındaki eksikler | [tree/gun-7](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-7) |
 | `gun-8` | Yoğun Dönem | [tree/gun-8](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-8) |
+| `gun-9` | Gerçek Veritabanıyla Otomatik Testler | [tree/gun-9](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-9) |
