@@ -10,5 +10,6 @@
     <Project Path="tests/InvoiceService.Application.Tests/InvoiceService.Application.Tests.csproj" />
     <Project Path="tests/InvoiceService.Infrastructure.Tests/InvoiceService.Infrastructure.Tests.csproj" />
     <Project Path="tests/InvoiceService.Api.Tests/InvoiceService.Api.Tests.csproj" />
+    <Project Path="tests/InvoiceService.IntegrationTests/InvoiceService.IntegrationTests.csproj" />
   </Folder>
 </Solution>
