@@ -370,7 +370,7 @@ mekanizmalar için otomatik testler yazıldı; özet sayfasının sayıları tek
 
 ### Son doğrulama — 9 Ekim 2026
 
-Birim testler: Invoice Service 351 (Domain 26, Application 263, Infrastructure 49, Api 13), entegrasyon testleri 10; hepsi geçti.
+Birim testler: Invoice Service 350 (Domain 26, Application 262, Infrastructure 49, Api 13), entegrasyon testleri 10; hepsi geçti.
 
 **1. Özet yük altında:** iki kopyayla 5 dakikalık yük testi (15.000 istek, hepsi 202, p95 4,3 ms) sürerken özet 100 kez, 1,5 sn arayla
 okundu; kuyruktaki sayı 242'den 6.172'ye çıkarken `Bekliyor` sayısı her okumada kuyruktaki sayıyla aynıydı (100 / 100). Aynı
@@ -389,16 +389,16 @@ okundu; kuyruktaki sayı 242'den 6.172'ye çıkarken `Bekliyor` sayısı her oku
 | 4 | `WebhookEventStore.cs:27` `RETURNING (xmax = 0)` → `RETURNING true` | `DbUpdateException`, `ck_erp_webhook_events_processed_at` ihlali (olay ikinci kez uygulanmak istendi) |
 | 5 | `AdvisoryReconciliationLock.cs:32` kilit sonucu kontrolü → `if (true)` | `Assert.Single()`: 2 çalışma başladı |
 | 5 | `ReconciliationStore.cs:28` `WHERE r.status = Çalışıyor` → `WHERE false` | Expected "Başarısız", Actual "Çalışıyor" (çöken çalışma kapatılmadı) |
-| 6 | `InvoiceStore.cs:87` `FOR UPDATE` çıkarıldı | `FTR-000040: invoice=Onaylandı, fixes=1, event=İşlendi` (düzeltme de haber de uygulanmış) |
+| 6 | `InvoiceStore.cs:87` `FOR UPDATE` çıkarıldı | `FTR-000001: invoice=Onaylandı, fixes=1, event=İşlendi` (düzeltme de haber de uygulanmış; 10 faturanın hepsinde) |
 | 7 | `InvoiceStore.cs:69` `i.Status == Failed` koşulu çıkarıldı | `fix=True, resend=Queued, ...` (iki taraf da kazandı) |
 | 7 | `InvoiceStore.cs:87` `FOR UPDATE` çıkarıldı | `fix=True, resend=Queued, invoice=Gönderildi ...` |
 | 8 | `PostgresSendPacer.cs:19` `GREATEST(next_turn_at, clock_timestamp())` → `clock_timestamp()` | Expected 0, Actual 99 (99 sıra aralıktan kısa) |
-| 8 | aynı satır → `next_turn_at` | "100 turns took only 5,31 s" (kopyalar beklemedi) |
+| 8 | aynı satır → `next_turn_at` | **kırılmadı** ([Bilinen sınırlar](#bilinen-sınırlar)) |
 
 **4. Art arda 20 çalıştırma:** `dotnet test invoice-service/InvoiceService.slnx` 20 kez art arda çalıştırıldı; 20 çalışmanın
-hepsinde beş test projesi de geçti (100 / 100). Bir çalışma (derleme hariç) 20-22 sn sürdü.
+hepsinde beş test projesi de geçti (100 / 100). Bir çalışma (derleme hariç) 17,8-21,1 sn sürdü.
 
-**5. Entegrasyon testlerinin süresi:** 13-14 sn (container açma ve 10 testin veritabanlarını kurması dahil; imaj yereldeyken).
+**5. Entegrasyon testlerinin süresi:** 11-12 sn (container açma ve 10 testin veritabanlarını kurması dahil; imaj yereldeyken).
 
 **Senaryo 7'de bulunan:** kod okumasıyla varılan sonuç (iki taraf da önce faturanın satır kilidini alır, gelen kilidi bekleyip durumu
 yeniden okur; tutarsız durum ve deadlock yok) test ile doğrulandı. 40 fatura çiftinde üç çalışmada düzeltme 12, 15, 15; resend 28, 25, 25
@@ -424,8 +424,11 @@ kez kazandı; iki yön de oluşuyor, hiçbirinde karışık durum çıkmadı. Te
 - **Ölçümler:** k6 ve bütün servisler aynı makinede (Docker Desktop) çalıştı. Bellek `docker stats` ile yaklaşık 1,5 sn'de bir
   okundu; 4,1 sn'lik mutabakatta 3 okuma oldu, tepe değer biraz yüksek olabilir. Ölçüm script'i simülatörün logunu okur; simülatör
   yük testiyle ölçüm arasında yeniden başlatılmamalıdır.
-- **Aynı anda kazanan:** senaryo 6 ve 7 rastlantısal çakışmaya dayanır (40 çift aynı anda başlatılır). Kilit kaldırıldığında ilk
-  çalışmada kırıldılar, ama her çakışmanın gerçekleşeceği garanti değildir.
+- **Aynı anda kazanan:** senaryo 6'nın çakışması kesindir (test faturanın satır kilidini tutar, düzeltmeyi ve haberi başlatır, ikisi
+  de beklerken bırakır). Senaryo 7 doğal çakışmaya dayanır (40 çift aynı anda başlatılır): iki mutasyonda da 10 çalıştırmanın
+  10'unda kırıldı, ama her çakışmanın gerçekleşeceği garanti değildir.
+- **Senaryo 8 ve bekleme:** test, ardışık iki sıranın aradaki farkını ölçer; kopyaların sıralarını gerçekten bekleyip beklemediğini
+  ölçmez. Bekleme kaldırılırsa (`GREATEST(...)` yerine `next_turn_at`) sıra aralıkları aynı kalır ve test kırılmaz.
 - **`SKIP LOCKED`:** senaryo 1'in testi `FOR UPDATE SKIP LOCKED`'ın `SKIP LOCKED` kısmı kaldırılınca kırılmaz: kilit süresi koşulu aynı
   kaydın iki kez alınmasını yine önler, `SKIP LOCKED` yalnızca ikinci worker'ın beklemesini engeller ve bunu ölçen bir test yoktur.
 - **Resend ve çift kayıt (sınanmadı):** resend deneme sayısını sıfırlar; ilk denemede worker ERP'ye sormadan POST'lar. Fatura ERP'de
