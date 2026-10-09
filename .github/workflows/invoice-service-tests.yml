@@ -1,0 +1,17 @@
+name: Invoice service tests
+
+# Her push'ta: birim testler ve gerçek PostgreSQL ile çalışan entegrasyon testleri. Entegrasyon testleri veritabanını
+# Testcontainers ile kendileri açar; runner'da Docker hazır olduğundan başka kurulum gerekmez.
+on: push
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test invoice-service/InvoiceService.slnx
