@@ -1,0 +1,8 @@
+# Gün 10 ölçümleri için: veritabanı volume'leri koşuya özel adlarla açılır (GUN10_VOL=once, sonra ...). Her koşu boş
+# veritabanıyla başlar; eski volume'ler (staj-tasks_erp-db-data, staj-tasks_invoice-db-data) silinmez, dokunulmaz.
+# manual-tests\gun10\_common.ps1 bunu COMPOSE_FILE ile docker-compose.yml'in üstüne ekler.
+volumes:
+  erp-db-data:
+    name: staj-tasks_erp-db-data-${GUN10_VOL:?GUN10_VOL verilmeli}
+  invoice-db-data:
+    name: staj-tasks_invoice-db-data-${GUN10_VOL:?GUN10_VOL verilmeli}

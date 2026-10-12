@@ -50,6 +50,32 @@ public class OutboxClaimTests(PostgresFixture postgres) : IntegrationTest(postgr
         Assert.Equal(0L, await ScalarAsync<long>("SELECT count(*) FROM erp_outbox WHERE attempt_count <> 1"));
     }
 
+    [Fact]
+    public async Task Entries_whose_time_has_come_are_taken_in_the_order_they_entered_the_queue_not_the_order_their_time_came()
+    {
+        for (var i = 0; i < 4; i++)
+            await CreateInvoiceAsync();
+        // FTR-000001 entered the queue an hour ago and is a retry whose wait ended a second ago. FTR-000002 and -000003 entered
+        // later and have been due for minutes. FTR-000004 entered first of all, but its retry is a minute away.
+        await ExecuteAsync("""
+            UPDATE erp_outbox SET attempt_count = 1, created_at = now() - interval '1 hour', next_attempt_at = now() - interval '1 second' WHERE invoice_number = 'FTR-000001';
+            UPDATE erp_outbox SET created_at = now() - interval '10 minutes', next_attempt_at = now() - interval '10 minutes' WHERE invoice_number = 'FTR-000002';
+            UPDATE erp_outbox SET created_at = now() - interval '9 minutes', next_attempt_at = now() - interval '9 minutes' WHERE invoice_number = 'FTR-000003';
+            UPDATE erp_outbox SET attempt_count = 1, created_at = now() - interval '2 hours', next_attempt_at = now() + interval '1 minute' WHERE invoice_number = 'FTR-000004';
+            """);
+
+        await using var scope = NewScope();
+        var outbox = scope.ServiceProvider.GetRequiredService<IOutboxStore>();
+        var taken = new List<string>();
+        for (var i = 0; i < 4; i++)
+        {
+            var now = DateTimeOffset.UtcNow;
+            taken.AddRange((await outbox.ClaimAsync(1, "A", now, now.AddSeconds(60), 10, CancellationToken.None)).Select(e => e.InvoiceNumber));
+        }
+
+        Assert.Equal(["FTR-000001", "FTR-000002", "FTR-000003"], taken);
+    }
+
     /// <summary>Worker A takes the entry; its time runs out; worker B takes it.</summary>
     private async Task<(ClaimedEntry A, ClaimedEntry B)> TakenOverAsync()
     {

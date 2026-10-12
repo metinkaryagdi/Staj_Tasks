@@ -7,6 +7,10 @@ namespace InvoiceService.Infrastructure.Persistence;
 
 public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
 {
+    /// <summary>
+    /// Takes entries whose time has come, the one that entered the queue first going first. next_attempt_at only says when an
+    /// entry may be taken: ordering by it would put a retry behind everything that was queued while it waited.
+    /// </summary>
     public async Task<IReadOnlyList<ClaimedEntry>> ClaimAsync(
         int limit, string workerId, DateTimeOffset now, DateTimeOffset lockedUntil, int maxAttempts, CancellationToken ct) =>
         await db.Database.SqlQuery<ClaimedEntry>($"""
@@ -15,7 +19,7 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
                 WHERE status = {OutboxStatus.Pending}
                   AND next_attempt_at <= {now}
                   AND (locked_until IS NULL OR locked_until < {now})
-                ORDER BY next_attempt_at, id
+                ORDER BY created_at, id
                 LIMIT {limit}
                 FOR UPDATE SKIP LOCKED
             ), claimed AS (

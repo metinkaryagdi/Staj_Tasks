@@ -213,6 +213,10 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   kayıtlı kalır. Bu yüzden `send_attempt_count` ERP'nin aldığı POST sayısından büyük olabilir.
 - **İki kopya aynı kaydı almaz.** Kayıt alma tek SQL ifadesidir: `FOR UPDATE SKIP LOCKED` ile her kopya diğerinin
   aldığı satırları atlar; `locked_until` satırın kime ait olduğunu ifade bittikten sonra da gösterir.
+- **Kuyruk sırası, kuyruğa giriş sırasıdır.** Zamanı gelmiş kayıtlar `created_at, id` sırasıyla alınır. `next_attempt_at`
+  yalnızca kaydın ne zaman alınabileceğini söyler; ona göre sıralamak, bekleme süresi dolan tekrar denemeyi beklerken
+  kuyruğa girenlerin arkasına atar (yük testinde fatura kuyruğu iki kez bekliyordu). Bedeli: tekrar deneme öne geçtiği için
+  sonradan giren faturalar biraz daha geç gider.
 - **Claim token.** Her alımda yeni bir kimlik yazılır. Kilidi süresi dolmuş (örneğin takılıp kalmış) bir worker'ın
   kimliği artık eşleşmez; ne POST edebilir ne de sonucu, kaydı ondan sonra alanın sonucunun üzerine yazabilir.
 - **Kilit süresi.** `Outbox:LockSeconds`, bir denemenin en uzun süresinden (sor + gönder + son kez sor =
