@@ -372,7 +372,7 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 Bugünün işi: tekrar denenecek faturanın bekleme süresi dolduğunda, kendisinden sonra kuyruğa girenlerin önüne geçmesi; hız sınırı
 testinin gönderimlerin gerçekte başladığı anları ölçmesi.
 
-- **Sıra kuralı:** `OutboxStore.ClaimAsync` zamanı gelmiş kayıtları `ORDER BY created_at, id` ile alır. Önceki sıralama
+- **Sıra kuralı:** `OutboxStore.ClaimAsync` zamanı gelmiş kayıtları `ORDER BY created_at, id` ile alır. Gün 9 sıralaması
   `next_attempt_at, id` idi: tekrar denenecek faturaya bekleme süresinin dolacağı (daha geç) an yazıldığı için süresi dolan fatura,
   beklerken kuyruğa girenlerin arkasına düşüyordu. Değişiklik tek satırdır; retry kuralları (backoff, `Retry-After`, `MaxAttempts`),
   hız sınırı, ortak sınır, çift kayıt kontrolü ve sahiplik aynen duruyor. Hata alan fatura bekleme süresi dolmadan alınmaz; yük testinde faturaların yaklaşık %40'ı
@@ -406,19 +406,23 @@ kayıtlar için hesaplandı; tekrar denenen = birden fazla deneme yapılan fatur
 
 | Ölçü | Önce | Sonra |
 |---|---|---|
-| Kuyruğa girişten Gönderildi'ye süre p50 | 18 dk 59 sn | 16 dk 18 sn |
-| Kuyruğa girişten Gönderildi'ye süre p95 | 34 dk 20 sn | 31 dk 45 sn |
-| Kuyruğa girişten Gönderildi'ye en uzun süre | 38 dk 38 sn | 34 dk 17 sn |
-| Tekrar denenen faturalarda en uzun süre | 38 dk 38 sn (6.042 fatura) | 34 dk 17 sn (6.001 fatura) |
-| İlk denemede gönderilen faturalarda en uzun süre | 24 dk 31 sn (8.958 fatura) | 33 dk 26 sn (8.999 fatura) |
-| Kuyruğun boşalma süresi | 40 dk 9 sn | 39 dk 16 sn |
+| Kuyruğa girişten Gönderildi'ye süre p50 | ≈ 18 dk 59 sn | ≈ 16 dk 18 sn |
+| Kuyruğa girişten Gönderildi'ye süre p95 | ≈ 34 dk 20 sn | ≈ 31 dk 45 sn |
+| Kuyruğa girişten Gönderildi'ye en uzun süre | ≈ 38 dk 38 sn | ≈ 34 dk 17 sn |
+| Tekrar denenen faturalarda en uzun süre | ≈ 38 dk 38 sn (6.042 fatura) | ≈ 34 dk 17 sn (6.001 fatura) |
+| İlk denemede gönderilen faturalarda en uzun süre | ≈ 24 dk 31 sn (8.958 fatura) | ≈ 33 dk 26 sn (8.999 fatura) |
+| Kuyruğun boşalma süresi | ≈ 40 dk 9 sn | ≈ 39 dk 16 sn |
 | Hız sınırından kaynaklanan 429 oranı | %0,00 (0 / 20.076 POST) | %0,00 (0 / 20.076 POST) |
 | Kaybolan fatura | 0 | 0 |
 | Simülatörde birden fazla kaydı olan fatura | 0 | 0 |
 
-İki koşuda da kuyruk yaklaşık 33-35 dk derinleşti (giriş saniyede 50, tamamlanan saniyede yaklaşık 6 fatura): en son giren fatura her durumda
-kuyruğun derinliği kadar bekler, bu yüzden en uzun süre satırları sıra kuralından az etkilenir. Kuralın etkisi aynı dakikada kuyruğa
-giren iki grubun ortalamasında görünür:
+Süre değerleri (≈) tek bir koşunun ölçümüdür ve yaklaşık değerler olarak okunmalıdır; sayım satırları (fatura sayısı, POST, kayıp, çift kayıt) kesindir.
+Aynı kodla yapılan ikinci "önce" koşusu saniyeler düzeyinde farklı çıkmıştır (en uzun 38 dk 11 sn, boşalma 40 dk 5 sn); "önce" ile "sonra" arasındaki fark dakikalardır.
+
+Yük bittiğinde (5. dakika) iki koşuda da kuyrukta yaklaşık 34-35 dakikalık iş kalmıştı (boşalma süresi 40 dk 9 sn ve 39 dk 16 sn; giriş saniyede 50,
+tamamlanan saniyede yaklaşık 6 fatura). Süre büyük ölçüde bu birikimle belirlendiği için genel en uzun süre sıra kuralından az etkilenir
+(38 dk 38 sn → 34 dk 17 sn); kural bu süreyi iki grup arasında yeniden dağıtır (tablonun 4. ve 5. satırları). Kuralın etkisi aynı dakikada
+kuyruğa giren iki grubun ortalamasında görünür (yaklaşık değerler):
 
 | Ortalama bekleme | Önce | Sonra |
 |---|---|---|
@@ -434,9 +438,10 @@ fatura 0; iki kopya da POST yaptı (10.261 ve 9.815).
 **Bedel:** tekrar denenen fatura öne geçtiği için, kuyruğa ondan sonra giren ve ilk denemede gönderilen faturalar daha geç gidiyor:
 ortalama bekleme 11 dk 56 sn'den 16 dk 17 sn'ye, en uzun 24 dk 31 sn'den 33 dk 26 sn'ye çıktı. Tekrar denenenlerde ortalama 29 dk 12 sn'den
 16 dk 41 sn'ye indi (p95 35 dk 14 sn → 31 dk 57 sn); bütün faturaların ortalaması 18 dk 53 sn'den 16 dk 26 sn'ye indi. Önceden tekrar
-denenen fatura kuyruğu iki kez bekliyordu; şimdi ilk girişinden itibaren sıra bekliyor, bedelini kendisinden sonra girenler ödüyor. Aynı
-seed iki koşuda aynı fatura kümesini vermez (davranış istek sırasına göre seçilir): tablo, aynı faturaların değil dağılımların
-karşılaştırmasıdır.
+denenen fatura kuyruğu iki kez bekliyordu; şimdi ilk girişinden itibaren sıra bekliyor, bedelini kendisinden sonra girenler ödüyor. Net etki kuyruğa giriş zamanına
+göre değişir: yükün ilk üç dakikasında girenler ortalama 3 dk 26 sn ile 6 dk 57 sn daha hızlı, son dakikada girenler ortalama 4 dk 07 sn daha yavaş
+gönderildi. Koşular arasında aynı seed aynı fatura kümesini vermez (davranış istek sırasına göre seçilir): tablolar, aynı faturaların değil
+dağılımların karşılaştırmasıdır.
 
 ### Bilinen sınırlar
 
@@ -449,10 +454,17 @@ karşılaştırmasıdır.
 - **Ortak gönderim sırası:** iki kopyanın aynı `SendsPerSecond` değerini kullanması gerekir. Veritabanına ulaşılamazken sıra
   alınamaz ve gönderim yapılmaz (denenmedi). Sırasını bekledikten sonra kaydı kaybeden gönderim sırasını boşa harcar. İki kopyanın
   birlikte sınırı aşmadığı gerçek veritabanıyla otomatik testle sınanır (senaryo 8); testin ölçtüğü gönderimin başlayacağı andır
-  (`WaitForTurnAsync`'in dönüşü), simülatörün saniye sayımı değil. Bu bir zaman ölçümüdür: yalnızca alt sınıra bakar (yavaş makine
+  (`WaitForTurnAsync`'in dönüşü, sahiplik kontrolünden ve POST'tan önce), simülatörün saniye sayımı değil. Bu bir zaman ölçümüdür: yalnızca alt sınıra bakar (yavaş makine
   süreyi uzatır, kısaltmaz) ve 250 ms pay bırakır.
-- **Kuyruk sırası:** sıra kuralı bekleyen faturalar arasındaki sırayı değiştirir, kuyruğu kısaltmaz; giriş çıkışı aştığı sürece en son
-  giren fatura kuyruğun derinliği kadar bekler (yük testinde yaklaşık 33-35 dk).
+- **Kuyruk sırası:** sıra kuralı kuyruğun boşalma süresini değiştirmez (40 dk 9 sn ve 39 dk 16 sn), bekleme yükünü faturalar
+  arasında farklı dağıtır: tekrar denenenler kuyruğu iki kez beklemediği için ortalama düşer, hiç hata almayanlar için artar. Giriş çıkıştan fazla olduğu sürece en son giren fatura, kuyrukta biriken işin süresi kadar bekler (yük testinde
+  yaklaşık 34-35 dakika); bu, Gün 8'deki darboğaz analizinde anlatılan gönderim kapasitesinden kaynaklanır ve bu görevde değiştirilmemiştir.
+- **Yük testleri:** "önce" koşusu iki kez, "sonra" koşusu bir kez çalıştırıldı. Tablodaki "önce" değerleri birinci koşudandır ve o koşunun
+  imaj kimliği kayıtlı değildir; ikinci "önce" koşusunun (benzer sonuç: p50 18 dk 59 sn, p95 34 dk 18 sn, en uzun 38 dk 11 sn, boşalma 40 dk 5 sn)
+  ve "sonra" koşusunun imajındaki sıralama doğrulandı. Tekrar denenen fatura sayısı "önce" koşularında 6.042 ve 6.057, "sonra" koşusunda
+  6.001'dir. Uzun süreli ERP hatası altında yeni faturaların ilerlemesi denenmedi.
+- **Kuyruk sorgusu:** Gün 10 sıralaması için ayrı bir index yoktur; kayıt seçme sorgusunun süresi bekleyen kayıt sayısıyla artar (yük testinde 11.302
+  bekleyen kayıtla yaklaşık 2,3 ms, Gün 9 sıralamasında yaklaşık 0,14 ms). Gönderim hızına etkisi görülmedi; çok büyük bir birikimde ayrı bir index gerekebilir.
 - **Özet kartları:** yeniden gönderilen faturanın bekleme süresi ilk kuyruğa girişinden sayılır. Mutabakatın ERP'de bulup
   `Tamamlandı`'ya çektiği Başarısız fatura "son 1 dakika"ya girer. `processed_at`'te index yoktur; tablo büyüdükçe bu sayım
   tablo taranarak yapılır.
