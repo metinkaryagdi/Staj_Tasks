@@ -342,6 +342,7 @@ bağlıdır (`Eventually.WaitUntilAsync`); sabit süreli bekleme yoktur.
 | 7. Başarısız faturada düzeltme ve resend aynı anda | `ReconciliationFixRaceTests.A_fix_of_a_Failed_invoice_and_a_resend_...` |
 | 8. İki kopya, 100 sıra: ardışık sıralar ve gönderimlerin başladığı anlar aralıktan kısa değil; sistem boşta kaldıktan sonra da | `SendPaceTests` (2 test: sıra `now()` iken ve bir dakika geride iken) |
 | 9. Zamanı gelmiş kayıtlar kuyruğa giriş sırasıyla alınır | `OutboxClaimTests.Entries_whose_time_has_come_are_taken_in_the_order_they_entered_the_queue_...` |
+| 10. Sürekli hata alan faturalar yeni faturanın gönderimini durdurmaz | `OutboxClaimTests.Invoices_that_keep_failing_do_not_hold_back_a_new_invoice` |
 
 Özet sayısının yük altındaki ölçümü: [`manual-tests/gun9/1-ozet-yuk-altinda.ps1`](manual-tests/gun9/1-ozet-yuk-altinda.ps1)
 (yük testi sürerken çalıştırılır).
@@ -375,16 +376,16 @@ testinin gönderimlerin gerçekte başladığı anları ölçmesi.
 - **Sıra kuralı:** `OutboxStore.ClaimAsync` zamanı gelmiş kayıtları `ORDER BY created_at, id` ile alır. Gün 9 sıralaması
   `next_attempt_at, id` idi: tekrar denenecek faturaya bekleme süresinin dolacağı (daha geç) an yazıldığı için süresi dolan fatura,
   beklerken kuyruğa girenlerin arkasına düşüyordu. Değişiklik tek satırdır; retry kuralları (backoff, `Retry-After`, `MaxAttempts`),
-  hız sınırı, ortak sınır, çift kayıt kontrolü ve sahiplik aynen duruyor. Hata alan fatura bekleme süresi dolmadan alınmaz; yük testinde faturaların yaklaşık %40'ı
-  tekrar denendi, kayıp ve hız sınırı 429'u görülmedi.
+  hız sınırı, ortak sınır, çift kayıt kontrolü ve sahiplik aynen duruyor. Hata alan fatura bekleme süresi dolmadan alınmaz; sürekli 500 alan faturalar varken yeni faturanın
+  gönderildiği entegrasyon testiyle gösterildi. Yük testinde faturaların yaklaşık %40'ı tekrar denendi, kayıp ve hız sınırı 429'u görülmedi.
 - **Hız sınırı testi:** `SendPaceTests` her kopyada `WaitForTurnAsync` döndüğü anı (gönderimin başlayacağı an) kaydeder; 100
   gönderimin ilk ile son arası en az 99 aralık olmalıdır (250 ms payla; yavaş makine süreyi yalnızca uzatır). Test, sıra `now()`
   iken ve bir dakika geride iken (sistem boşta kalmış) çalışır. Veritabanındaki ardışık sıra kontrolü duruyor.
 
 ### Son doğrulama — 12 Ekim 2026
 
-Birim testler: Invoice Service 350 (Domain 26, Application 262, Infrastructure 49, Api 13), entegrasyon testleri 12; hepsi geçti.
-`dotnet test invoice-service/InvoiceService.slnx` art arda 5 kez çalıştırıldı, 5 çalışmanın hepsinde geçti; entegrasyon testleri 17-18 sn.
+Birim testler: Invoice Service 350 (Domain 26, Application 262, Infrastructure 49, Api 13), entegrasyon testleri 13; hepsi geçti.
+`dotnet test invoice-service/InvoiceService.slnx` art arda 5 kez çalıştırıldı, 5 çalışmanın hepsinde geçti; entegrasyon testleri 18-19 sn.
 
 **1. Hız sınırı testi:** mekanizma geçici kaldırıldı, test çalıştırıldı, dosya geri alındı ve test yeniden geçti.
 
@@ -399,6 +400,11 @@ yeni kayıt; bekleme süresi dolmamış kayıt alınmaz. `OutboxStore.cs:22` `OR
 yazılınca test 3 / 3 kırıldı (`Expected: ["FTR-000001", "FTR-000002", "FTR-000003"]`, `Actual: ["FTR-000002", "FTR-000003", "FTR-000001"]`);
 geri konunca geçti.
 
+Sürekli hata alan faturalar için ikinci test: sahte ERP'nin her seferinde 500 verdiği 12 eski fatura ve sonradan girmiş bir fatura kuyruktadır;
+worker 10'ar kayıt alarak iki tur çalışır. İlk tur en eski 10 faturayı alır ve hepsi 500 alır; ikinci turda yeni faturanın `Gönderildi` olması
+beklenir. `OutboxStore.cs`'te `AND next_attempt_at <= {now}` satırı silinince test 3 / 3 kırıldı (`Expected: "Gönderildi"`, `Actual: "Bekliyor"`);
+geri konunca geçti.
+
 **3. Yük testi, tek kopya, önce / sonra:** simülatör `Seed: 42` ile baştan başlatıldı, saniyede 50 fatura, 5 dakika, 15.000 fatura; her
 koşu boş veritabanıyla başladı. "Önce" gun-9'un üretim koduyla, "sonra" bu günün koduyla alındı. Ölçüm:
 [`manual-tests/gun10/`](manual-tests/gun10/). Süreler `erp_outbox`'ta `processed_at - created_at` olarak, yalnızca `Tamamlandı` olan
@@ -406,17 +412,17 @@ kayıtlar için hesaplandı; tekrar denenen = birden fazla deneme yapılan fatur
 
 | Ölçü | Önce | Sonra |
 |---|---|---|
-| Kuyruğa girişten Gönderildi'ye süre p50 | ≈ 18 dk 59 sn | ≈ 16 dk 18 sn |
-| Kuyruğa girişten Gönderildi'ye süre p95 | ≈ 34 dk 20 sn | ≈ 31 dk 45 sn |
-| Kuyruğa girişten Gönderildi'ye en uzun süre | ≈ 38 dk 38 sn | ≈ 34 dk 17 sn |
-| Tekrar denenen faturalarda en uzun süre | ≈ 38 dk 38 sn (6.042 fatura) | ≈ 34 dk 17 sn (6.001 fatura) |
-| İlk denemede gönderilen faturalarda en uzun süre | ≈ 24 dk 31 sn (8.958 fatura) | ≈ 33 dk 26 sn (8.999 fatura) |
-| Kuyruğun boşalma süresi | ≈ 40 dk 9 sn | ≈ 39 dk 16 sn |
+| Kuyruğa girişten Gönderildi'ye süre p50 | 18 dk 59 sn | 16 dk 18 sn |
+| Kuyruğa girişten Gönderildi'ye süre p95 | 34 dk 20 sn | 31 dk 45 sn |
+| Kuyruğa girişten Gönderildi'ye en uzun süre | 38 dk 38 sn | 34 dk 17 sn |
+| Tekrar denenen faturalarda en uzun süre | 38 dk 38 sn (6.042 fatura) | 34 dk 17 sn (6.001 fatura) |
+| İlk denemede gönderilen faturalarda en uzun süre | 24 dk 31 sn (8.958 fatura) | 33 dk 26 sn (8.999 fatura) |
+| Kuyruğun boşalma süresi | 40 dk 9 sn | 39 dk 16 sn |
 | Hız sınırından kaynaklanan 429 oranı | %0,00 (0 / 20.076 POST) | %0,00 (0 / 20.076 POST) |
 | Kaybolan fatura | 0 | 0 |
 | Simülatörde birden fazla kaydı olan fatura | 0 | 0 |
 
-Süre değerleri (≈) tek bir koşunun ölçümüdür ve yaklaşık değerler olarak okunmalıdır; sayım satırları (fatura sayısı, POST, kayıp, çift kayıt) kesindir.
+Tablodaki değerler tek bir koşunun sonucudur; başka bir koşuda değişebilir.
 Aynı kodla yapılan ikinci "önce" koşusu saniyeler düzeyinde farklı çıkmıştır (en uzun 38 dk 11 sn, boşalma 40 dk 5 sn); "önce" ile "sonra" arasındaki fark dakikalardır.
 
 Yük bittiğinde (5. dakika) iki koşuda da kuyrukta yaklaşık 34-35 dakikalık iş kalmıştı (boşalma süresi 40 dk 9 sn ve 39 dk 16 sn; giriş saniyede 50,
@@ -462,7 +468,7 @@ dağılımların karşılaştırmasıdır.
 - **Yük testleri:** "önce" koşusu iki kez, "sonra" koşusu bir kez çalıştırıldı. Tablodaki "önce" değerleri birinci koşudandır ve o koşunun
   imaj kimliği kayıtlı değildir; ikinci "önce" koşusunun (benzer sonuç: p50 18 dk 59 sn, p95 34 dk 18 sn, en uzun 38 dk 11 sn, boşalma 40 dk 5 sn)
   ve "sonra" koşusunun imajındaki sıralama doğrulandı. Tekrar denenen fatura sayısı "önce" koşularında 6.042 ve 6.057, "sonra" koşusunda
-  6.001'dir. Uzun süreli ERP hatası altında yeni faturaların ilerlemesi denenmedi.
+  6.001'dir. Yük testinde sürekli hata alan fatura yoktur (Başarısız 0); bu durum yalnızca entegrasyon testiyle sınandı.
 - **Kuyruk sorgusu:** Gün 10 sıralaması için ayrı bir index yoktur; kayıt seçme sorgusunun süresi bekleyen kayıt sayısıyla artar (yük testinde 11.302
   bekleyen kayıtla yaklaşık 2,3 ms, Gün 9 sıralamasında yaklaşık 0,14 ms). Gönderim hızına etkisi görülmedi; çok büyük bir birikimde ayrı bir index gerekebilir.
 - **Özet kartları:** yeniden gönderilen faturanın bekleme süresi ilk kuyruğa girişinden sayılır. Mutabakatın ERP'de bulup

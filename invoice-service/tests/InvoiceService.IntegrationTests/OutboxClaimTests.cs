@@ -3,6 +3,7 @@ using InvoiceService.Application.Outbox;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Outbox;
 using InvoiceService.IntegrationTests.Support;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace InvoiceService.IntegrationTests;
@@ -74,6 +75,29 @@ public class OutboxClaimTests(PostgresFixture postgres) : IntegrationTest(postgr
         }
 
         Assert.Equal(["FTR-000001", "FTR-000002", "FTR-000003"], taken);
+    }
+
+    [Fact]
+    public async Task Invoices_that_keep_failing_do_not_hold_back_a_new_invoice()
+    {
+        // 12 invoices the ERP answers with 500 every time, then a new one. A worker takes 10 entries at a time.
+        const int failing = 12;
+        for (var i = 0; i < failing; i++)
+            await CreateInvoiceAsync();
+        var fresh = await CreateInvoiceAsync();
+        Erp.OnPost = number => number == fresh
+            ? Results.Json(new { erpReference = $"ERP-{number}" }, statusCode: 202)
+            : Results.Problem(statusCode: 500, title: "ERP hatası");
+
+        await using var scope = NewScope();
+        var processor = scope.ServiceProvider.GetRequiredService<OutboxProcessor>();
+        // Round 1 takes the 10 oldest and all of them fail. Their retry is seconds away, so round 2 takes the 2 never tried
+        // and the new invoice, which entered the queue last.
+        for (var round = 0; round < 2; round++)
+            foreach (var entry in await processor.ClaimAsync(10, "A", CancellationToken.None))
+                await processor.SendAsync(entry, "A");
+
+        Assert.Equal(InvoiceStatus.Sent, await ScalarAsync<string>("SELECT status FROM invoices WHERE invoice_number = @n", ("n", fresh)));
     }
 
     /// <summary>Worker A takes the entry; its time runs out; worker B takes it.</summary>
