@@ -6,10 +6,21 @@ namespace InvoiceService.Application.Abstractions;
 /// <summary>
 /// Outcome of one request to the ERP. <see cref="HttpStatus"/> is null when no answer came (timeout, ERP unreachable).
 /// <see cref="RetryAfter"/> is the Retry-After header as sent (seconds or an HTTP date), if there was one.
+/// <see cref="NoAnswer"/> says why no answer came; null when one did.
 /// </summary>
 public sealed record ErpSendResult(
     bool Accepted, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed,
-    RetryConditionHeaderValue? RetryAfter = null);
+    RetryConditionHeaderValue? RetryAfter = null, ErpNoAnswer? NoAnswer = null);
+
+/// <summary>Why a request to the ERP got no answer.</summary>
+public enum ErpNoAnswer
+{
+    /// <summary>No answer within Erp:TimeoutSeconds.</summary>
+    Timeout,
+
+    /// <summary>The ERP could not be reached (connection refused, name not resolved, connection dropped).</summary>
+    Unreachable
+}
 
 public enum ErpLookup
 {
@@ -43,11 +54,11 @@ public sealed record ErpDecision(string Kind, string? Reason = null, DateTimeOff
 /// Outcome of asking the ERP whether it already has an invoice. <see cref="Decision"/> is the ERP's decision about it
 /// (<see cref="ErpDecision.None"/> when the ERP has not decided or did not say); only set when <see cref="Lookup"/>
 /// is Found. <see cref="Records"/> are the ERP's records of the number (more than one if it has duplicates); null when
-/// the answer did not carry them in a readable form.
+/// the answer did not carry them in a readable form. <see cref="NoAnswer"/> says why no answer came; null when one did.
 /// </summary>
 public sealed record ErpLookupResult(
     ErpLookup Lookup, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed, ErpDecision? Decision = null,
-    IReadOnlyList<ErpRecord>? Records = null);
+    IReadOnlyList<ErpRecord>? Records = null, ErpNoAnswer? NoAnswer = null);
 
 /// <summary>One record the ERP has; an invoice number with duplicates has one per record.</summary>
 public sealed record ErpRecord(

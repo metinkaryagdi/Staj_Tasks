@@ -1,0 +1,6 @@
+﻿# 9-veritabani-okuma.ps1 için: Fatura Servisi gelen her isteği loglar (Prometheus'un /metrics toplamaları dahil).
+# docker-compose.yml'in üzerine eklenir; yalnızca bu ölçümde kullanılır.
+services:
+  invoice-service:
+    environment:
+      Logging__LogLevel__Microsoft.AspNetCore.Hosting.Diagnostics: Information

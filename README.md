@@ -8,6 +8,7 @@ webhook'larla bildiren ERP Simulator, ve sistemi izleyip müdahale etmek için o
 | ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; saniyede sınırlı sayıda isteği kabul eder; her isteğe seed'li rastgele bir hata davranışı uygular; kaydettiği faturalar için Invoice Service'e imzalı webhook gönderir (bilerek sorunlu) |
 | Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir; ERP'den gelen webhook event'lerini doğrulayıp faturaya işler; belirli aralıklarla kendi kayıtlarını ERP'ninkiyle karşılaştırır (mutabakat), düzeltebildiğini düzeltir, düzeltemediğini raporlar |
 | Operasyon Ekranı | `operations-ui/` | Faturaların ve mutabakatın durumunu veritabanına bakmadan gösterir; Başarısız faturaları tek tek ya da toplu yeniden kuyruğa alır, mutabakatı başlatır. Yalnızca Invoice Service'in API'siyle konuşur |
+| İzleme | `monitoring/`, `alert-receiver/` | İki uygulamanın metriklerini Prometheus toplar, Grafana panoda gösterir; alarm kuralları tetiklenince Alertmanager bildirimi alert-receiver'a gönderir, alıcı loglar ([İzleme](#i̇zleme)) |
 
 İki .NET uygulaması Domain / Application / Infrastructure / Api olarak dört katmana ayrılmıştır; katmanlar, port'lar,
 akışlar ve tasarım kararları [ARCHITECTURE.md](ARCHITECTURE.md)'de.
@@ -28,6 +29,9 @@ docker compose up -d --build
 | Invoice Service | http://localhost:5090 (Swagger: http://localhost:5090/swagger) |
 | Fatura veritabanı | `localhost:5434` — db `invoice_service`, kullanıcı `invoice`, şifre `invoice` |
 | Operasyon Ekranı | http://localhost:5100 |
+| Grafana (pano) | http://localhost:3000 (giriş gerekmez; değiştirmek için `admin` / `admin`) |
+| Prometheus | http://localhost:9090 (alarmlar: http://localhost:9090/alerts) |
+| Alertmanager | http://localhost:9093 |
 
 Her uygulamanın yalnızca kendi veritabanının bağlantı bilgisi vardır; iki uygulama birbirine yalnızca HTTP ile ulaşır.
 Şema EF Core migration ile açılışta oluşur. Docker içinde her uygulama `appsettings.json`'ın üzerine
@@ -46,6 +50,7 @@ Her uygulamanın yalnızca kendi veritabanının bağlantı bilgisi vardır; iki
 | `POST /api/v1/invoices` | Body: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Saniyede en fazla 20 istek kabul edilir ([Hız sınırı](#hız-sınırı)); kabul edilen istek seçilen davranışa göre cevap verir (aşağıda) ve cevabı 50–200 ms sonra döner. Eksik/geçersiz alan `400`; tutarda virgülden sonra en fazla iki basamak. |
 | `GET /api/v1/invoices/{invoiceNumber}` | `200` + `registered`, `erpReference` (ilk kayıt), `recordCount`, `records[]`, `decision` (`none` / `received` / `approved` / `rejected`), `reason` (yalnızca `rejected`), `decided_at`. Karar ilk kaydın event'lerinden türetilir; event'i hiç gönderilmemiş olsa bile zamanı gelince görünür. Kayıt yoksa `404`. Hata üretmez. |
 | `GET /api/v1/invoices?from=…&to=…&page=1&pageSize=100` | `receivedAt`'i `[from, to)` içinde kalan kayıtlar, `(receivedAt, id)` sıralı ve sayfalı: `{page, pageSize, totalCount, items[]}`. `from` ve `to` zorunlu, `from < to`; `pageSize` en çok 500 (üstü `400`). Çift kayıtlar ayrı satırdır. |
+| `GET /metrics` | Prometheus biçiminde metrikler ([İzleme](#i̇zleme)). |
 
 ```json
 POST /api/v1/invoices
@@ -165,6 +170,7 @@ yeniden kuyruğa alır. Durum değerleri ve alanlar veritabanında check constra
 | `POST /api/v1/invoices/{invoiceNumber}/follow-up/close` | `X-Operator-Name` gerekir. Açık takibi kapatır (`200`); yoksa `409` (`code: follow_up_not_open`) |
 | `GET /api/v1/reconciliation-runs` | Sayfalı çalışma listesi, en yeni üstte (bulgusuz): `page` (1'den), `pageSize` (1-50, varsayılan 20). Cevap `{items, page, pageSize, totalCount, totalPages}`. |
 | `GET /api/v1/reconciliation-runs/{id}` | `{ run, findings[] }` ya da `404`. |
+| `GET /metrics` | Prometheus biçiminde metrikler ([İzleme](#i̇zleme)). |
 | `POST /api/v1/erp-webhooks` | ERP webhook event'i. İmza header'ları yok/yanlış ya da timestamp 5 dk'dan eski veya ileri: `401`, kaydedilmez. İmza doğru ama body geçersiz: `400`; 64 KB'tan büyük body: `413`. Event 4 sn içinde işlenemezse `503` (ERP tekrar gönderir). Aksi halde `200` + `{eventId, status, repeat}`. |
 
 `X-Operator-Name`: müdahaleyi yapanın adı (kimlik doğrulama değildir, yalnızca kayıt için). Üç müdahale isteğinde zorunludur;
@@ -257,7 +263,8 @@ Değişiklikten sonra `docker compose up -d --build invoice-service`. Docker'da 
 adresidir (`http://localhost:5100`); ekran başka bir adresten açılacaksa buraya eklenir.
 
 Mutabakat ayarları: `IntervalMinutes` 60, `LookbackHours` 24, `StuckAfterMinutes` 2, `UnknownEventAfterMinutes` 60,
-`NoDecisionAfterMinutes` 30 (`StuckAfterMinutes`'tan küçük olamaz), `NotFoundRecheckHours` 24.
+`NoDecisionAfterMinutes` 30 (`StuckAfterMinutes`'tan küçük olamaz), `NotFoundRecheckHours` 24. Metrik ayarı:
+`Metrics:DatabaseReadSeconds` 15 ([İzleme](#i̇zleme)).
 Testler bunları `Reconciliation__…` ortam değişkenleriyle değiştirir (örn. aralığı 1 dk'ya çeker; `docker-compose.yml`'de geçişi var).
 
 ### İkinci instance
@@ -297,12 +304,79 @@ testler `npm test --prefix operations-ui`.
 
 ---
 
+## İzleme
+
+İki uygulama metriklerini OpenTelemetry ile üretir (`System.Diagnostics.Metrics`, meter `InvoiceService` ve `ErpSimulator`) ve
+`GET /metrics` adresinde Prometheus biçiminde verir. Prometheus 5 saniyede bir toplar ve alarm kurallarını değerlendirir; tetiklenen
+alarmı Alertmanager webhook ile `alert-receiver`'a gönderir, alıcı her alarmı bir log satırı olarak yazar. Grafana panoyu Prometheus'tan
+gösterir. Hepsi `docker compose up -d --build` ile ayağa kalkar; ayarlar, kurallar ve pano [`monitoring/`](monitoring/) altında dosyadır.
+
+| Dosya | İçerik |
+|---|---|
+| [`monitoring/prometheus/prometheus.yml`](monitoring/prometheus/prometheus.yml) | Toplama aralığı (5 sn), hedefler, Alertmanager adresi |
+| [`monitoring/prometheus/alert-rules.yml`](monitoring/prometheus/alert-rules.yml) | Beş alarmın eşiği, süresi ve açıklaması; değişiklikten sonra `docker compose restart prometheus` |
+| [`monitoring/alertmanager/alertmanager.yml`](monitoring/alertmanager/alertmanager.yml) | Bütün alarmlar alıcıya; çözülen alarm da bildirilir |
+| [`monitoring/grafana/`](monitoring/grafana/) | Veri kaynağı ve pano provisioning'i, pano (`dashboards/fatura-servisi.json`) |
+
+### Metrikler
+
+Adlar Prometheus'ta görünen haliyledir (OpenTelemetry adı noktalıdır: `erp.send.attempts` → `erp_send_attempts_total`).
+
+| Metrik | Tür | Ne ölçer |
+|---|---|---|
+| `invoices_created_total` | counter | Oluşturulan fatura (fatura ve Outbox kaydı yazıldığında) |
+| `erp_send_attempts_total{result}` | counter | ERP'ye gönderim denemeleri; `result`: `accepted`, `busy` (429), `server_error` (5xx), `timeout`, `unreachable`, `already_exists` (sorulunca ERP'de bulundu, POST yapılmadı). Daha önce denenmiş faturada ERP'ye sorulan soru cevapsız kalırsa deneme `timeout` / `unreachable` sayılır |
+| `erp_send_duration_seconds` | histogram | ERP'ye fatura POST'unun süresi (sıra beklemesi hariç) |
+| `erp_send_pace_wait_seconds` | histogram | Hız sınırında POST'un sırasını beklediği süre |
+| `outbox_queued` | gauge | Kuyruktaki fatura (`erp_outbox` `Bekliyor`); özetteki `queuedCount` ile aynı sorgu |
+| `outbox_oldest_wait_seconds` | gauge | Kuyruktaki en eski faturanın bekleme süresi; kuyruk boşken 0 |
+| `invoices_by_status{status}` | gauge | Durum başına fatura |
+| `invoices_stuck` | gauge | Takılı fatura (özetteki tanım) |
+| `erp_webhooks_received_total{result}` | counter | Gelen haberler; `result`: `processed` (İşlendi), `waiting` (Bekliyor), `ignored` (Yok Sayıldı), `401`, `503`. Tekrar gelen haber ilk gelişinde sayılır |
+| `reconciliation_runs_total{status}` | counter | Biten mutabakat çalışmaları; `status`: `Tamamlandı`, `Başarısız` |
+| `reconciliation_duration_seconds` | histogram | Mutabakat çalışmalarının süresi |
+| `reconciliation_findings_total{type}` | counter | Mutabakat bulguları, türe göre |
+| `reconciliation_last_completed_time_seconds` | gauge | En son `Tamamlandı` çalışmanın bitiş zamanı (Unix saniye); hiç tamamlanan yoksa değer yok |
+| `erp_simulator_invoice_requests_total{behavior}` | counter | Simülatörde davranış seçilen fatura istekleri, davranışa göre |
+| `erp_simulator_rate_limited_total` | counter | Simülatörde hız sınırından 429 alan istekler (davranış seçilmeden) |
+
+- **Veritabanından okunanlar** (`outbox_*`, `invoices_by_status`, `invoices_stuck`, `reconciliation_last_completed_time_seconds`):
+  Invoice Service bunları okur (özet API'sinin tek snapshot sorgusu ve son tamamlanan çalışma), bellekte tutar ve sonraki okumadan
+  önce `Metrics:DatabaseReadSeconds` (15) saniye bekler; Prometheus'un her toplaması son okumayı alır, veritabanına gitmez. Her okuma loga yazılır:
+  `Metrics read from the database queued=… oldestQueuedSeconds=… stuck=… lastCompletedRun=…`. Okuma hata verirse bu metriklerin
+  değeri olmaz (eski değer gösterilmez).
+- Sayaçların her etiket değeri açılışta 0 ile başlar (örn. `result="401"` hiç 401 gelmeden de vardır).
+
+### Pano
+
+Grafana'da tek pano: **Fatura Servisi** (ana sayfa; 5 saniyede bir yenilenir). Saniyedeki gönderim (son 1 dakikanın ortalaması),
+gönderim sonuçlarının dağılımı, ERP cevap süresi p50 / p95, kuyruk uzunluğu ve en eski bekleme, takılı fatura, haber sonuçları,
+son başarılı mutabakattan beri geçen süre, mutabakat çalışmaları, çalışma süresi ve bulgular. İki servis kopyası çalışırken
+veritabanından okunan değerler `max()`, sayaçlar `sum()` ile alınır.
+
+### Alarmlar
+
+| Alarm | Koşul ([`alert-rules.yml`](monitoring/prometheus/alert-rules.yml)) |
+|---|---|
+| `KuyruktaUzunBekleyenFatura` | Kuyruktaki en eski faturanın bekleme süresi 5 dakika boyunca 15 dakikanın üzerinde |
+| `TakiliFaturaCok` | Takılı fatura 10 dakika boyunca 50'nin üzerinde |
+| `ErpyeUlasilamiyor` | Son 5 dakikadaki gönderim denemelerinin yarısından fazlası `timeout` ya da `unreachable` |
+| `BasariliMutabakatYok` | En son `Tamamlandı` çalışma 2 saatten eski |
+| `CokSayida401` | Son 5 dakikada 20'den fazla haber 401 |
+
+Her alarmın açıklamasında sorun ve operasyon ekibinin ilk yapacağı iş yazar. Bildirimler alıcının logunda:
+`docker compose logs -f alert-receiver` (`Alert status=firing alertname=… summary="…" description="…"`; koşul kalkınca
+`status=resolved`).
+
+---
+
 ## Testler
 
 | Ne | Komut |
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Gün 11 kontrol listesi (pano, alarmlar, metrikler) | [`manual-tests/gun11/`](manual-tests/gun11/README.md) |
 | Gün 10 ölçümleri (yük testi önce/sonra, iki kopya) | [`manual-tests/gun10/`](manual-tests/gun10/) |
 | Gün 9 kontrol listesi | [`manual-tests/gun9/`](manual-tests/gun9/) |
 | Gün 8 kontrol listesi | [`manual-tests/gun8/`](manual-tests/gun8/) |
@@ -368,121 +442,52 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 10 — Tekrar denenen faturaların sırası
+## Gün 11 — Metrikler, Pano ve Alarm
 
-Bugünün işi: tekrar denenecek faturanın bekleme süresi dolduğunda, kendisinden sonra kuyruğa girenlerin önüne geçmesi; hız sınırı
-testinin gönderimlerin gerçekte başladığı anları ölçmesi.
+Bugünün işi: sistemin durumu metriklerle ölçülüyor, Grafana panosunda gösteriliyor ve bir şey ters gidince alarm kendiliğinden
+bildiriliyor ([İzleme](#i̇zleme)).
 
-- **Sıra kuralı:** `OutboxStore.ClaimAsync` zamanı gelmiş kayıtları `ORDER BY created_at, id` ile alır. Gün 9 sıralaması
-  `next_attempt_at, id` idi: tekrar denenecek faturaya bekleme süresinin dolacağı (daha geç) an yazıldığı için süresi dolan fatura,
-  beklerken kuyruğa girenlerin arkasına düşüyordu. Değişiklik tek satırdır; retry kuralları (backoff, `Retry-After`, `MaxAttempts`),
-  hız sınırı, ortak sınır, çift kayıt kontrolü ve sahiplik aynen duruyor. Hata alan fatura bekleme süresi dolmadan alınmaz; sürekli 500 alan faturalar varken yeni faturanın
-  gönderildiği entegrasyon testiyle gösterildi. Yük testinde faturaların yaklaşık %40'ı tekrar denendi, kayıp ve hız sınırı 429'u görülmedi.
-- **Hız sınırı testi:** `SendPaceTests` her kopyada `WaitForTurnAsync` döndüğü anı (gönderimin başlayacağı an) kaydeder; 100
-  gönderimin ilk ile son arası en az 99 aralık olmalıdır (250 ms payla; yavaş makine süreyi yalnızca uzatır). Test, sıra `now()`
-  iken ve bir dakika geride iken (sistem boşta kalmış) çalışır. Veritabanındaki ardışık sıra kontrolü duruyor.
+- **Metrikler:** Invoice Service ve ERP Simulator metriklerini OpenTelemetry ile üretir, `GET /metrics`'te verir. Veritabanından
+  okunan değerler en fazla 15 saniyede bir okunur (`Metrics:DatabaseReadSeconds`).
+- **Altyapı:** Prometheus, Alertmanager, Grafana ve alarm alıcısı (`alert-receiver/`, küçük bir .NET uygulaması) compose'a eklendi;
+  hepsi diğer uygulamalarla birlikte ayağa kalkar. Pano ve veri kaynağı Grafana açılırken dosyadan yüklenir.
+- **Alarmlar:** beş alarm, eşikleri ve süreleri kurallar dosyasında; açıklamalarında sorun ve ilk yapılacak iş.
 
-### Son doğrulama — 12 Ekim 2026
-
-Birim testler: Invoice Service 350 (Domain 26, Application 262, Infrastructure 49, Api 13), entegrasyon testleri 13; hepsi geçti.
-`dotnet test invoice-service/InvoiceService.slnx` art arda 5 kez çalıştırıldı, 5 çalışmanın hepsinde geçti; entegrasyon testleri 18-19 sn.
-
-**1. Hız sınırı testi:** mekanizma geçici kaldırıldı, test çalıştırıldı, dosya geri alındı ve test yeniden geçti.
-
-| Değiştirilen satır | Testin hatası | Kırılma |
-|---|---|---|
-| `PostgresSendPacer.cs:24-25` bekleme (`if (waitMs > 0)` ve `Task.Delay`) silindi | Her iki test: `100 sends started within 49-71 ms; at least 5250 ms expected.` | 3 / 3 |
-| `PostgresSendPacer.cs:19` `GREATEST(next_turn_at, clock_timestamp())` yerine `next_turn_at` | Yalnızca boşta kalma testi: `100 sends started within 48-53 ms; at least 5250 ms expected.` (sıra `now()` iken başlayan test geçer) | 3 / 3 |
-
-**2. Sıra kuralı testi:** 4 kayıt: 1 saat önce kuyruğa girmiş, bekleme süresi 1 sn önce dolmuş bir tekrar deneme; 10 ve 9 dk önce girmiş
-iki yeni kayıt; en eski girişli ama bekleme süresi dolmamış bir kayıt. Kayıtlar tek tek alınır; beklenen sıra tekrar deneme, sonra iki
-yeni kayıt; bekleme süresi dolmamış kayıt alınmaz. `OutboxStore.cs:22` `ORDER BY created_at, id` yerine `ORDER BY next_attempt_at, id`
-yazılınca test 3 / 3 kırıldı (`Expected: ["FTR-000001", "FTR-000002", "FTR-000003"]`, `Actual: ["FTR-000002", "FTR-000003", "FTR-000001"]`);
-geri konunca geçti.
-
-Sürekli hata alan faturalar için ikinci test: sahte ERP'nin her seferinde 500 verdiği 12 eski fatura ve sonradan girmiş bir fatura kuyruktadır;
-worker 10'ar kayıt alarak iki tur çalışır. İlk tur en eski 10 faturayı alır ve hepsi 500 alır; ikinci turda yeni faturanın `Gönderildi` olması
-beklenir. `OutboxStore.cs`'te `AND next_attempt_at <= {now}` satırı silinince test 3 / 3 kırıldı (`Expected: "Gönderildi"`, `Actual: "Bekliyor"`);
-geri konunca geçti.
-
-**3. Yük testi, tek kopya, önce / sonra:** simülatör `Seed: 42` ile baştan başlatıldı, saniyede 50 fatura, 5 dakika, 15.000 fatura; her
-koşu boş veritabanıyla başladı. "Önce" gun-9'un üretim koduyla, "sonra" bu günün koduyla alındı. Ölçüm:
-[`manual-tests/gun10/`](manual-tests/gun10/). Süreler `erp_outbox`'ta `processed_at - created_at` olarak, yalnızca `Tamamlandı` olan
-kayıtlar için hesaplandı; tekrar denenen = birden fazla deneme yapılan fatura.
-
-| Ölçü | Önce | Sonra |
-|---|---|---|
-| Kuyruğa girişten Gönderildi'ye süre p50 | 18 dk 59 sn | 16 dk 18 sn |
-| Kuyruğa girişten Gönderildi'ye süre p95 | 34 dk 20 sn | 31 dk 45 sn |
-| Kuyruğa girişten Gönderildi'ye en uzun süre | 38 dk 38 sn | 34 dk 17 sn |
-| Tekrar denenen faturalarda en uzun süre | 38 dk 38 sn (6.042 fatura) | 34 dk 17 sn (6.001 fatura) |
-| İlk denemede gönderilen faturalarda en uzun süre | 24 dk 31 sn (8.958 fatura) | 33 dk 26 sn (8.999 fatura) |
-| Kuyruğun boşalma süresi | 40 dk 9 sn | 39 dk 16 sn |
-| Hız sınırından kaynaklanan 429 oranı | %0,00 (0 / 20.076 POST) | %0,00 (0 / 20.076 POST) |
-| Kaybolan fatura | 0 | 0 |
-| Simülatörde birden fazla kaydı olan fatura | 0 | 0 |
-
-Tablodaki değerler tek bir koşunun sonucudur; başka bir koşuda değişebilir.
-Aynı kodla yapılan ikinci "önce" koşusu saniyeler düzeyinde farklı çıkmıştır (en uzun 38 dk 11 sn, boşalma 40 dk 5 sn); "önce" ile "sonra" arasındaki fark dakikalardır.
-
-Yük bittiğinde (5. dakika) iki koşuda da kuyrukta yaklaşık 34-35 dakikalık iş kalmıştı (boşalma süresi 40 dk 9 sn ve 39 dk 16 sn; giriş saniyede 50,
-tamamlanan saniyede yaklaşık 6 fatura). Süre büyük ölçüde bu birikimle belirlendiği için genel en uzun süre sıra kuralından az etkilenir
-(38 dk 38 sn → 34 dk 17 sn); kural bu süreyi iki grup arasında yeniden dağıtır (tablonun 4. ve 5. satırları). Kuralın etkisi aynı dakikada
-kuyruğa giren iki grubun ortalamasında görünür (yaklaşık değerler):
-
-| Ortalama bekleme | Önce | Sonra |
-|---|---|---|
-| İlk denemede gönderilen | 11 dk 56 sn | 16 dk 17 sn |
-| Tekrar denenen | 29 dk 12 sn | 16 dk 41 sn |
-| Fark (aynı giriş dakikasında) | 9 dk 33 sn - 23 dk 32 sn | 16 - 21 sn |
-
-**4. İki kopya:** aynı yükle (15.000 fatura, saniyede 50) iki kopyayla ([`manual-tests/gun8/4-gonderim-hizi.ps1`](manual-tests/gun8/4-gonderim-hizi.ps1)
-`-Count 15000 -Rate 50`) gönderim hızı simülatör logundan saniye saniye sayıldı: hiçbir
-saniyede 20'den fazla POST yok, en çok 19 (8 saniye; 724 saniyede 18); hız sınırı 429'u 0 / 20.076; simülatörde birden fazla kayıtlı
-fatura 0; iki kopya da POST yaptı (10.261 ve 9.815).
-
-**Bedel:** tekrar denenen fatura öne geçtiği için, kuyruğa ondan sonra giren ve ilk denemede gönderilen faturalar daha geç gidiyor:
-ortalama bekleme 11 dk 56 sn'den 16 dk 17 sn'ye, en uzun 24 dk 31 sn'den 33 dk 26 sn'ye çıktı. Tekrar denenenlerde ortalama 29 dk 12 sn'den
-16 dk 41 sn'ye indi (p95 35 dk 14 sn → 31 dk 57 sn); bütün faturaların ortalaması 18 dk 53 sn'den 16 dk 26 sn'ye indi. Önceden tekrar
-denenen fatura kuyruğu iki kez bekliyordu; şimdi ilk girişinden itibaren sıra bekliyor, bedelini kendisinden sonra girenler ödüyor. Net etki kuyruğa giriş zamanına
-göre değişir: yükün ilk üç dakikasında girenler ortalama 3 dk 26 sn ile 6 dk 57 sn daha hızlı, son dakikada girenler ortalama 4 dk 07 sn daha yavaş
-gönderildi. Koşular arasında aynı seed aynı fatura kümesini vermez (davranış istek sırasına göre seçilir): tablolar, aynı faturaların değil
-dağılımların karşılaştırmasıdır.
+Kontrol listesi: [`manual-tests/gun11/`](manual-tests/gun11/README.md).
 
 ### Bilinen sınırlar
 
-- **Saniye başına gönderim 18'i aşabilir:** sıra veritabanı saatiyle saniyenin 1/18'i aralıkla verilir, ama simülatör isteği
-  vardığı anda sayar; ağ ve HTTP gecikmesi bir isteği komşu saniyeye kaydırır. Yük testlerinde en çok 19 görüldü; 20'ye
-  ulaşan saniye ve hız sınırından 429 görülmedi.
-- **Saniye sınırı ve log:** rate limit token'ı istek gelince alınır, log satırı birkaç ms sonra yazılır; saniyenin son ms'lerinde
-  kabul edilen istek logda bir sonraki saniyede görünebilir (koşularda görülmedi). Bucket her saat saniyesinde dolduğu için davranış
-  saniyede 20'lik fixed window ile aynıdır.
-- **Ortak gönderim sırası:** iki kopyanın aynı `SendsPerSecond` değerini kullanması gerekir. Veritabanına ulaşılamazken sıra
-  alınamaz ve gönderim yapılmaz (denenmedi). Sırasını bekledikten sonra kaydı kaybeden gönderim sırasını boşa harcar. İki kopyanın
-  birlikte sınırı aşmadığı gerçek veritabanıyla otomatik testle sınanır (senaryo 8); testin ölçtüğü gönderimin başlayacağı andır
-  (`WaitForTurnAsync`'in dönüşü, sahiplik kontrolünden ve POST'tan önce), simülatörün saniye sayımı değil. Bu bir zaman ölçümüdür: yalnızca alt sınıra bakar (yavaş makine
-  süreyi uzatır, kısaltmaz) ve 250 ms pay bırakır.
-- **Kuyruk sırası:** sıra kuralı kuyruğun boşalma süresini değiştirmez (40 dk 9 sn ve 39 dk 16 sn), bekleme yükünü faturalar
-  arasında farklı dağıtır: tekrar denenenler kuyruğu iki kez beklemediği için ortalama düşer, hiç hata almayanlar için artar. Giriş çıkıştan fazla olduğu sürece en son giren fatura, kuyrukta biriken işin süresi kadar bekler (yük testinde
-  yaklaşık 34-35 dakika); bu, Gün 8'deki darboğaz analizinde anlatılan gönderim kapasitesinden kaynaklanır ve bu görevde değiştirilmemiştir.
-- **Yük testleri:** "önce" koşusu iki kez, "sonra" koşusu bir kez çalıştırıldı. Tablodaki "önce" değerleri birinci koşudandır ve o koşunun
-  imaj kimliği kayıtlı değildir; ikinci "önce" koşusunun (benzer sonuç: p50 18 dk 59 sn, p95 34 dk 18 sn, en uzun 38 dk 11 sn, boşalma 40 dk 5 sn)
-  ve "sonra" koşusunun imajındaki sıralama doğrulandı. Tekrar denenen fatura sayısı "önce" koşularında 6.042 ve 6.057, "sonra" koşusunda
-  6.001'dir. Yük testinde sürekli hata alan fatura yoktur (Başarısız 0); bu durum yalnızca entegrasyon testiyle sınandı.
-- **Kuyruk sorgusu:** Gün 10 sıralaması için ayrı bir index yoktur; kayıt seçme sorgusunun süresi bekleyen kayıt sayısıyla artar (yük testinde 11.302
-  bekleyen kayıtla yaklaşık 2,3 ms, Gün 9 sıralamasında yaklaşık 0,14 ms). Gönderim hızına etkisi görülmedi; çok büyük bir birikimde ayrı bir index gerekebilir.
-- **Özet kartları:** yeniden gönderilen faturanın bekleme süresi ilk kuyruğa girişinden sayılır. Mutabakatın ERP'de bulup
-  `Tamamlandı`'ya çektiği Başarısız fatura "son 1 dakika"ya girer. `processed_at`'te index yoktur; tablo büyüdükçe bu sayım
-  tablo taranarak yapılır.
-- **Ölçümler:** k6 ve bütün servisler aynı makinede (Docker Desktop) çalıştı. Her yük koşusu `manual-tests/gun10/compose.volumes.yml`
-  ile koşuya özel, boş veritabanı volume'leriyle başladı. Ölçüm script'i simülatörün logunu okur; simülatör yük testiyle ölçüm
-  arasında yeniden başlatılmamalıdır.
-- **Aynı anda kazanan:** senaryo 6'nın çakışması kesindir (test faturanın satır kilidini tutar, düzeltmeyi ve haberi başlatır, ikisi
-  de beklerken bırakır). Senaryo 7 doğal çakışmaya dayanır (40 çift aynı anda başlatılır): çakışmanın gerçekleşeceği garanti değildir.
-- **`SKIP LOCKED`:** senaryo 1'in testi `FOR UPDATE SKIP LOCKED`'ın `SKIP LOCKED` kısmı kaldırılınca kırılmaz: kilit süresi koşulu aynı
-  kaydın iki kez alınmasını yine önler, `SKIP LOCKED` yalnızca ikinci worker'ın beklemesini engeller ve bunu ölçen bir test yoktur.
-- **Actions kapsamı:** iş akışı Invoice Service testlerini çalıştırır; ERP Simulator ve operasyon ekranı testleri çalıştırılmaz.
-- **Yerel test verisi:** Gün 8'in 1. maddesinde simülatöre doğrudan gönderilen faturalar her mutabakatta `Serviste Yok` olarak raporlanır.
+- **Exporter:** .NET için Prometheus exporter'ı (`OpenTelemetry.Exporter.Prometheus.AspNetCore` 1.19.1-beta.1) henüz beta sürümdedir.
+- **Veritabanından okunan değerler** en fazla 15 saniye (okuma aralığı) + 5 saniye (toplama aralığı) eskidir. Veritabanı okunamazken
+  bu metriklerin değeri olmaz; o sürede kuyruk, takılı fatura ve mutabakat alarmları tetiklenemez. Servisin kendisi durursa
+  hiçbir metriği toplanamaz; bunun için bir alarm görevde yoktur ve eklenmedi.
+- **Veri kesilince çözüldü bildirimi:** kuyruk ya da takılı fatura alarmı açıkken veritabanı okunamazsa metriğin değeri kalmaz ve
+  Alertmanager alarmı çözülmüş sayıp alıcıya çözüldü bildirimi gönderir; sorun sürüyor olabilir.
+- **Kuyruk alarmı** yalnızca birikmeyle oluşur: ERP'ye ulaşılamazken fatura 10 denemeden sonra Başarısız olup kuyruktan çıkar, en eski
+  bekleme 15 dakikaya ulaşmaz. Böyle bir kesinti `ErpyeUlasilamiyor` ile görülür.
+- **Mutabakat alarmı:** hiç tamamlanmış çalışma yoksa (boş veritabanı) `reconciliation_last_completed_time_seconds`'ın değeri olmaz ve
+  alarm tetiklenmez.
+- **401 alarmı:** kural sayacın 5 dakika önceki değerini kullanır; servis açıldıktan (ya da yeniden başladıktan) sonraki ilk 5 dakikada
+  tetiklenmez. İkinci kopya durduğunda iki kopyanın toplamı düştüğü için de 5 dakika boyunca tetiklenmez.
+- **ERP'ye ulaşılamıyor alarmı:** hiç deneme yoksa (kuyruk boş) oran hesaplanamaz ve alarm tetiklenmez. 429 dışındaki 4xx cevabı ve
+  ERP referansı olmayan 202 altı sonucun hiçbirine girmediği için sayılmaz. Daha önce denenmiş faturada ERP'ye sorulan soru 5xx ya da 429
+  cevabı alırsa deneme sayılmaz (simülatörün sorgu endpoint'i hata üretmez); sorusu hiç cevap almayan deneme zaman aşımı ya da
+  ulaşılamadı sayılır. Trafik çok azken tek bir zaman aşımı da oranı yarının üstüne çıkarıp alarmı tetikleyebilir.
+- **Haber sonuçları:** tekrar gelen haber (aynı `event_id`) ilk gelişinde sayıldığı için yeniden sayılmaz (ilk gelişi 503 alıp yine
+  de kaydedilen haber 503 olarak kalır, işlendi sayılmaz); geçersiz body (`400`) ve
+  büyük body (`413`) istenen sonuçlar arasında olmadığından sayılmaz.
+- **Gönderim hızı panosu** son 1 dakikanın saniye ortalamasıdır; tek tek saniyelerdeki tepeleri göstermez.
+- **Bir veritabanı okuması** tek sorgu değil dört SQL komutudur (özetin snapshot'ı içinde üç SELECT ve son mutabakat); "en fazla
+  15 saniyede bir sorgu" 15 saniyede bir okuma olarak uygulanır. İki kopya çalışırken her kopya kendisi okur: veritabanına
+  15 saniyede iki okuma gider. Her okuma loga bir satır yazar (günde yaklaşık 5.760 satır).
+- **Sayaçlar ve yeniden başlatma:** servis yeniden başladıktan sonra ilk toplamadan (5 sn) önce olan olay, sayaç bir önceki açılıştaki
+  değerine ulaşmışsa Prometheus'ta artış olarak görünmeyebilir (sıfırlanma fark edilmez). Alarmlar bundan etkilenmez; panodaki sayılar
+  bir eksik görünebilir.
+- **ERP cevap süresi panosu:** yük altında p95 10 saniyeye çıkar; simülatörün geç cevap verdiği istekler servisin 10 saniyelik
+  zaman aşımında kesilir ve süreye 10 saniye olarak girer.
+- **Grafana** anonim kullanıcıya yalnızca görme yetkisiyle açıktır; 3000 portuna ulaşan herkes panoyu görür. Yönetici şifresi
+  varsayılandır (`admin`).
+- **Kalıcılık:** Prometheus'un ve Alertmanager'ın verisi adlı volume'de tutulmaz; `docker compose down` ile silinir.
 
 ---
 
@@ -500,3 +505,4 @@ dağılımların karşılaştırmasıdır.
 | `gun-8` | Yoğun Dönem | [tree/gun-8](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-8) |
 | `gun-9` | Gerçek Veritabanıyla Otomatik Testler | [tree/gun-9](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-9) |
 | `gun-10` | Tekrar Denenen Faturaların Sırası | [tree/gun-10](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-10) |
+| `gun-11` | Metrikler, Pano ve Alarm | [tree/gun-11](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-11) |

@@ -54,6 +54,9 @@ public sealed class ReconciliationStore(InvoiceDbContext db) : IReconciliationSt
     public Task<ReconciliationRun?> FindRunAsync(long id, CancellationToken ct) =>
         db.ReconciliationRuns.AsNoTracking().SingleOrDefaultAsync(r => r.Id == id, ct);
 
+    public Task<DateTimeOffset?> LastCompletedRunAtAsync(CancellationToken ct) =>
+        db.ReconciliationRuns.Where(r => r.Status == ReconciliationStatus.Completed).MaxAsync(r => r.FinishedAt, ct);
+
     public async Task<IReadOnlyList<ReconciliationFinding>> ListFindingsAsync(long runId, CancellationToken ct) =>
         await db.ReconciliationFindings.AsNoTracking().Where(f => f.RunId == runId).OrderBy(f => f.Id).ToListAsync(ct);
 

@@ -2,7 +2,10 @@ using ErpSimulator.Api.Invoices;
 using ErpSimulator.Api.Startup;
 using ErpSimulator.Api.Workers;
 using ErpSimulator.Application;
+using ErpSimulator.Application.Simulation;
 using ErpSimulator.Infrastructure;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +15,11 @@ builder.Services.AddSimulatorApplication(builder.Configuration);
 builder.Services.AddSimulatorInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<WebhookDispatcher>();
 builder.Services.AddHostedService<RateLimitRefiller>();
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("erp-simulator"))
+    .WithMetrics(metrics => metrics
+    .AddMeter(SimulatorMetrics.MeterName)
+    .AddPrometheusExporter());
 
 builder.Services.AddProblemDetails();
 builder.Services.AddSimulatorOpenApi();
@@ -20,6 +28,9 @@ var app = builder.Build();
 
 await app.MigrateDatabaseAsync();
 app.LogSimulatorSettings();
+// Once the app has started OpenTelemetry listens: only then are the counters' 0s recorded, so they are scraped at 0 before
+// anything is counted.
+app.Lifetime.ApplicationStarted.Register(() => app.Services.GetRequiredService<SimulatorMetrics>().StartAtZero());
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
@@ -34,6 +45,7 @@ app.UseSwaggerUI(o =>
 app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
+app.MapPrometheusScrapingEndpoint();
 app.MapInvoiceEndpoints();
 
 app.Run();

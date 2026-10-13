@@ -1,4 +1,5 @@
 using InvoiceService.Application.Invoices;
+using InvoiceService.Application.Metrics;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
@@ -23,8 +24,16 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(ReconciliationOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<ReconciliationOptions>, ReconciliationOptionsValidator>();
+        services.AddOptions<MetricsOptions>()
+            .Bind(configuration.GetSection(MetricsOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<MetricsOptions>, MetricsOptionsValidator>();
 
         services.AddSingleton(TimeProvider.System);
+        services.AddMetrics();
+        services.AddSingleton<DatabaseMetrics>();
+        services.AddSingleton<InvoiceMetrics>();
+        services.AddScoped<DatabaseMetricsReader>();
         services.AddSingleton(sp => new RetryPolicy(sp.GetRequiredService<IOptions<OutboxOptions>>().Value));
 
         services.AddScoped<ErpSendStrategy>();

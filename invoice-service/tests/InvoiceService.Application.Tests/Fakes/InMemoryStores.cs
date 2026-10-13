@@ -380,6 +380,9 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
     public Task<ReconciliationRun?> FindRunAsync(long id, CancellationToken ct) =>
         Task.FromResult(Runs.SingleOrDefault(r => r.Id == id));
 
+    public Task<DateTimeOffset?> LastCompletedRunAtAsync(CancellationToken ct) =>
+        Task.FromResult(Runs.Where(r => r.Status == ReconciliationStatus.Completed).Max(r => r.FinishedAt));
+
     public Task<IReadOnlyList<ReconciliationFinding>> ListFindingsAsync(long runId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ReconciliationFinding>>(Findings.Where(f => f.RunId == runId).ToList());
 

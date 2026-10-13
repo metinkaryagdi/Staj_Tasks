@@ -33,7 +33,7 @@ public sealed record SubmitInvoiceResult(
 /// </summary>
 public sealed class SubmitInvoiceHandler(
     IErpInvoiceStore invoices, BehaviorSelector selector, WebhookPlanner planner, IOptions<SimulatorOptions> options,
-    ILoggerFactory loggerFactory)
+    SimulatorMetrics metrics, ILoggerFactory loggerFactory)
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger("ErpSimulator.Invoices");
 
@@ -74,6 +74,7 @@ public sealed class SubmitInvoiceHandler(
         }
 
         var decision = selector.Next();
+        metrics.BehaviorDrawn(decision.Behavior);
 
         if (decision.Behavior == Behavior.Busy)
         {

@@ -33,6 +33,9 @@ public interface IReconciliationStore
 
     Task<ReconciliationRun?> FindRunAsync(long id, CancellationToken ct);
 
+    /// <summary>When the newest Tamamlandı run finished; null if no run has completed.</summary>
+    Task<DateTimeOffset?> LastCompletedRunAtAsync(CancellationToken ct);
+
     /// <summary>In the order they were found.</summary>
     Task<IReadOnlyList<ReconciliationFinding>> ListFindingsAsync(long runId, CancellationToken ct);
 

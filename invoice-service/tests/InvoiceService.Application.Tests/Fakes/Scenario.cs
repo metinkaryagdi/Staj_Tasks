@@ -1,5 +1,6 @@
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Invoices;
+using InvoiceService.Application.Metrics;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
@@ -23,6 +24,11 @@ public sealed class Scenario
     public FakeOperatorActionStore OperatorActions { get; } = new();
     public FakeInvoiceFollowUpStore FollowUps { get; } = new();
 
+    /// <summary>The scenario's own meters, so a test reads only what its scenario recorded.</summary>
+    public TestMeterFactory MeterFactory { get; } = new();
+    public DatabaseMetrics DatabaseMetrics { get; } = new();
+    public InvoiceMetrics Metrics { get; }
+
     public OutboxOptions OutboxSettings { get; } = new()
     {
         MaxConcurrentSends = 10, SendsPerSecond = 18, MaxAttempts = 3, MaxBackoffSeconds = 60, MaxJitterMilliseconds = 1000,
@@ -40,9 +46,9 @@ public sealed class Scenario
         Options.Create(WebhookSettings), NullLogger<WebhookEventProcessor>.Instance);
 
     public OutboxProcessor OutboxProcessor() => new(
-        Outbox, Invoices, new ErpSendStrategy(Erp, Pacer, Outbox, Time),
+        Outbox, Invoices, new ErpSendStrategy(Erp, Pacer, Outbox, Time, Metrics),
         new OutboxOutcomeWriter(UnitOfWork, Outbox, Invoices, WebhookEventProcessor()),
-        new RetryPolicy(OutboxSettings), Options.Create(OutboxSettings), Time, NullLogger<OutboxProcessor>.Instance);
+        new RetryPolicy(OutboxSettings), Options.Create(OutboxSettings), Time, Metrics, NullLogger<OutboxProcessor>.Instance);
 
     public FakeReconciliationStore Reconciliation { get; }
     public FakeReconciliationLock Lock { get; } = new();
@@ -57,6 +63,7 @@ public sealed class Scenario
     {
         Reconciliation = new FakeReconciliationStore(Invoices, Events);
         Pacer = new FakeErpSendPacer(Erp);
+        Metrics = new InvoiceMetrics(MeterFactory, DatabaseMetrics);
     }
 
     public FixApplier FixApplier() => new(UnitOfWork, Invoices, Outbox, Events, Reconciliation, WebhookEventProcessor(), Time);
@@ -73,7 +80,7 @@ public sealed class Scenario
         : null);
 
     public ReconciliationRunner ReconciliationRunner() => new(
-        Reconciliation, Erp, UnitOfWork, ReconciliationPlanner(), Scopes(), Options.Create(ReconciliationSettings), Time,
+        Reconciliation, Erp, UnitOfWork, ReconciliationPlanner(), Scopes(), Options.Create(ReconciliationSettings), Time, Metrics,
         NullLogger<ReconciliationRunner>.Instance);
 
     public ReconciliationService ReconciliationService() => new(Scopes(), Lock, Time, NullLogger<ReconciliationService>.Instance);
@@ -90,5 +97,5 @@ public sealed class Scenario
     public InvoiceQueries InvoiceQueries() => new(
         UnitOfWork, Invoices, Outbox, Events, Reconciliation, OperatorActions, FollowUps, Options.Create(ReconciliationSettings), Time);
 
-    public CreateInvoiceHandler CreateInvoiceHandler() => new(Invoices, Time, NullLoggerFactory.Instance);
+    public CreateInvoiceHandler CreateInvoiceHandler() => new(Invoices, Time, Metrics, NullLoggerFactory.Instance);
 }

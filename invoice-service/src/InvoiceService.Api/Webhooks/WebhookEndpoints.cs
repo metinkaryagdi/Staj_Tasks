@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Metrics;
 using InvoiceService.Application.Webhooks;
 
 namespace InvoiceService.Api.Webhooks;
@@ -34,7 +35,7 @@ public static class WebhookEndpoints
     /// </summary>
     private static async Task<IResult> ReceiveEvent(
         HttpRequest request, IOptions<WebhookOptions> options, TimeProvider clock, IServiceScopeFactory scopes,
-        IDatabaseFailureClassifier database, ILoggerFactory loggerFactory, CancellationToken ct)
+        IDatabaseFailureClassifier database, InvoiceMetrics metrics, ILoggerFactory loggerFactory, CancellationToken ct)
     {
         var settings = options.Value;
         var logger = loggerFactory.CreateLogger("InvoiceService.Webhooks");
@@ -46,7 +47,7 @@ public static class WebhookEndpoints
         try { body = await WebhookRequestReader.ReadBodyAsync(request, settings.MaxBodyBytes, work.Token); }
         catch (OperationCanceledException) when (budget.IsCancellationRequested)
         {
-            return Unavailable(logger, "timeout-reading-body", "-", clock.GetElapsedTime(started));
+            return Unavailable(logger, metrics, "timeout-reading-body", "-", clock.GetElapsedTime(started));
         }
         if (body is null)
         {
@@ -64,6 +65,7 @@ public static class WebhookEndpoints
             // The reason is only logged; the response does not tell the sender which check failed.
             logger.LogWarning("ERP webhook rejected http=401 reason={Reason} timestamp={Timestamp} bodyBytes={Bytes}",
                 ReasonText(check), timestamp ?? "-", body.Length);
+            metrics.WebhookReceived(WebhookResult.Unauthorized);
             return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized");
         }
 
@@ -93,16 +95,19 @@ public static class WebhookEndpoints
         try
         {
             var result = await processing.WaitAsync(budget.Token);
+            // A repeated delivery was counted with its first one.
+            if (!result.Repeat)
+                metrics.WebhookReceived(WebhookResult.Of(result.Status));
             return Results.Ok(result);
         }
         catch (OperationCanceledException) when (budget.IsCancellationRequested)
         {
             LogLateOutcome(processing, logger, payload.EventId!);
-            return Unavailable(logger, "timeout", payload.EventId!, clock.GetElapsedTime(started));
+            return Unavailable(logger, metrics, "timeout", payload.EventId!, clock.GetElapsedTime(started));
         }
         catch (Exception ex) when (database.TimeoutReason(ex) is { } reason)
         {
-            return Unavailable(logger, reason, payload.EventId!, clock.GetElapsedTime(started));
+            return Unavailable(logger, metrics, reason, payload.EventId!, clock.GetElapsedTime(started));
         }
     }
 
@@ -121,8 +126,9 @@ public static class WebhookEndpoints
     /// <summary>
     /// 503: not done in time; the ERP's next delivery stores it (or is counted as a repeat if it committed late).
     /// </summary>
-    private static IResult Unavailable(ILogger logger, string reason, string eventId, TimeSpan elapsed)
+    private static IResult Unavailable(ILogger logger, InvoiceMetrics metrics, string reason, string eventId, TimeSpan elapsed)
     {
+        metrics.WebhookReceived(WebhookResult.Unavailable);
         logger.LogWarning("ERP webhook rejected http=503 reason={Reason} event={EventId} elapsed={ElapsedMs}ms",
             reason, eventId, (long)elapsed.TotalMilliseconds);
         return Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Not processed in time");

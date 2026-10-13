@@ -1,0 +1,14 @@
+# Bütün alarmlar alert-receiver'a webhook ile gider; alıcı her alarmı loglar. Çözülen alarm da bildirilir
+# (send_resolved). group_interval kısa: koşul kalkınca çözüldü bildirimi 30 saniye içinde gider.
+route:
+  receiver: alert-receiver
+  group_by: ["alertname"]
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 4h
+
+receivers:
+  - name: alert-receiver
+    webhook_configs:
+      - url: http://alert-receiver:8080/alerts
+        send_resolved: true

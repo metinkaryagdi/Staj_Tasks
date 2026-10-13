@@ -68,6 +68,7 @@ public static class InvoiceEndpoints
         if (limiter.TryAcquire())
             return await next(context);
 
+        http.RequestServices.GetRequiredService<SimulatorMetrics>().RateLimited();
         http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ErpSimulator.Invoices")
             .LogInformation("Invoice request rejected status=429 reason=rateLimited limit={Limit}/s retryAfter={RetryAfter}s",
                 limiter.PermitsPerSecond, RateLimitRetryAfterSeconds);

@@ -2,6 +2,7 @@ using ErpSimulator.Application.Invoices;
 using ErpSimulator.Application.Simulation;
 using ErpSimulator.Application.Tests.Fakes;
 using ErpSimulator.Application.Webhooks;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -11,6 +12,10 @@ namespace ErpSimulator.Application.Tests;
 public class SubmitInvoiceHandlerTests
 {
     private readonly FakeErpInvoiceStore _store = new();
+    private readonly TestMeterFactory _meters = new();
+    private readonly SimulatorMetrics _metrics;
+
+    public SubmitInvoiceHandlerTests() => _metrics = new SimulatorMetrics(_meters);
 
     private SubmitInvoiceHandler Handler(BehaviorRates rates, bool idempotent = false, int processingMs = 0)
     {
@@ -25,7 +30,7 @@ public class SubmitInvoiceHandlerTests
             SecondEventMaxSeconds = 20, ApprovalRate = 100, RejectReasons = ["x"], Problems = new WebhookProblems()
         });
         return new SubmitInvoiceHandler(_store, new BehaviorSelector(simulator), new WebhookPlanner(webhooks, simulator),
-            simulator, NullLoggerFactory.Instance);
+            simulator, _metrics, NullLoggerFactory.Instance);
     }
 
     private static BehaviorRates Only(Behavior behavior) => new()
@@ -66,6 +71,21 @@ public class SubmitInvoiceHandlerTests
 
         // A lower bound only: the machine may be slower, never faster.
         Assert.True(watch.ElapsedMilliseconds >= 115, $"took {watch.ElapsedMilliseconds} ms");
+    }
+
+    [Fact]
+    public async Task Each_drawn_behavior_is_counted_and_requests_without_a_draw_are_not()
+    {
+        using var requests = new MetricCollector<long>(_meters, SimulatorMetrics.MeterName, "erp_simulator.invoice_requests");
+        var handler = Handler(Only(Behavior.Busy));
+        await handler.HandleAsync(Request(), CancellationToken.None);
+        await handler.HandleAsync(new CreateInvoiceRequest("", null, null, null, null), CancellationToken.None);
+        var idempotent = Handler(Only(Behavior.Success), idempotent: true);
+        await idempotent.HandleAsync(Request(), CancellationToken.None);
+        await idempotent.HandleAsync(Request(), CancellationToken.None);
+
+        // The idempotent repeat is answered from the existing record: no behavior was drawn for it.
+        Assert.Equal(["Busy", "Success"], requests.GetMeasurementSnapshot().Select(m => m.Tags["behavior"]));
     }
 
     [Fact]

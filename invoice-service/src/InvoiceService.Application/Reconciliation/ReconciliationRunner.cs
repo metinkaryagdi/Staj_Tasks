@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Metrics;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Reconciliation;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,13 +19,14 @@ public sealed class ReconciliationFailedException(string message) : Exception(me
 /// </summary>
 public sealed class ReconciliationRunner(
     IReconciliationStore store, IErpGateway erp, IUnitOfWork unitOfWork, ReconciliationPlanner planner,
-    IServiceScopeFactory scopes, IOptions<ReconciliationOptions> options, TimeProvider time,
+    IServiceScopeFactory scopes, IOptions<ReconciliationOptions> options, TimeProvider time, InvoiceMetrics metrics,
     ILogger<ReconciliationRunner> logger)
 {
     /// <summary>Does the run and records how it ended; never throws for a failed run.</summary>
     public async Task RunAsync(ReconciliationRun run, CancellationToken ct)
     {
         int checkedCount = 0, fixedCount = 0, reportedCount = 0;
+        var started = time.GetTimestamp();
         try
         {
             var (plan, checks) = await PlanAsync(run.Id, ct);
@@ -38,6 +40,8 @@ public sealed class ReconciliationRunner(
                 store.AddFinding(ToEntity(run.Id, finding));
             await unitOfWork.SaveChangesAsync(ct);
             reportedCount = reported.Count;
+            foreach (var finding in reported)
+                metrics.Finding(finding.FindingType);
 
             foreach (var finding in plan.Findings.Where(f => f.Fix is not null))
             {
@@ -47,7 +51,10 @@ public sealed class ReconciliationRunner(
                 try
                 {
                     if (await scope.ServiceProvider.GetRequiredService<FixApplier>().ApplyAsync(run.Id, finding))
+                    {
                         fixedCount++;
+                        metrics.Finding(finding.FindingType);
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -58,12 +65,16 @@ public sealed class ReconciliationRunner(
                     logger.LogWarning("Reconciliation fix skipped run={RunId} invoice={InvoiceNumber} type={FindingType}: {Message}",
                         run.Id, finding.InvoiceNumber, finding.FindingType, reason);
                     if (await ReportUnfixedAsync(run.Id, finding, reason))
+                    {
                         reportedCount++;
+                        metrics.Finding(finding.FindingType);
+                    }
                 }
             }
 
             await store.FinishRunAsync(
                 run.Id, ReconciliationStatus.Completed, checkedCount, fixedCount, reportedCount, null, time.GetUtcNow(), CancellationToken.None);
+            metrics.RunFinished(ReconciliationStatus.Completed, time.GetElapsedTime(started));
             logger.LogInformation(
                 "Reconciliation run finished run={RunId} status={Status} checked={Checked} fixed={Fixed} reported={Reported}",
                 run.Id, ReconciliationStatus.Completed, checkedCount, fixedCount, reportedCount);
@@ -81,6 +92,7 @@ public sealed class ReconciliationRunner(
                 run.Id, checkedCount, fixedCount, reportedCount, error);
             await store.FinishRunAsync(
                 run.Id, ReconciliationStatus.Failed, checkedCount, fixedCount, reportedCount, error, time.GetUtcNow(), CancellationToken.None);
+            metrics.RunFinished(ReconciliationStatus.Failed, time.GetElapsedTime(started));
         }
     }
 

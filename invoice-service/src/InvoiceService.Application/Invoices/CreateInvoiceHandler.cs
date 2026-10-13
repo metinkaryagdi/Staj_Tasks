@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Metrics;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Outbox;
 
@@ -11,7 +12,8 @@ public sealed record CreateInvoiceResult(Invoice? Invoice, Dictionary<string, st
 /// Saves the invoice (Bekliyor) together with its erp_outbox entry in one save. The ERP is not called here; the
 /// background worker sends it.
 /// </summary>
-public sealed class CreateInvoiceHandler(IInvoiceStore invoices, TimeProvider time, ILoggerFactory loggerFactory)
+public sealed class CreateInvoiceHandler(
+    IInvoiceStore invoices, TimeProvider time, InvoiceMetrics metrics, ILoggerFactory loggerFactory)
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger(InvoiceLog.Category);
 
@@ -48,6 +50,7 @@ public sealed class CreateInvoiceHandler(IInvoiceStore invoices, TimeProvider ti
         // One save = one transaction: both rows are written or neither is. There is never an invoice that
         // nobody will send, nor a send queued for an invoice that does not exist.
         await invoices.QueueAsync(invoice, entry, CancellationToken.None);
+        metrics.InvoiceCreated();
         _logger.LogInformation("Invoice queued invoice={InvoiceNumber}", invoice.InvoiceNumber);
 
         return new CreateInvoiceResult(invoice, null);

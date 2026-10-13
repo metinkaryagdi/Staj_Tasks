@@ -1,0 +1,9 @@
+# Grafana açılırken /var/lib/grafana/dashboards'taki panoları (monitoring/grafana/dashboards) yükler.
+apiVersion: 1
+providers:
+  - name: fatura-servisi
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

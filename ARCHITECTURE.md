@@ -3,7 +3,8 @@
 İki uygulama da (Invoice Service ve ERP Simulator) aynı katmanlı yapıdadır: her biri dört projeye bölünmüştür ve
 projeler arasındaki referanslar tek yönlüdür. Üçüncü uygulama olan operasyon ekranı (`operations-ui`) tarayıcıda çalışan
 küçük bir React uygulamasıdır; katmanlara bölünmemiştir ve yalnızca Invoice Service'in HTTP API'sini kullanır
-(bkz. [Operasyon Ekranı](#operasyon-ekranı)).
+(bkz. [Operasyon Ekranı](#operasyon-ekranı)). İzleme için Prometheus, Alertmanager, Grafana ve tek dosyalık bir alarm alıcısı
+(`alert-receiver`) vardır (bkz. [İzleme](#i̇zleme)).
 
 ## Katmanlar ve bağımlılık kuralı
 
@@ -42,6 +43,7 @@ invoice-service/
       Invoices/        CreateInvoiceHandler, ResendInvoiceHandler, ResendInvoicesHandler, InvoiceFollowUpHandler, InvoiceQueries,
                        InvoiceReadModels, CreateInvoiceRequest
       Outbox/          OutboxProcessor, ClaimedEntry, ErpSendStrategy, OutboxOutcomeWriter, RetryPolicy, OutboxOptions
+      Metrics/         InvoiceMetrics, SendAttemptResult, WebhookResult, DatabaseMetrics, DatabaseMetricsReader, MetricsOptions
       Webhooks/        WebhookEventProcessor, InvoiceEventApplier, ErpWebhookRequest, WebhookSignature, WebhookOptions
       Reconciliation/  ReconciliationService, ReconciliationRunner, ReconciliationPlanner, ReconciliationPlan, FixApplier,
                        ReconciliationQueries, ReconciliationOptions
@@ -57,7 +59,7 @@ invoice-service/
       Webhooks/        WebhookEndpoints, WebhookRequestReader
       Reconciliation/  ReconciliationEndpoints, ReconciliationResponses
       Operators/       OperatorHeader (X-Operator-Name okuma ve doğrulama)
-      Workers/         OutboxWorker, ReconciliationWorker
+      Workers/         OutboxWorker, ReconciliationWorker, DatabaseMetricsWorker
       Paging.cs        sayfalı listelerin page / pageSize doğrulaması
       Startup/         LoggingExtensions, OpenApiExtensions, DatabaseMigrator, SettingsLogger, CorsExtensions
       Program.cs
@@ -74,7 +76,7 @@ invoice-service/
 | `IOutboxStore` | `erp_outbox`: `FOR UPDATE SKIP LOCKED` ile kayıt al, claim hâlâ bizde mi, sonucu claim'e göre yaz, sıfırla, faturanın kaydını oku | `OutboxStore` |
 | `IWebhookEventStore` | `erp_webhook_events`: bir kez sakla (`ON CONFLICT`), oku, faturanın haberlerini listele, bekleyenleri kilitle, `SET LOCAL` süre limitleri | `WebhookEventStore` |
 | `IUnitOfWork` | Transaction sınırı: aynı DI scope'undaki store'lar aynı transaction'a katılır | `UnitOfWork` |
-| `IReconciliationStore` | `reconciliation_runs` / `reconciliation_findings`; mutabakatın okuduğu fatura ve haber listeleri; bir faturanın bulguları; ERP'ye sorulan faturalara cevabın yazılması | `ReconciliationStore` |
+| `IReconciliationStore` | `reconciliation_runs` / `reconciliation_findings`; mutabakatın okuduğu fatura ve haber listeleri; bir faturanın bulguları; ERP'ye sorulan faturalara cevabın yazılması; son tamamlanan çalışmanın zamanı (metrik için) | `ReconciliationStore` |
 | `IOperatorActionStore` | `operator_actions`: müdahaleyi açık transaction'da hemen yaz, bir faturanın müdahalelerini oku | `OperatorActionStore` |
 | `IInvoiceFollowUpStore` | `invoice_follow_ups`: açık takibi bul, geçmişi oku, yaz, kapat; bir sayfanın açık takiplerini tek sorguda oku | `InvoiceFollowUpStore` |
 | `IReconciliationLock` | Aynı anda tek mutabakat: bırakılana kadar tutulan kilit; başkasındaysa `null` | `AdvisoryReconciliationLock` |
@@ -145,7 +147,7 @@ erp-simulator/
     ErpSimulator.Application/
       Abstractions/    IErpInvoiceStore, IWebhookDeliveryStore, IWebhookTransport, IUnitOfWork
       Invoices/        SubmitInvoiceHandler, InvoiceLookup, InvoiceListing, InvoiceDecisions, CreateInvoiceRequest
-      Simulation/      BehaviorSelector, SimulatorOptions
+      Simulation/      BehaviorSelector, SimulatorOptions, SimulatorMetrics
       Webhooks/        WebhookSender, WebhookPlanner, WebhookSignature, WebhookOptions
       DependencyInjection.cs
     ErpSimulator.Infrastructure/
@@ -191,6 +193,30 @@ Sayfalar tarayıcıdan doğrudan Invoice Service'e gider (`VITE_API_URL`, derlem
 TanStack Query ile 10 saniyede bir yenilenir; bir hata, varsa son bilinen veriyle birlikte uyarı olarak gösterilir ve bir
 sonraki yenileme başarılı olunca kendiliğinden kalkar. Reddedilen müdahalede servis cevabındaki `code` alanı
 (`invoice_not_failed`, `invoice_not_found`, `reconciliation_running`) Türkçe mesaja çevrilir.
+
+## İzleme
+
+```mermaid
+flowchart LR
+    I["Invoice Service<br/>GET /metrics"] --> P[Prometheus]
+    E["ERP Simulator<br/>GET /metrics"] --> P
+    P -- "alarm kuralları" --> A[Alertmanager]
+    A -- webhook --> R["alert-receiver<br/>log"]
+    G[Grafana] --> P
+```
+
+```
+monitoring/
+  prometheus/    prometheus.yml (toplama 5 sn, hedefler), alert-rules.yml (beş alarm)
+  alertmanager/  alertmanager.yml (her alarm alert-receiver'a, çözülme dahil)
+  grafana/       provisioning/ (veri kaynağı, pano sağlayıcısı), dashboards/fatura-servisi.json
+alert-receiver/  Program.cs (POST /alerts: her alarm bir log satırı), Dockerfile
+```
+
+Metrikler Application katmanında `System.Diagnostics.Metrics` ile ölçülür (`InvoiceMetrics`, `SimulatorMetrics`; `IMeterFactory`
+DI'dan gelir). OpenTelemetry paketleri ve `/metrics` endpoint'i yalnızca Api'dedir: Application OpenTelemetry'yi bilmez, birim
+testler ölçümleri `MetricCollector` ile okur. OpenTelemetry'deki servis adı (`service.name`) compose'daki adla aynıdır
+(`invoice-service`, `erp-simulator`).
 
 ## Tasarım kararları
 
@@ -302,6 +328,35 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   bekleyen bir gönderim aralıkları uzatmaz.
 - **Idempotent modda benzersiz indeks yerine kilit** (fatura numarasından üretilen PostgreSQL advisory lock): mevcut
   çift kayıtlar geçerli kalır ve ayar yeniden kapatılabilir.
+
+### İzleme
+
+- **Veritabanından okunan metrikler toplamadan ayrıdır.** `DatabaseMetricsWorker` özet API'sinin sorgusunu
+  (`InvoiceQueries.SummaryAsync`, tek snapshot) ve son tamamlanan çalışmayı okur, `DatabaseMetrics`'e koyar, sonra
+  `Metrics:DatabaseReadSeconds` bekler; gauge'lar yalnızca oradan okur. Bekleme okuma bittikten sonra başladığı için iki okuma arası hiçbir
+  zaman bu süreden kısa değildir. Prometheus kaç kez toplarsa toplasın veritabanına kopya başına en fazla bu sıklıkta sorgu gider (iki
+  kopya çalışırken iki katı) ve pano özetle aynı tanımı gösterir.
+  Okuma hata verirse değer silinir: eski bir kuyruk değerini güncelmiş gibi göstermek, değer göstermemekten kötüdür.
+- **Son başarılı mutabakatın zamanı veritabanından okunur.** Bellekteki bir sayaç servis yeniden başlayınca sıfırlanır; ilk çalışma
+  bir aralık (60 dk) sonra olduğu için alarm ya her açılışta tetiklenir ya da hiç tetiklenmezdi. Veritabanındaki zaman yeniden
+  başlatmadan ve iki kopyadan etkilenmez.
+- **Sayaçlar 0 ile başlar.** Prometheus daha önce görmediği bir serinin ilk değerini artış saymaz: ilk toplamadan önce gelen 21 tane 401,
+  sayaç o anda ortaya çıksaydı 0 artış görünürdü. Her etiket değeri açılışta `Add(0)` ile oluşturulur. Bu, uygulama açıldıktan
+  sonra (`ApplicationStarted`) `StartAtZero()` ile yapılır, constructor'da değil: OpenTelemetry dinlemeye başlamadan yapılan ölçüm
+  kaybolur ve bir worker (`OutboxWorker`) sınıfı OpenTelemetry'den önce oluşturabilir.
+- **Gönderim sonucu denemenin sonucudur.** "ERP'de zaten var" POST'la değil soruyla anlaşılır; bu yüzden soruyla biten deneme de sayılır
+  ve sorusu cevapsız kalan deneme `timeout` / `unreachable` olur. Zaman aşımı ile ulaşılamama ayrımını `ErpClient` yapar
+  (`ErpSendResult.NoAnswer`); `RetryPolicy` bu alanı kullanmaz, davranışı değişmez. Haklar bitince sorulan son soru yeni bir deneme
+  değildir, sayılmaz.
+- **401 alarmı `increase()` değil fark kullanır.** `increase()` aralığın kenarlarına göre tahmin yapar; tam 20 tane 401'i 20'nin biraz
+  üstünde gösterip "20'den fazla" eşiğini aşmış sayabilir. Fark (`x - x offset 5m`) tamsayıdır. Bedeli: servis açıldıktan sonraki ilk
+  5 dakikada karşılaştırılacak eski değer yoktur. Oran alarmında (ErpyeUlasilamiyor) iki tarafa aynı tahmin uygulandığı için
+  `increase()` kalır.
+- **İki kopya.** Veritabanından okunan değerler iki kopyada aynıdır, `max()` ile alınır; sayaçlar kopya başınadır, `sum()` ile toplanır.
+  İkinci kopya Prometheus'ta sabit hedef değil, adıyla DNS'te aranır (`dns_sd_configs`): çalışmıyorken hedef listede yoktur ("down"
+  görünmez), çalışınca 30 saniye içinde eklenir.
+- **Alıcı katmanlara bölünmedi.** Tek iş yapar (bildirimi loglar); dört katman getirisinden çok yük olurdu.
+- **Grafana anonim görüntüleyiciye açık.** Pano compose ayağa kalkınca giriş ekranı olmadan açılır; değiştirmek için yönetici girişi gerekir.
 
 ### Operasyon ekranı
 

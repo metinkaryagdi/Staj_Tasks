@@ -34,11 +34,11 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         {
             // HttpClient.Timeout surfaces as TaskCanceledException (inner TimeoutException), not as
             // HttpRequestException.
-            return Failed(null, $"ERP {http.Timeout.TotalSeconds:0} saniye içinde cevap vermedi (zaman aşımı).", watch);
+            return Failed(null, $"ERP {http.Timeout.TotalSeconds:0} saniye içinde cevap vermedi (zaman aşımı).", watch, ErpNoAnswer.Timeout);
         }
         catch (HttpRequestException ex)
         {
-            return Failed(null, $"ERP'ye ulaşılamadı: {ex.Message}", watch);
+            return Failed(null, $"ERP'ye ulaşılamadı: {ex.Message}", watch, ErpNoAnswer.Unreachable);
         }
 
         using (response)
@@ -74,11 +74,13 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
             return new ErpLookupResult(ErpLookup.Unknown, null, null,
-                $"ERP'ye faturanın kaydı sorulamadı: {http.Timeout.TotalSeconds:0} saniye içinde cevap vermedi (zaman aşımı).", watch.Elapsed);
+                $"ERP'ye faturanın kaydı sorulamadı: {http.Timeout.TotalSeconds:0} saniye içinde cevap vermedi (zaman aşımı).", watch.Elapsed,
+                NoAnswer: ErpNoAnswer.Timeout);
         }
         catch (HttpRequestException ex)
         {
-            return new ErpLookupResult(ErpLookup.Unknown, null, null, $"ERP'ye faturanın kaydı sorulamadı: ERP'ye ulaşılamadı: {ex.Message}", watch.Elapsed);
+            return new ErpLookupResult(ErpLookup.Unknown, null, null, $"ERP'ye faturanın kaydı sorulamadı: ERP'ye ulaşılamadı: {ex.Message}", watch.Elapsed,
+                NoAnswer: ErpNoAnswer.Unreachable);
         }
 
         using (response)
@@ -179,8 +181,8 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         }
     }
 
-    private static ErpSendResult Failed(int? status, string error, Stopwatch watch) =>
-        new(false, null, status, error, watch.Elapsed);
+    private static ErpSendResult Failed(int? status, string error, Stopwatch watch, ErpNoAnswer? noAnswer = null) =>
+        new(false, null, status, error, watch.Elapsed, NoAnswer: noAnswer);
 
     private static string? ReadErpReference(string body)
     {

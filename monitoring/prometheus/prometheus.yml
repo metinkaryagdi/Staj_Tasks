@@ -1,0 +1,28 @@
+# Prometheus servislerin /metrics adresinden 5 saniyede bir toplar. Fatura Servisi'nin veritabanından okunan değerleri
+# (kuyruk, durum sayıları, takılı fatura, son mutabakat) servis 15 saniyede bir okur; arada gelen toplama son okumayı alır.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # invoice-service-2 yalnızca iki kopya testlerinde çalışır (profil iki-kopya). Adıyla DNS'te aranır: çalışmıyorken adı
+  # çözülmez ve hedef listede hiç görünmez, çalışınca 30 saniye içinde eklenir.
+  - job_name: invoice-service
+    static_configs:
+      - targets: ["invoice-service:8080"]
+    dns_sd_configs:
+      - names: ["invoice-service-2"]
+        type: A
+        port: 8080
+        refresh_interval: 30s
+  - job_name: erp-simulator
+    static_configs:
+      - targets: ["erp-simulator:8080"]

@@ -21,6 +21,8 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<RateLimitOptions>, RateLimitOptionsValidator>();
         services.AddSingleton<InvoiceRateLimiter>();
+        services.AddMetrics();
+        services.AddSingleton<SimulatorMetrics>();
 
         services.AddOptions<WebhookOptions>()
             .Bind(configuration.GetSection(WebhookOptions.SectionName))

@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Metrics;
 using InvoiceService.Domain.Invoices;
 
 namespace InvoiceService.Application.Outbox;
@@ -42,7 +43,8 @@ public sealed record SendAttempt(ErpSendResult Result, SendPath Path)
 /// only if the ERP clearly does not have the invoice. Every POST waits for its turn (<see cref="IErpSendPacer"/>).
 /// Does not retry and writes nothing.
 /// </summary>
-public sealed class ErpSendStrategy(IErpGateway erp, IErpSendPacer pacer, IOutboxStore outbox, TimeProvider time)
+public sealed class ErpSendStrategy(
+    IErpGateway erp, IErpSendPacer pacer, IOutboxStore outbox, TimeProvider time, InvoiceMetrics metrics)
 {
     /// <summary>
     /// Asks the ERP whether it has the invoice, without sending it. Found -> accepted with the ERP's reference;
@@ -70,16 +72,16 @@ public sealed class ErpSendStrategy(IErpGateway erp, IErpSendPacer pacer, IOutbo
         // The turn is waited for before the claim is checked, so the check is the last thing before the POST.
         if (invoice.SendAttemptCount <= 1)
         {
-            await pacer.WaitForTurnAsync(CancellationToken.None);
+            await WaitForTurnAsync();
             return await StillHeldAsync(entry)
-                ? new(await erp.SendAsync(invoice, CancellationToken.None), SendPath.First)
+                ? new(await PostAsync(invoice), SendPath.First)
                 : new(new ErpSendResult(false, null, null, null, TimeSpan.Zero), SendPath.NotHeld);
         }
 
         var lookup = await erp.FindAsync(invoice.InvoiceNumber, CancellationToken.None);
         if (lookup.Lookup == ErpLookup.NotFound)
         {
-            await pacer.WaitForTurnAsync(CancellationToken.None);
+            await WaitForTurnAsync();
             if (!await StillHeldAsync(entry))
                 return new(new ErpSendResult(false, null, null, null, lookup.Elapsed), SendPath.NotHeld);
         }
@@ -87,10 +89,24 @@ public sealed class ErpSendStrategy(IErpGateway erp, IErpSendPacer pacer, IOutbo
         return lookup.Lookup switch
         {
             ErpLookup.Found => new(new ErpSendResult(true, lookup.ErpReference, lookup.HttpStatus, null, lookup.Elapsed), SendPath.Found),
-            ErpLookup.NotFound => new(await erp.SendAsync(invoice, CancellationToken.None), SendPath.NotFound),
+            ErpLookup.NotFound => new(await PostAsync(invoice), SendPath.NotFound),
             // No answer the ERP's state can be read from: treated like a timeout (backoff), never as "not there".
-            _ => new(new ErpSendResult(false, null, null, lookup.Error, lookup.Elapsed), SendPath.Unknown)
+            _ => new(new ErpSendResult(false, null, null, lookup.Error, lookup.Elapsed, NoAnswer: lookup.NoAnswer), SendPath.Unknown)
         };
+    }
+
+    private async Task WaitForTurnAsync()
+    {
+        var started = time.GetTimestamp();
+        await pacer.WaitForTurnAsync(CancellationToken.None);
+        metrics.PaceWait(time.GetElapsedTime(started));
+    }
+
+    private async Task<ErpSendResult> PostAsync(Invoice invoice)
+    {
+        var result = await erp.SendAsync(invoice, CancellationToken.None);
+        metrics.SendDuration(result.Elapsed);
+        return result;
     }
 
     /// <summary>Whether the entry still carries this claim and its lock has not run out.</summary>

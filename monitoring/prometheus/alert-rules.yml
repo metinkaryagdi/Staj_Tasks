@@ -1,0 +1,62 @@
+# Alarm kuralları: her alarmın eşiği expr'de, süresi "for"da ya da expr'deki zaman aralığındadır. Değiştirdikten sonra
+# `docker compose restart prometheus`. Kuyruk ve fatura değerleri iki servis kopyasında aynı veritabanından okunduğu için
+# max() ile, sayaçlar kopyalar toplamı olarak sum() ile alınır.
+groups:
+  - name: fatura-servisi
+    rules:
+      - alert: KuyruktaUzunBekleyenFatura
+        expr: max(outbox_oldest_wait_seconds) > 15 * 60
+        for: 5m
+        annotations:
+          summary: "ERP'ye gönderim kuyruğundaki en eski fatura 15 dakikadan uzun süredir bekliyor."
+          description: >-
+            Kuyruktaki en eski faturanın bekleme süresi 5 dakika boyunca 15 dakikanın üzerinde kaldı; faturalar ERP'ye
+            gönderilemiyor ya da gelen fatura gönderilebilenden fazla. İlk olarak: panodaki gönderim sonuçlarına bakın
+            (zaman aşımı, ulaşılamadı, meşgul hangisi artıyor), ardından invoice-service'in çalıştığını ve ERP'ye
+            ulaşabildiğini `docker compose logs invoice-service` ile kontrol edin.
+
+      - alert: TakiliFaturaCok
+        expr: max(invoices_stuck) > 50
+        for: 10m
+        annotations:
+          summary: "50'den fazla fatura Gönderildi ya da İşleme Alındı durumunda takılı kaldı."
+          description: >-
+            Takılı fatura sayısı 10 dakika boyunca 50'nin üzerinde kaldı; ERP'den karar haberleri gelmiyor ya da
+            işlenemiyor. İlk olarak: panodaki haber sonuçlarına (401, 503) bakın, operasyon ekranında Takılı
+            süzgeciyle faturaları açın ve mutabakatı elle çalıştırın (Mutabakat > Mutabakatı Şimdi Çalıştır).
+
+      - alert: ErpyeUlasilamiyor
+        expr: >-
+          sum(increase(erp_send_attempts_total{result=~"timeout|unreachable"}[5m]))
+            / sum(increase(erp_send_attempts_total[5m])) > 0.5
+        annotations:
+          summary: "Son 5 dakikadaki gönderimlerin yarısından fazlası zaman aşımı ya da ulaşılamadı ile bitti."
+          description: >-
+            ERP'ye yapılan gönderim denemelerinin yarısından fazlası cevap alamadı; ERP kapalı, ağ kesik ya da ERP çok
+            yavaş. Faturalar kuyrukta bekler ve tekrar denenir, kaybolmaz. İlk olarak: ERP Simülatörü'nün ayakta
+            olduğunu (`docker compose ps erp-simulator`, http://localhost:5080/health) ve invoice-service'in ERP adresine
+            ulaşabildiğini kontrol edin.
+
+      - alert: BasariliMutabakatYok
+        expr: time() - max(reconciliation_last_completed_time_seconds) > 2 * 3600
+        annotations:
+          summary: "Son 2 saatte başarıyla tamamlanmış bir mutabakat çalışması yok."
+          description: >-
+            En son Tamamlandı olan mutabakat çalışması 2 saatten eski; çalışmalar başarısız oluyor ya da hiç başlamıyor.
+            Takılı ve ERP'den ayrışan faturalar bu sürede düzeltilmiyor. İlk olarak: operasyon ekranının Mutabakat
+            sayfasında son çalışmaların durumuna ve hata mesajına bakın; ERP'ye ulaşılamıyorsa önce onu düzeltin, sonra
+            mutabakatı elle çalıştırın.
+
+      - alert: CokSayida401
+        # increase() yerine fark: increase() aralığın kenarlarına göre tahmin yaptığı için 20'yi 20,3 gibi gösterip alarmı
+        # 20'de de tetikleyebilir.
+        expr: >-
+          sum(erp_webhooks_received_total{result="401"})
+            - sum(erp_webhooks_received_total{result="401"} offset 5m) > 20
+        annotations:
+          summary: "Son 5 dakikada 20'den fazla ERP haberi imza doğrulamasından geçemedi (401)."
+          description: >-
+            Gelen haberlerin imzası ya da zaman damgası geçersiz; ERP ile servisin webhook anahtarı uyuşmuyor, saatler
+            kaymış ya da biri sahte haber gönderiyor. Bu haberler işlenmez; karar bekleyen faturalar takılı kalabilir.
+            İlk olarak: invoice-service logunda `http=401` satırlarının nedenine (bad-signature, expired …) bakın ve
+            ErpWebhooks:Secret ile simülatörün Webhooks:Secret ayarının aynı olduğunu kontrol edin.

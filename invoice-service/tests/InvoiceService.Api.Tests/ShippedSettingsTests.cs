@@ -1,3 +1,4 @@
+using InvoiceService.Application.Metrics;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
@@ -76,5 +77,17 @@ public class ShippedSettingsTests
         Assert.Equal(60, options.UnknownEventAfterMinutes);
         Assert.Equal(30, options.NoDecisionAfterMinutes);
         Assert.Equal(24, options.NotFoundRecheckHours);
+    }
+
+    [Fact]
+    public void Shipped_metrics_settings_read_the_database_every_15_seconds()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
+        var options = new MetricsOptions();
+        configuration.GetSection(MetricsOptions.SectionName).Bind(options);
+
+        Assert.True(new MetricsOptionsValidator(configuration).Validate(null, options).Succeeded);
+        Assert.Equal(15, options.DatabaseReadSeconds);
     }
 }

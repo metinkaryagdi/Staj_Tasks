@@ -1,5 +1,6 @@
 using System.Globalization;
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Metrics;
 using InvoiceService.Domain.Invoices;
 
 namespace InvoiceService.Application.Outbox;
@@ -10,7 +11,7 @@ namespace InvoiceService.Application.Outbox;
 /// </summary>
 public sealed class OutboxProcessor(
     IOutboxStore outbox, IInvoiceStore invoices, ErpSendStrategy strategy, OutboxOutcomeWriter outcomes,
-    RetryPolicy policy, IOptions<OutboxOptions> options, TimeProvider time, ILogger<OutboxProcessor> logger)
+    RetryPolicy policy, IOptions<OutboxOptions> options, TimeProvider time, InvoiceMetrics metrics, ILogger<OutboxProcessor> logger)
 {
     /// <summary>How long a taken entry belongs to this worker; after that another worker may take it.</summary>
     private TimeSpan LockDuration => TimeSpan.FromSeconds(options.Value.LockSeconds);
@@ -71,6 +72,8 @@ public sealed class OutboxProcessor(
         var sent = await strategy.SendOnceAsync(invoice, entry);
         if (sent.Path == SendPath.NotHeld)
             return null;
+        if (SendAttemptResult.Of(sent) is { } result)
+            metrics.SendAttempt(result);
 
         var decision = policy.Decide(sent.Result, entry.Attempt, time.GetUtcNow(), Random.Shared.NextDouble());
         if (!decision.AttemptsUsedUp)

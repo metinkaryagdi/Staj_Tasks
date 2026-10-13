@@ -370,7 +370,7 @@ public class ReconciliationRunnerTests
         _s.Erp.ListResult = new ErpListResult(true, [Erp("F-1", "ERP-1") with { ReceivedAt = Now.AddMilliseconds(500) }], null);
         var runner = new ReconciliationRunner(
             _s.Reconciliation, _s.Erp, _s.UnitOfWork, _s.ReconciliationPlanner(), _s.Scopes(),
-            Microsoft.Extensions.Options.Options.Create(_s.ReconciliationSettings), new SteppingTime(Now, TimeSpan.FromSeconds(1)),
+            Microsoft.Extensions.Options.Options.Create(_s.ReconciliationSettings), new SteppingTime(Now, TimeSpan.FromSeconds(1)), _s.Metrics,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ReconciliationRunner>.Instance);
 
         await runner.RunAsync(StartRun(), CancellationToken.None);
@@ -435,7 +435,7 @@ public class ReconciliationRunnerTests
         var scopes = _s.Scopes();
         var runner = new ReconciliationRunner(
             _s.Reconciliation, _s.Erp, _s.UnitOfWork, _s.ReconciliationPlanner(), scopes,
-            Microsoft.Extensions.Options.Options.Create(_s.ReconciliationSettings), _s.Time,
+            Microsoft.Extensions.Options.Options.Create(_s.ReconciliationSettings), _s.Time, _s.Metrics,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ReconciliationRunner>.Instance);
 
         await runner.RunAsync(StartRun(), CancellationToken.None);
