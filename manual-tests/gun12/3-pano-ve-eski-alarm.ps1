@@ -18,10 +18,14 @@ Invoke-Compose @('stop', 'erp-simulator')
 Write-Step "$Count fatura oluşturuluyor"
 $numbers = @(1..$Count | ForEach-Object { (New-ServiceInvoice).InvoiceNumber })
 
-$passed = Test-AlertCycle 'ErpyeUlasilamiyor' $since -FireTimeoutSeconds 180 -ResolveTimeoutSeconds 600 -Resolve {
-    Restart-Simulator
-    Wait-InvoicesIn $numbers @('Gönderildi', 'İşleme Alındı', 'Onaylandı', 'Reddedildi', 'Başarısız') 300 'sonuçlandı' | Out-Null
+# Alarm gelmezse çözülme adımı çalışmaz: simülatör her durumda yeniden açılır, kapalı kalmaz.
+try {
+    $passed = Test-AlertCycle 'ErpyeUlasilamiyor' $since -FireTimeoutSeconds 180 -ResolveTimeoutSeconds 600 -Resolve {
+        Restart-Simulator
+        Wait-InvoicesIn $numbers @('Gönderildi', 'İşleme Alındı', 'Onaylandı', 'Reddedildi', 'Başarısız') 300 'sonuçlandı' | Out-Null
+    }
 }
+finally { Invoke-Compose @('start', 'erp-simulator') }
 Show-ServiceQuery "SELECT status, count(*) FROM invoices WHERE invoice_number IN ($(InList $numbers)) GROUP BY status;"
 
 # Pano faturalar gönderildikten ve bir mutabakat çalıştıktan sonra kontrol edilir: gönderim süresi ve mutabakat süresi

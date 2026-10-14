@@ -27,8 +27,13 @@ $passed = Test-AlertCycle 'MetrikToplanamiyor' $since -FireTimeoutSeconds 240 -R
     Write-Host "  $Service açıldı: $((Get-UtcStamp)) UTC"
 }
 
-$lines = @(Get-ReceiverLines $since | Where-Object { $_ -match 'alertname=MetrikToplanamiyor ' })
+# Yalnız bu servisin, bu koşuda başlamış alarmı: alıcının logunda önceki koşulardan kalan çözüldü bildirimleri (başlangıcı
+# $since'ten önce) ve öbür servisin satırları dosyaya girmez.
+$lines = @(Get-ReceiverLines $since | Where-Object {
+    $_ -match 'alertname=MetrikToplanamiyor startsAt=(\S+)' -and $Matches[1].Replace('T', ' ').Substring(0, 19) -ge $since -and
+    $_ -match [regex]::Escape("summary=`"$Service servisinin") })
 $lines | Set-Content (Join-Path $OutputDir "gun12-2-alarm-metrik-$Service.txt") -Encoding UTF8
-$named = @($lines | Where-Object { $_ -match [regex]::Escape("summary=`"$Service servisinin") }).Count -ge 2
+$named = @($lines | Where-Object { $_ -match 'status=firing' }).Count -ge 1 -and
+    @($lines | Where-Object { $_ -match 'status=resolved' }).Count -ge 1
 Write-Result ($passed -and $named) "Alarm $Service için tetiklendi ve çözüldü bildirimi geldi (alıcının logu)"
 Write-Host "  Alıcının satırları: manual-tests\output\gun12-2-alarm-metrik-$Service.txt" -ForegroundColor DarkGray
