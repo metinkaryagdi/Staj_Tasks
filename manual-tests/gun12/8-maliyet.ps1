@@ -1,16 +1,19 @@
-﻿# Raporun maliyet bölümü: izlemenin ek kaynak kullanımı. Aynı yük iki kez çalıştırılır: önce OpenTelemetry SDK'sı
-# kapalı (compose.izsiz.yml, OTEL_SDK_DISABLED=true: ne iz ne metrik), sonra açık. Her koşu kendi boş volume'leriyle
-# (staj-tasks_*-db-data-gun12-maliyet-izsiz / -izli) açılır; volume doluysa durur.
+﻿# Raporun maliyet bölümü: izlemenin ek kaynak kullanımı. Aynı yük iki kez çalıştırılır: OpenTelemetry SDK'sı kapalı
+# (compose.izsiz.yml, OTEL_SDK_DISABLED=true: ne iz ne metrik) ve açık; sıra -Order ile verilir (ilk koşu soğuk
+# container'larla başlar, sıra etkisini görmek için ters sırayla da çalıştırılır). Her koşu kendi boş volume'leriyle
+# (staj-tasks_*-db-data-gun12-<Name>-izsiz / -izli) açılır; volume doluysa durur. Çıktı output\gun12-8-<Name>.txt.
 #   .\manual-tests\gun12\8-maliyet.ps1
+#   .\manual-tests\gun12\8-maliyet.ps1 -Order izli,izsiz -Name maliyet-ters
 # Ölçülenler: k6'nın POST /api/v1/invoices cevap süresi; yük boyunca ve bitiminden 60 sn sonrasına kadar 5 sn'de bir
 # docker stats (CPU, bellek); izli koşuda Jaeger'ın belleği (koşudan önce yeniden başlatılır, izler bellekte tutulur) ve
 # rastgele 20 faturanın izindeki span sayısı. Sonunda yığın normal Gün 12 volume'leriyle yeniden açılır.
-param([int]$Rate = 50, [string]$Duration = '2m')
+param([int]$Rate = 50, [string]$Duration = '2m', [ValidateSet('izsiz', 'izli')][string[]]$Order = @('izsiz', 'izli'),
+    [string]$Name = 'maliyet')
 
 . "$PSScriptRoot\_common.ps1"
 
 $containers = 'invoice-service', 'erp-simulator', 'otel-collector', 'jaeger'
-$out = Join-Path $OutputDir 'gun12-8-maliyet.txt'
+$out = Join-Path $OutputDir "gun12-8-$Name.txt"
 $report = [Collections.Generic.List[string]]::new()
 function Write-Line([string]$Text) { Write-Host $Text; $report.Add($Text) }
 
@@ -22,7 +25,7 @@ function ConvertTo-MiB([string]$Text) {
 
 # Yığını verilen etiketin volume'leriyle açar; izsiz koşuda SDK'yı kapatan dosya da eklenir.
 function Start-Stack([string]$Label) {
-    $env:GUN10_VOL = "gun12-maliyet-$Label"
+    $env:GUN10_VOL = "gun12-$Name-$Label"
     $files = @((Join-Path $RepoRoot 'docker-compose.yml'), (Join-Path $RepoRoot 'manual-tests\gun10\compose.volumes.yml'))
     if ($Label -eq 'izsiz') { $files += (Join-Path $PSScriptRoot 'compose.izsiz.yml') }
     $env:COMPOSE_FILE = $files -join ';'
@@ -35,7 +38,7 @@ function Measure-Run([string]$Label) {
     Write-Title "Maliyet koşusu: $Label (saniyede $Rate fatura, $Duration)"
     Start-Stack $Label
     $existing = [int]@(Get-ServiceRows 'SELECT count(*) FROM invoices;')[0]
-    if ($existing -ne 0) { throw "gun12-maliyet-$Label volume'ü boş değil ($existing fatura); docker volume rm ile silip yeniden çalıştırın." }
+    if ($existing -ne 0) { throw "gun12-$Name-$Label volume'ü boş değil ($existing fatura); docker volume rm ile silip yeniden çalıştırın." }
     if ($Label -eq 'izli') { Invoke-Compose @('restart', 'jaeger'); Start-Sleep -Seconds 5 }
 
     # docker stats arka planda, 5 sn'de bir; k6 bitince 60 sn daha (kuyruk gönderilmeye devam eder).
@@ -69,10 +72,10 @@ function Measure-Run([string]$Label) {
     [pscustomobject]@{ Label = $Label; RunId = $runId; Result = $result; Samples = $samples; Sent = $sent; Spans = $spans }
 }
 
-$runs = @((Measure-Run 'izsiz'), (Measure-Run 'izli'))
+$runs = @($Order | ForEach-Object { Measure-Run $_ })
 
 Write-Title 'Sonuç'
-Write-Line "Yük: saniyede $Rate fatura, $Duration; ölçüm yük boyunca ve bitiminden 60 sn sonrasına kadar 5 sn'de bir."
+Write-Line "Yük: saniyede $Rate fatura, $Duration; sıra: $($Order -join ', '); ölçüm yük boyunca ve bitiminden 60 sn sonrasına kadar 5 sn'de bir."
 Write-Line ''
 Write-Line 'POST /api/v1/invoices cevap süresi (k6):'
 foreach ($r in $runs) {
@@ -92,7 +95,7 @@ foreach ($c in $containers) {
             ($s | Measure-Object Mem -Average).Average, ($s | Measure-Object Mem -Maximum).Maximum)
     }
 }
-$izli = $runs[1]
+$izli = $runs | Where-Object { $_.Label -eq 'izli' }
 $jaeger = @($izli.Samples | Where-Object { $_.Name -eq 'jaeger' })
 if ($jaeger.Count -gt 1) {
     Write-Line ''
@@ -103,7 +106,7 @@ if ($izli.Spans) {
     Write-Line ("Rastgele 20 faturanın izinde span sayısı: ortalama {0}, en az {1}, en çok {2}." -f $izli.Spans.Ortalama, $izli.Spans.EnAz, $izli.Spans.EnCok)
 }
 $report | Set-Content $out -Encoding UTF8
-Write-Host '  Çıktı: manual-tests\output\gun12-8-maliyet.txt' -ForegroundColor DarkGray
+Write-Host "  Çıktı: manual-tests\output\gun12-8-$Name.txt" -ForegroundColor DarkGray
 
 Write-Step 'Yığın normal Gün 12 volume''leriyle yeniden açılıyor'
 Use-Gun10Volumes 'gun12'
