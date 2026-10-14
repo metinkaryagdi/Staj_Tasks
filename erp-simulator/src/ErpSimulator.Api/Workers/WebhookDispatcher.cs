@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using ErpSimulator.Application.Abstractions;
 using ErpSimulator.Application.Webhooks;
 using ErpSimulator.Domain.Webhooks;
@@ -87,6 +88,7 @@ public sealed class WebhookDispatcher(
         }
         catch (Exception ex)
         {
+            span?.SetStatus(ActivityStatusCode.Error, ex.Message);
             logger.LogError(ex, "Webhook send event={EventId} failed unexpectedly; it stays Pending", row.EventId);
         }
         finally

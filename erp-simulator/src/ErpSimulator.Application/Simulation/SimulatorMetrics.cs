@@ -3,8 +3,8 @@ using System.Diagnostics.Metrics;
 namespace ErpSimulator.Application.Simulation;
 
 /// <summary>
-/// The simulator's metrics (meter <see cref="MeterName"/>), served to Prometheus at /metrics with underscores and
-/// _total.
+/// The simulator's metrics (meter <see cref="MeterName"/>), exported over OTLP to the Collector, where Prometheus reads
+/// them with underscores and _total.
 /// </summary>
 public sealed class SimulatorMetrics
 {

@@ -4,8 +4,8 @@ namespace InvoiceService.Api.Workers;
 
 /// <summary>
 /// Reads the database values of the metrics at startup and then Metrics:DatabaseReadSeconds after the end of each
-/// reading, so two readings are never closer than that. Scrapes in between get the last reading, so however often
-/// Prometheus scrapes, the database is queried at this pace.
+/// reading, so two readings are never closer than that. Exports in between send the last reading, so however often the
+/// metrics are exported, the database is queried at this pace.
 /// </summary>
 public sealed class DatabaseMetricsWorker(
     IServiceScopeFactory scopes, IOptions<MetricsOptions> options, ILogger<DatabaseMetricsWorker> logger) : BackgroundService

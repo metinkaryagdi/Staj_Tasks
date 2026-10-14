@@ -8,8 +8,8 @@ namespace InvoiceService.Application.Metrics;
 public sealed record DatabaseReading(InvoiceSummary Summary, DateTimeOffset? LastCompletedRunAt);
 
 /// <summary>
-/// The last database reading, kept between readings so that a scrape never queries the database. Null before the first
-/// reading and after a reading that failed: a scrape then gets no value rather than an old one.
+/// The last database reading, kept between readings so that an export never queries the database. Null before the first
+/// reading and after a reading that failed: an export then sends no value rather than an old one.
 /// </summary>
 public sealed class DatabaseMetrics
 {

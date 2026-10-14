@@ -63,7 +63,10 @@ groups:
 
       - alert: MetrikToplanamiyor
         # absent() sonucu job etiketini taşır; iki servis ayrı alarm olur. Collector bir servisin metriklerini son
-        # gönderimden 15 sn sonra sunmayı bırakır (metric_expiration), alarm bundan 1 dakika sonra tetiklenir.
+        # gönderimden 15 sn sonra sunmayı bırakır (metric_expiration); Prometheus metriği 1 dakika boyunca göremeyince
+        # alarm tetiklenir. Servisin durmasından alıcıya bildirimin gelmesine kadar toplam yaklaşık 1,5-2 dakika geçer
+        # (gönderim aralığı 5 sn, metric_expiration 15 sn, değerlendirme aralığı 15 sn'ye kadar, for 1 dk,
+        # group_wait 10 sn).
         expr: >-
           absent(target_info{job="invoice-service"})
             or absent(target_info{job="erp-simulator"})

@@ -9,7 +9,7 @@ public sealed class MetricsOptions
 
     /// <summary>
     /// The values read from the database (queue, invoices by status, stuck, last completed reconciliation) are read again
-    /// this many seconds after the end of the last reading; a scrape in between gets the last reading.
+    /// this many seconds after the end of the last reading; an export in between sends the last reading.
     /// </summary>
     public int DatabaseReadSeconds { get; set; }
 }

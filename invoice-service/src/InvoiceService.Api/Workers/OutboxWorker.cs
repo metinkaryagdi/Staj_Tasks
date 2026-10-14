@@ -111,6 +111,7 @@ public sealed class OutboxWorker(
         catch (Exception ex)
         {
             // The entry keeps its lock; after Outbox:LockSeconds another worker takes it again.
+            attempt?.SetStatus(ActivityStatusCode.Error, ex.Message);
             logger.LogError("Outbox send failed invoice={InvoiceNumber} attempt={Attempt}: {Message}",
                 entry.InvoiceNumber, entry.Attempt, ex.Message);
         }

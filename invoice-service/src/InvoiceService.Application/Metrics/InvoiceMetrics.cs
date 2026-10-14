@@ -4,8 +4,9 @@ using InvoiceService.Domain.Reconciliation;
 namespace InvoiceService.Application.Metrics;
 
 /// <summary>
-/// The service's metrics (meter <see cref="MeterName"/>), served to Prometheus at /metrics. OpenTelemetry names them with
-/// dots; Prometheus shows them with underscores, the unit (_seconds) and, for counters, _total.
+/// The service's metrics (meter <see cref="MeterName"/>), exported over OTLP to the Collector, where Prometheus reads
+/// them. OpenTelemetry names them with dots; Prometheus shows them with underscores, the unit (_seconds) and, for
+/// counters, _total.
 /// </summary>
 public sealed class InvoiceMetrics
 {
@@ -60,7 +61,7 @@ public sealed class InvoiceMetrics
 
     /// <summary>
     /// Every counter series exists from startup with 0. Prometheus does not count the first value of a series it has not
-    /// seen before as an increase: 21 401s arriving before the first scrape would otherwise show as no increase at all.
+    /// seen before as an increase: 21 401s arriving before the first export would otherwise show as no increase at all.
     /// Called once the app has started: a measurement made before OpenTelemetry listens is lost, and a worker may create
     /// this class earlier.
     /// </summary>
