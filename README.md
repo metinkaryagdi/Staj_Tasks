@@ -8,7 +8,7 @@ webhook'larla bildiren ERP Simulator, ve sistemi izleyip müdahale etmek için o
 | ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; saniyede sınırlı sayıda isteği kabul eder; her isteğe seed'li rastgele bir hata davranışı uygular; kaydettiği faturalar için Invoice Service'e imzalı webhook gönderir (bilerek sorunlu) |
 | Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir; ERP'den gelen webhook event'lerini doğrulayıp faturaya işler; belirli aralıklarla kendi kayıtlarını ERP'ninkiyle karşılaştırır (mutabakat), düzeltebildiğini düzeltir, düzeltemediğini raporlar |
 | Operasyon Ekranı | `operations-ui/` | Faturaların ve mutabakatın durumunu veritabanına bakmadan gösterir; Başarısız faturaları tek tek ya da toplu yeniden kuyruğa alır, mutabakatı başlatır. Yalnızca Invoice Service'in API'siyle konuşur |
-| İzleme | `monitoring/`, `alert-receiver/` | İki uygulamanın metriklerini Prometheus toplar, Grafana panoda gösterir; alarm kuralları tetiklenince Alertmanager bildirimi alert-receiver'a gönderir, alıcı loglar ([İzleme](#i̇zleme)) |
+| İzleme | `monitoring/`, `alert-receiver/` | İki uygulama metriklerini ve izlerini OpenTelemetry Collector'a gönderir; metrikleri Prometheus toplar, Grafana panoda gösterir, alarm kuralları tetiklenince Alertmanager bildirimi alert-receiver'a gönderir; izler Jaeger'da bir faturanın yolculuğunu gösterir ([İzleme](#i̇zleme)) |
 
 İki .NET uygulaması Domain / Application / Infrastructure / Api olarak dört katmana ayrılmıştır; katmanlar, port'lar,
 akışlar ve tasarım kararları [ARCHITECTURE.md](ARCHITECTURE.md)'de.
@@ -32,6 +32,7 @@ docker compose up -d --build
 | Grafana (pano) | http://localhost:3000 (giriş gerekmez; değiştirmek için `admin` / `admin`) |
 | Prometheus | http://localhost:9090 (alarmlar: http://localhost:9090/alerts) |
 | Alertmanager | http://localhost:9093 |
+| Jaeger (izler) | http://localhost:16686 |
 
 Her uygulamanın yalnızca kendi veritabanının bağlantı bilgisi vardır; iki uygulama birbirine yalnızca HTTP ile ulaşır.
 Şema EF Core migration ile açılışta oluşur. Docker içinde her uygulama `appsettings.json`'ın üzerine
@@ -50,7 +51,6 @@ Her uygulamanın yalnızca kendi veritabanının bağlantı bilgisi vardır; iki
 | `POST /api/v1/invoices` | Body: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Saniyede en fazla 20 istek kabul edilir ([Hız sınırı](#hız-sınırı)); kabul edilen istek seçilen davranışa göre cevap verir (aşağıda) ve cevabı 50–200 ms sonra döner. Eksik/geçersiz alan `400`; tutarda virgülden sonra en fazla iki basamak. |
 | `GET /api/v1/invoices/{invoiceNumber}` | `200` + `registered`, `erpReference` (ilk kayıt), `recordCount`, `records[]`, `decision` (`none` / `received` / `approved` / `rejected`), `reason` (yalnızca `rejected`), `decided_at`. Karar ilk kaydın event'lerinden türetilir; event'i hiç gönderilmemiş olsa bile zamanı gelince görünür. Kayıt yoksa `404`. Hata üretmez. |
 | `GET /api/v1/invoices?from=…&to=…&page=1&pageSize=100` | `receivedAt`'i `[from, to)` içinde kalan kayıtlar, `(receivedAt, id)` sıralı ve sayfalı: `{page, pageSize, totalCount, items[]}`. `from` ve `to` zorunlu, `from < to`; `pageSize` en çok 500 (üstü `400`). Çift kayıtlar ayrı satırdır. |
-| `GET /metrics` | Prometheus biçiminde metrikler ([İzleme](#i̇zleme)). |
 
 ```json
 POST /api/v1/invoices
@@ -101,6 +101,8 @@ adresine gönderir.
 - Bilerek çıkarılan sorunlar (oranlar birbirinden bağımsız): çift gönderim (duplicate, %10), sıra karışması (order mix, %15),
   kayıp karar (lost decision, %5), sahte event (fake, %5, yanlış secret), eski event (replay, %5, 10 dk önceki timestamp).
   Fake ve replay 4xx ile reddedilince tekrar gönderilmez.
+- Event'ler, planlandıkları isteğin W3C traceparent'ını saklar (`trace_parent`) ve gönderilirken `traceparent` header'ıyla
+  taşır: event faturanın trace'inde görünür ([İzler](#i̇zler)).
 
 ### Ayarlar
 
@@ -141,7 +143,7 @@ da başka nedenle ERP'den ayrışan faturalar için mutabakat işi servisin içi
 | Tablo | İçerik |
 |---|---|
 | `invoices` | Fatura ve durumu. Numarayı servis üretir (sequence → `FTR-000001`; body'deki `invoiceNumber` yok sayılır). `send_attempt_count` ömür boyu sayaçtır, resend'de sıfırlanmaz. `reject_reason` yalnızca `Reddedildi`'de dolu. `erp_checked_at` / `erp_check_result`: mutabakatın ERP'ye bu faturayı en son ne zaman sorduğu ve cevabı (`Kayıt yok`, `Kayıtlı, karar: …`); yazılması `updated_at`'i değiştirmez |
-| `erp_outbox` | Faturanın Outbox kaydı (fatura başına bir satır). `locked_until` / `locked_by` / `claim_token` sahipliği ve eski alımın sonucunun yenisini ezmesini önler |
+| `erp_outbox` | Faturanın Outbox kaydı (fatura başına bir satır). `locked_until` / `locked_by` / `claim_token` sahipliği ve eski alımın sonucunun yenisini ezmesini önler. `trace_parent`: faturayı oluşturan isteğin W3C traceparent'ı; her deneme bu trace'i sürdürür, resend değiştirmez ([İzler](#i̇zler)) |
 | `erp_webhook_events` | Gelen her geçerli event bir satır (`event_id` birincil anahtar). `delivery_count` tekrar gelişi sayar, `ignore_reason` `Yok Sayıldı`'nın nedenidir (`Geri Götürüyor`, `Kesin Durumda`, `İlerletmiyor`, `Referans Farklı`, `Fatura Yok`) |
 | `reconciliation_runs` | Bir mutabakat çalışması: durum (`Çalışıyor` / `Tamamlandı` / `Başarısız`), karşılaştırılan, düzeltilen ve raporlanan sayısı, hata, `started_by` (başlatan kişi ya da `Zamanlayıcı`; başlatanın kaydedilmesinden önceki çalışmalarda boş) |
 | `reconciliation_findings` | Çalışmanın bulduğu fark: tür, eylem (`Düzeltildi` / `Raporlandı`), ayrıntı. `Düzeltildi` yalnızca düzeltilen üç türde olabilir (check constraint). Fatura tablosuna foreign key yoktur: ERP'de olup serviste olmayan fatura da raporlanır |
@@ -170,7 +172,6 @@ yeniden kuyruğa alır. Durum değerleri ve alanlar veritabanında check constra
 | `POST /api/v1/invoices/{invoiceNumber}/follow-up/close` | `X-Operator-Name` gerekir. Açık takibi kapatır (`200`); yoksa `409` (`code: follow_up_not_open`) |
 | `GET /api/v1/reconciliation-runs` | Sayfalı çalışma listesi, en yeni üstte (bulgusuz): `page` (1'den), `pageSize` (1-50, varsayılan 20). Cevap `{items, page, pageSize, totalCount, totalPages}`. |
 | `GET /api/v1/reconciliation-runs/{id}` | `{ run, findings[] }` ya da `404`. |
-| `GET /metrics` | Prometheus biçiminde metrikler ([İzleme](#i̇zleme)). |
 | `POST /api/v1/erp-webhooks` | ERP webhook event'i. İmza header'ları yok/yanlış ya da timestamp 5 dk'dan eski veya ileri: `401`, kaydedilmez. İmza doğru ama body geçersiz: `400`; 64 KB'tan büyük body: `413`. Event 4 sn içinde işlenemezse `503` (ERP tekrar gönderir). Aksi halde `200` + `{eventId, status, repeat}`. |
 
 `X-Operator-Name`: müdahaleyi yapanın adı (kimlik doğrulama değildir, yalnızca kayıt için). Üç müdahale isteğinde zorunludur;
@@ -306,15 +307,18 @@ testler `npm test --prefix operations-ui`.
 
 ## İzleme
 
-İki uygulama metriklerini OpenTelemetry ile üretir (`System.Diagnostics.Metrics`, meter `InvoiceService` ve `ErpSimulator`) ve
-`GET /metrics` adresinde Prometheus biçiminde verir. Prometheus 5 saniyede bir toplar ve alarm kurallarını değerlendirir; tetiklenen
-alarmı Alertmanager webhook ile `alert-receiver`'a gönderir, alıcı her alarmı bir log satırı olarak yazar. Grafana panoyu Prometheus'tan
-gösterir. Hepsi `docker compose up -d --build` ile ayağa kalkar; ayarlar, kurallar ve pano [`monitoring/`](monitoring/) altında dosyadır.
+İki uygulama metriklerini (`System.Diagnostics.Metrics`, meter `InvoiceService` ve `ErpSimulator`) ve izlerini OpenTelemetry ile
+üretir ve OTLP ile OpenTelemetry Collector'a gönderir (metrikler 5 saniyede bir, `OTEL_METRIC_EXPORT_INTERVAL`). Collector metrikleri
+Prometheus biçiminde sunar; Prometheus oradan 5 saniyede bir toplar ve alarm kurallarını değerlendirir, tetiklenen alarmı Alertmanager
+webhook ile `alert-receiver`'a gönderir, alıcı her alarmı bir log satırı olarak yazar. Grafana panoyu Prometheus'tan gösterir.
+Collector izleri Jaeger'a iletir ([İzler](#i̇zler)). Hepsi `docker compose up -d --build` ile ayağa kalkar; ayarlar, kurallar ve pano
+[`monitoring/`](monitoring/) altında dosyadır.
 
 | Dosya | İçerik |
 |---|---|
-| [`monitoring/prometheus/prometheus.yml`](monitoring/prometheus/prometheus.yml) | Toplama aralığı (5 sn), hedefler, Alertmanager adresi |
-| [`monitoring/prometheus/alert-rules.yml`](monitoring/prometheus/alert-rules.yml) | Beş alarmın eşiği, süresi ve açıklaması; değişiklikten sonra `docker compose restart prometheus` |
+| [`monitoring/otel-collector/config.yaml`](monitoring/otel-collector/config.yaml) | OTLP alımı; metriklerin Prometheus'a sunulması (`metric_expiration` 15 sn: metrik göndermeyen servisin değerleri 15 sn sonra kalkar), izlerin Jaeger'a iletilmesi; değişiklikten sonra `docker compose restart otel-collector` |
+| [`monitoring/prometheus/prometheus.yml`](monitoring/prometheus/prometheus.yml) | Toplama aralığı (5 sn), hedef (Collector; `honor_labels` ile `job` servisin adıdır), Alertmanager adresi |
+| [`monitoring/prometheus/alert-rules.yml`](monitoring/prometheus/alert-rules.yml) | Altı alarmın eşiği, süresi ve açıklaması; değişiklikten sonra `docker compose restart prometheus` |
 | [`monitoring/alertmanager/alertmanager.yml`](monitoring/alertmanager/alertmanager.yml) | Bütün alarmlar alıcıya; çözülen alarm da bildirilir |
 | [`monitoring/grafana/`](monitoring/grafana/) | Veri kaynağı ve pano provisioning'i, pano (`dashboards/fatura-servisi.json`) |
 
@@ -342,7 +346,7 @@ Adlar Prometheus'ta görünen haliyledir (OpenTelemetry adı noktalıdır: `erp.
 
 - **Veritabanından okunanlar** (`outbox_*`, `invoices_by_status`, `invoices_stuck`, `reconciliation_last_completed_time_seconds`):
   Invoice Service bunları okur (özet API'sinin tek snapshot sorgusu ve son tamamlanan çalışma), bellekte tutar ve sonraki okumadan
-  önce `Metrics:DatabaseReadSeconds` (15) saniye bekler; Prometheus'un her toplaması son okumayı alır, veritabanına gitmez. Her okuma loga yazılır:
+  önce `Metrics:DatabaseReadSeconds` (15) saniye bekler; her gönderim son okumayı taşır, veritabanına gitmez. Her okuma loga yazılır:
   `Metrics read from the database queued=… oldestQueuedSeconds=… stuck=… lastCompletedRun=…`. Okuma hata verirse bu metriklerin
   değeri olmaz (eski değer gösterilmez).
 - Sayaçların her etiket değeri açılışta 0 ile başlar (örn. `result="401"` hiç 401 gelmeden de vardır).
@@ -363,10 +367,34 @@ veritabanından okunan değerler `max()`, sayaçlar `sum()` ile alınır.
 | `ErpyeUlasilamiyor` | Son 5 dakikadaki gönderim denemelerinin yarısından fazlası `timeout` ya da `unreachable` |
 | `BasariliMutabakatYok` | En son `Tamamlandı` çalışma 2 saatten eski |
 | `CokSayida401` | Son 5 dakikada 20'den fazla haber 401 |
+| `MetrikToplanamiyor` | Invoice Service'in ya da ERP Simulator'ın metrikleri Prometheus'ta 1 dakika boyunca yok; servis başına ayrı alarm. Servis durduktan sonra bildirim yaklaşık 1,5-2 dakikada gelir (Collector'ın 15 sn'si, değerlendirme aralığı, `for` ve Alertmanager'ın beklemesi) |
 
 Her alarmın açıklamasında sorun ve operasyon ekibinin ilk yapacağı iş yazar. Bildirimler alıcının logunda:
 `docker compose logs -f alert-receiver` (`Alert status=firing alertname=… summary="…" description="…"`; koşul kalkınca
 `status=resolved`).
+
+### İzler
+
+Örnekleme yoktur (`AlwaysOnSampler`), bütün izler Jaeger'a gider. HTTP istekleri, HttpClient çağrıları ve veritabanı sorguları
+(Npgsql) kendiliğinden izlenir; aşağıdaki span'leri uygulamalar kendisi açar. Bir faturanın yolculuğu tek trace'tir:
+
+| Adım | Span |
+|---|---|
+| Faturanın oluşturulması | `POST /api/v1/invoices/` (Invoice Service) |
+| Worker'ın kaydı alması | `outbox.claimed` (`outbox.queue_wait_seconds`); toplu alma `outbox.claim` ayrı bir trace'tir, `outbox.claimed` ona span link ile bağlanır |
+| Her gönderim denemesi | `outbox.attempt`: `outbox.attempt` (deneme numarası), `outbox.outcome` (`Sent` / `Retry` / `Failed`), `outbox.wait_seconds` (sonraki denemeye kadar), `outbox.check`, `erp.http_status`; başarısız deneme hata olarak işaretlenir |
+| Hız sınırında bekleme | `erp.pace_wait` |
+| Simülatördeki işlem | `POST /api/v1/invoices/` (ERP Simulator), `simulator.outcome` (seçilen davranış) |
+| Simülatörden gelen haberler | `webhook.send` (ERP Simulator) → `POST /api/v1/erp-webhooks` (Invoice Service), `erp_event.status`; haber uygulanınca span'e olay eklenir: `erp event stored` ya da fatura Gönderildi olunca deneme span'inde `erp event applied-after-send` |
+
+- **Bağlam:** zamanın koptuğu iki yerde W3C traceparent saklanır: `erp_outbox.trace_parent` (fatura oluşturulurken) ve simülatörün
+  `webhook_deliveries.trace_parent` (event planlanırken). Haber isteğinde `traceparent` header'ıyla gider.
+- **Faturanın izini bulmak:** Jaeger'da (http://localhost:16686) Service `invoice-service`, Tags `invoice.number=FTR-000123`.
+- **Loglar:** iki uygulamanın her log satırının sonunda o anki `trace_id=` yazar (span dışında `trace_id=-`); bir faturanın iki
+  servisteki satırları `docker compose logs invoice-service erp-simulator | Select-String trace_id=<trace_id>` ile bulunur
+  (`trace_id`, faturanın `Invoice queued` satırından alınır).
+- **Saklama:** Jaeger izleri bellekte tutar; varsayılan ayarıyla en fazla 100.000 trace, sınır dolunca en eskileri silinir. Jaeger
+  yeniden başlayınca bütün izler gider.
 
 ---
 
@@ -376,6 +404,7 @@ Her alarmın açıklamasında sorun ve operasyon ekibinin ilk yapacağı iş yaz
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Gün 12 kontrol listesi (pano ve alarmlar, Jaeger'daki izler, log satırlarında trace_id) ve izlemenin maliyeti | [`manual-tests/gun12/`](manual-tests/gun12/) |
 | Gün 11 kontrol listesi (pano, alarmlar, metrikler) | [`manual-tests/gun11/`](manual-tests/gun11/README.md) |
 | Gün 10 ölçümleri (yük testi önce/sonra, iki kopya) | [`manual-tests/gun10/`](manual-tests/gun10/) |
 | Gün 9 kontrol listesi | [`manual-tests/gun9/`](manual-tests/gun9/) |
@@ -417,6 +446,7 @@ bağlıdır (`Eventually.WaitUntilAsync`); sabit süreli bekleme yoktur.
 | 8. İki kopya, 100 sıra: ardışık sıralar ve gönderimlerin başladığı anlar aralıktan kısa değil; sistem boşta kaldıktan sonra da | `SendPaceTests` (2 test: sıra `now()` iken ve bir dakika geride iken) |
 | 9. Zamanı gelmiş kayıtlar kuyruğa giriş sırasıyla alınır | `OutboxClaimTests.Entries_whose_time_has_come_are_taken_in_the_order_they_entered_the_queue_...` |
 | 10. Sürekli hata alan faturalar yeni faturanın gönderimini durdurmaz | `OutboxClaimTests.Invoices_that_keep_failing_do_not_hold_back_a_new_invoice` |
+| 11. Kayıt alınınca faturanın trace'i geri gelir, resend trace'i değiştirmez | `OutboxClaimTests.The_claim_hands_over_the_invoice_s_trace_and_due_time_and_a_resend_keeps_the_trace` |
 
 Özet sayısının yük altındaki ölçümü: [`manual-tests/gun9/1-ozet-yuk-altinda.ps1`](manual-tests/gun9/1-ozet-yuk-altinda.ps1)
 (yük testi sürerken çalıştırılır).
@@ -442,52 +472,39 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 11 — Metrikler, Pano ve Alarm
+## Gün 12 — Bir Faturanın Yolculuğunu İzlemek
 
-Bugünün işi: sistemin durumu metriklerle ölçülüyor, Grafana panosunda gösteriliyor ve bir şey ters gidince alarm kendiliğinden
-bildiriliyor ([İzleme](#i̇zleme)).
+Bugünün işi: bir faturanın oluşturulmasından ERP'nin haberlerine kadar bütün yolculuğu tek bir yerden, Jaeger'da tek trace olarak
+görülebiliyor; her log satırı o anki trace_id'yi taşıyor ([İzler](#i̇zler)).
 
-- **Metrikler:** Invoice Service ve ERP Simulator metriklerini OpenTelemetry ile üretir, `GET /metrics`'te verir. Veritabanından
-  okunan değerler en fazla 15 saniyede bir okunur (`Metrics:DatabaseReadSeconds`).
-- **Altyapı:** Prometheus, Alertmanager, Grafana ve alarm alıcısı (`alert-receiver/`, küçük bir .NET uygulaması) compose'a eklendi;
-  hepsi diğer uygulamalarla birlikte ayağa kalkar. Pano ve veri kaynağı Grafana açılırken dosyadan yüklenir.
-- **Alarmlar:** beş alarm, eşikleri ve süreleri kurallar dosyasında; açıklamalarında sorun ve ilk yapılacak iş.
+- **Metrikler:** beta Prometheus exporter'ı kaldırıldı; metrikler OTLP ile OpenTelemetry Collector'a gidiyor, Prometheus
+  Collector'dan topluyor. Metrik adları, pano ve beş alarmın kuralları değişmedi.
+- **Yeni alarm:** `MetrikToplanamiyor`, Invoice Service'in ya da ERP Simulator'ın metrikleri 1 dakika toplanamazsa.
+- **İzler:** OpenTelemetry Collector ve Jaeger compose'a eklendi. HTTP, HttpClient ve veritabanı kendiliğinden izleniyor; örnekleme
+  yok. Bağlam Outbox kaydında ve simülatörün event kaydında saklanıyor, haber isteğinde `traceparent` header'ıyla gidiyor.
+- **Karar:** her fatura tek trace; birden fazla faturanın kaydını alan toplu alma ayrı trace, faturanın `outbox.claimed` span'i ona
+  span link ile bağlı.
+- **Loglar:** her satırın sonunda `trace_id=`.
 
-Kontrol listesi: [`manual-tests/gun11/`](manual-tests/gun11/README.md).
+Kontrol listesi ve maliyet ölçümü: [`manual-tests/gun12/`](manual-tests/gun12/). Maliyet ölçümü OpenTelemetry kapalıyken
+(`OTEL_SDK_DISABLED`) ve açıkken aynı yükü iki sırayla çalıştırır (`8-maliyet.ps1`).
 
 ### Bilinen sınırlar
 
-- **Exporter:** .NET için Prometheus exporter'ı (`OpenTelemetry.Exporter.Prometheus.AspNetCore` 1.19.1-beta.1) henüz beta sürümdedir.
-- **Veritabanından okunan değerler** en fazla 15 saniye (okuma aralığı) + 5 saniye (toplama aralığı) eskidir. Veritabanı okunamazken
-  bu metriklerin değeri olmaz; o sürede kuyruk, takılı fatura ve mutabakat alarmları tetiklenemez. Servisin kendisi durursa
-  hiçbir metriği toplanamaz; bunun için bir alarm görevde yoktur ve eklenmedi.
-- **Veri kesilince çözüldü bildirimi:** kuyruk ya da takılı fatura alarmı açıkken veritabanı okunamazsa metriğin değeri kalmaz ve
-  Alertmanager alarmı çözülmüş sayıp alıcıya çözüldü bildirimi gönderir; sorun sürüyor olabilir.
-- **Kuyruk alarmı** yalnızca birikmeyle oluşur: ERP'ye ulaşılamazken fatura 10 denemeden sonra Başarısız olup kuyruktan çıkar, en eski
-  bekleme 15 dakikaya ulaşmaz. Böyle bir kesinti `ErpyeUlasilamiyor` ile görülür.
-- **Mutabakat alarmı:** hiç tamamlanmış çalışma yoksa (boş veritabanı) `reconciliation_last_completed_time_seconds`'ın değeri olmaz ve
-  alarm tetiklenmez.
-- **401 alarmı:** kural sayacın 5 dakika önceki değerini kullanır; servis açıldıktan (ya da yeniden başladıktan) sonraki ilk 5 dakikada
-  tetiklenmez. İkinci kopya durduğunda iki kopyanın toplamı düştüğü için de 5 dakika boyunca tetiklenmez.
-- **ERP'ye ulaşılamıyor alarmı:** hiç deneme yoksa (kuyruk boş) oran hesaplanamaz ve alarm tetiklenmez. 429 dışındaki 4xx cevabı ve
-  ERP referansı olmayan 202 altı sonucun hiçbirine girmediği için sayılmaz. Daha önce denenmiş faturada ERP'ye sorulan soru 5xx ya da 429
-  cevabı alırsa deneme sayılmaz (simülatörün sorgu endpoint'i hata üretmez); sorusu hiç cevap almayan deneme zaman aşımı ya da
-  ulaşılamadı sayılır. Trafik çok azken tek bir zaman aşımı da oranı yarının üstüne çıkarıp alarmı tetikleyebilir.
-- **Haber sonuçları:** tekrar gelen haber (aynı `event_id`) ilk gelişinde sayıldığı için yeniden sayılmaz (ilk gelişi 503 alıp yine
-  de kaydedilen haber 503 olarak kalır, işlendi sayılmaz); geçersiz body (`400`) ve
-  büyük body (`413`) istenen sonuçlar arasında olmadığından sayılmaz.
-- **Gönderim hızı panosu** son 1 dakikanın saniye ortalamasıdır; tek tek saniyelerdeki tepeleri göstermez.
-- **Bir veritabanı okuması** tek sorgu değil dört SQL komutudur (özetin snapshot'ı içinde üç SELECT ve son mutabakat); "en fazla
-  15 saniyede bir sorgu" 15 saniyede bir okuma olarak uygulanır. İki kopya çalışırken her kopya kendisi okur: veritabanına
-  15 saniyede iki okuma gider. Her okuma loga bir satır yazar (günde yaklaşık 5.760 satır).
-- **Sayaçlar ve yeniden başlatma:** servis yeniden başladıktan sonra ilk toplamadan (5 sn) önce olan olay, sayaç bir önceki açılıştaki
-  değerine ulaşmışsa Prometheus'ta artış olarak görünmeyebilir (sıfırlanma fark edilmez). Alarmlar bundan etkilenmez; panodaki sayılar
-  bir eksik görünebilir.
-- **ERP cevap süresi panosu:** yük altında p95 10 saniyeye çıkar; simülatörün geç cevap verdiği istekler servisin 10 saniyelik
-  zaman aşımında kesilir ve süreye 10 saniye olarak girer.
-- **Grafana** anonim kullanıcıya yalnızca görme yetkisiyle açıktır; 3000 portuna ulaşan herkes panoyu görür. Yönetici şifresi
-  varsayılandır (`admin`).
-- **Kalıcılık:** Prometheus'un ve Alertmanager'ın verisi adlı volume'de tutulmaz; `docker compose down` ile silinir.
+- **Jaeger** izleri bellekte tutar ve en fazla 100.000 trace saklar; yük altında sınır çabuk dolar ve eski faturaların izleri silinir.
+  Worker'ların boşta ve her kayıt alışında yaptığı sorgular da ayrı trace'tir. Jaeger yeniden başlayınca bütün izler gider.
+- **Gönderim kuyrukları:** uygulamanın ve Collector'ın gönderim kuyrukları dolarsa span'ler düşebilir; bunu gösteren metrik ya da
+  alarm yoktur.
+- **Mutabakat ve operatör işlemleri** bir fatura için yazdıkları log satırlarında faturanın trace_id'sini taşımaz: zamanlanmış
+  mutabakatta `trace_id=-`, elle başlatılan mutabakatta ve operatör işlemlerinde isteğin trace_id'si yazar.
+- **Loglar** container'da tutulur; container yeniden oluşturulunca eski satırlar gider.
+- **Eski kayıtlar:** izleme eklenmeden önce kuyruğa girmiş kayıtların trace'i yoktur; denemeleri yeni bir trace başlatır.
+- **Aynı fatura numarası** farklı veritabanlarında yeniden üretildiği için Jaeger'da birden fazla trace'te çıkabilir; arama zaman
+  aralığıyla daraltılmalıdır.
+- **MetrikToplanamiyor** servis bazındadır: iki kopyadan yalnız biri durursa tetiklenmez. Collector durursa iki servisin alarmı
+  birlikte tetiklenir.
+- **Alertmanager** hangi alarmı bildirdiğini 15 dakikada bir diske yazar; düzgün kapanmadan yeniden başlarsa eski kaydı yükler ve aynı
+  alarm yeniden tetiklendiğinde bildirimi `repeat_interval` (4 saat) dolana kadar göndermez. Alarm Prometheus'ta ve panoda görünür.
 
 ---
 
@@ -506,3 +523,4 @@ Kontrol listesi: [`manual-tests/gun11/`](manual-tests/gun11/README.md).
 | `gun-9` | Gerçek Veritabanıyla Otomatik Testler | [tree/gun-9](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-9) |
 | `gun-10` | Tekrar Denenen Faturaların Sırası | [tree/gun-10](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-10) |
 | `gun-11` | Metrikler, Pano ve Alarm | [tree/gun-11](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-11) |
+| `gun-12` | Bir Faturanın Yolculuğunu İzlemek | [tree/gun-12](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-12) |

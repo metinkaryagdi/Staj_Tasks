@@ -44,6 +44,7 @@ invoice-service/
                        InvoiceReadModels, CreateInvoiceRequest
       Outbox/          OutboxProcessor, ClaimedEntry, ErpSendStrategy, OutboxOutcomeWriter, RetryPolicy, OutboxOptions
       Metrics/         InvoiceMetrics, SendAttemptResult, WebhookResult, DatabaseMetrics, DatabaseMetricsReader, MetricsOptions
+      Tracing/         InvoiceTracing (ActivitySource, saklanan traceparent'la span açma)
       Webhooks/        WebhookEventProcessor, InvoiceEventApplier, ErpWebhookRequest, WebhookSignature, WebhookOptions
       Reconciliation/  ReconciliationService, ReconciliationRunner, ReconciliationPlanner, ReconciliationPlan, FixApplier,
                        ReconciliationQueries, ReconciliationOptions
@@ -61,7 +62,8 @@ invoice-service/
       Operators/       OperatorHeader (X-Operator-Name okuma ve doğrulama)
       Workers/         OutboxWorker, ReconciliationWorker, DatabaseMetricsWorker
       Paging.cs        sayfalı listelerin page / pageSize doğrulaması
-      Startup/         LoggingExtensions, OpenApiExtensions, DatabaseMigrator, SettingsLogger, CorsExtensions
+      Startup/         LoggingExtensions (TraceIdConsoleFormatter), OpenApiExtensions, DatabaseMigrator, SettingsLogger,
+                       CorsExtensions
       Program.cs
   tests/
     InvoiceService.Domain.Tests / .Application.Tests / .Infrastructure.Tests / .Api.Tests / .IntegrationTests
@@ -85,7 +87,8 @@ invoice-service/
 ### Akışlar
 
 **Fatura oluşturma** — `POST /api/v1/invoices` → `CreateInvoiceHandler`: doğrula, numara al, faturayı ve outbox
-kaydını tek kayıtta yaz (`IInvoiceStore.QueueAsync`) → `202`. ERP bu istekte çağrılmaz.
+kaydını tek kayıtta yaz (`IInvoiceStore.QueueAsync`) → `202`. ERP bu istekte çağrılmaz. Outbox kaydı isteğin W3C traceparent'ını
+saklar (`trace_parent`); gönderim denemeleri bu trace'i sürdürür ([İzleme](#i̇zleme)).
 
 **Gönderim** — `OutboxWorker` (Api) boş slot kadar kaydı `OutboxProcessor.ClaimAsync` ile alır ve her biri için
 yeni bir DI scope'unda `OutboxProcessor.SendAsync` çağırır:
@@ -148,7 +151,7 @@ erp-simulator/
       Abstractions/    IErpInvoiceStore, IWebhookDeliveryStore, IWebhookTransport, IUnitOfWork
       Invoices/        SubmitInvoiceHandler, InvoiceLookup, InvoiceListing, InvoiceDecisions, CreateInvoiceRequest
       Simulation/      BehaviorSelector, SimulatorOptions, SimulatorMetrics
-      Webhooks/        WebhookSender, WebhookPlanner, WebhookSignature, WebhookOptions
+      Webhooks/        WebhookSender, WebhookPlanner, WebhookSignature, WebhookOptions, SimulatorTracing
       DependencyInjection.cs
     ErpSimulator.Infrastructure/
       Persistence/     ErpDbContext, Migrations/, ErpInvoiceStore, WebhookDeliveryStore, UnitOfWork
@@ -157,7 +160,7 @@ erp-simulator/
     ErpSimulator.Api/
       Invoices/        InvoiceEndpoints, InvoiceResponses
       Workers/         WebhookDispatcher
-      Startup/         LoggingExtensions, OpenApiExtensions, DatabaseMigrator, SettingsLogger
+      Startup/         LoggingExtensions (TraceIdConsoleFormatter), OpenApiExtensions, DatabaseMigrator, SettingsLogger
       Program.cs
   tests/
     ErpSimulator.Application.Tests / .Infrastructure.Tests
@@ -198,8 +201,10 @@ sonraki yenileme başarılı olunca kendiliğinden kalkar. Reddedilen müdahaled
 
 ```mermaid
 flowchart LR
-    I["Invoice Service<br/>GET /metrics"] --> P[Prometheus]
-    E["ERP Simulator<br/>GET /metrics"] --> P
+    I["Invoice Service"] -- "OTLP: metrik + iz" --> C[OpenTelemetry Collector]
+    E["ERP Simulator"] -- "OTLP: metrik + iz" --> C
+    C -- "metrikler (:8889)" --> P[Prometheus]
+    C -- "izler" --> J[Jaeger]
     P -- "alarm kuralları" --> A[Alertmanager]
     A -- webhook --> R["alert-receiver<br/>log"]
     G[Grafana] --> P
@@ -207,16 +212,19 @@ flowchart LR
 
 ```
 monitoring/
-  prometheus/    prometheus.yml (toplama 5 sn, hedefler), alert-rules.yml (beş alarm)
+  otel-collector/ config.yaml (OTLP alımı; metrikler Prometheus'a, izler Jaeger'a)
+  prometheus/    prometheus.yml (toplama 5 sn, hedef Collector), alert-rules.yml (altı alarm)
   alertmanager/  alertmanager.yml (her alarm alert-receiver'a, çözülme dahil)
   grafana/       provisioning/ (veri kaynağı, pano sağlayıcısı), dashboards/fatura-servisi.json
 alert-receiver/  Program.cs (POST /alerts: her alarm bir log satırı), Dockerfile
 ```
 
 Metrikler Application katmanında `System.Diagnostics.Metrics` ile ölçülür (`InvoiceMetrics`, `SimulatorMetrics`; `IMeterFactory`
-DI'dan gelir). OpenTelemetry paketleri ve `/metrics` endpoint'i yalnızca Api'dedir: Application OpenTelemetry'yi bilmez, birim
-testler ölçümleri `MetricCollector` ile okur. OpenTelemetry'deki servis adı (`service.name`) compose'daki adla aynıdır
-(`invoice-service`, `erp-simulator`).
+DI'dan gelir). Uygulamanın kendi span'leri de Application'da `System.Diagnostics.ActivitySource` ile açılır (`InvoiceTracing`,
+`SimulatorTracing`); Api'deki worker'lar ve endpoint'ler de aynı kaynağı kullanır. OpenTelemetry paketleri (OTLP exporter,
+instrumentation'lar) yalnızca Api'dedir: Application OpenTelemetry'yi bilmez, birim testler ölçümleri `MetricCollector`, span'leri
+`ActivityListener` ile okur. OpenTelemetry'deki servis adı (`service.name`) compose'daki adla aynıdır (`invoice-service`,
+`erp-simulator`).
 
 ## Tasarım kararları
 
@@ -334,13 +342,13 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Veritabanından okunan metrikler toplamadan ayrıdır.** `DatabaseMetricsWorker` özet API'sinin sorgusunu
   (`InvoiceQueries.SummaryAsync`, tek snapshot) ve son tamamlanan çalışmayı okur, `DatabaseMetrics`'e koyar, sonra
   `Metrics:DatabaseReadSeconds` bekler; gauge'lar yalnızca oradan okur. Bekleme okuma bittikten sonra başladığı için iki okuma arası hiçbir
-  zaman bu süreden kısa değildir. Prometheus kaç kez toplarsa toplasın veritabanına kopya başına en fazla bu sıklıkta sorgu gider (iki
-  kopya çalışırken iki katı) ve pano özetle aynı tanımı gösterir.
+  zaman bu süreden kısa değildir. Metrikler kaç kez gönderilirse gönderilsin veritabanına kopya başına en fazla bu sıklıkta sorgu gider
+  (iki kopya çalışırken iki katı) ve pano özetle aynı tanımı gösterir.
   Okuma hata verirse değer silinir: eski bir kuyruk değerini güncelmiş gibi göstermek, değer göstermemekten kötüdür.
 - **Son başarılı mutabakatın zamanı veritabanından okunur.** Bellekteki bir sayaç servis yeniden başlayınca sıfırlanır; ilk çalışma
   bir aralık (60 dk) sonra olduğu için alarm ya her açılışta tetiklenir ya da hiç tetiklenmezdi. Veritabanındaki zaman yeniden
   başlatmadan ve iki kopyadan etkilenmez.
-- **Sayaçlar 0 ile başlar.** Prometheus daha önce görmediği bir serinin ilk değerini artış saymaz: ilk toplamadan önce gelen 21 tane 401,
+- **Sayaçlar 0 ile başlar.** Prometheus daha önce görmediği bir serinin ilk değerini artış saymaz: ilk gönderimden önce gelen 21 tane 401,
   sayaç o anda ortaya çıksaydı 0 artış görünürdü. Her etiket değeri açılışta `Add(0)` ile oluşturulur. Bu, uygulama açıldıktan
   sonra (`ApplicationStarted`) `StartAtZero()` ile yapılır, constructor'da değil: OpenTelemetry dinlemeye başlamadan yapılan ölçüm
   kaybolur ve bir worker (`OutboxWorker`) sınıfı OpenTelemetry'den önce oluşturabilir.
@@ -353,8 +361,29 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   5 dakikada karşılaştırılacak eski değer yoktur. Oran alarmında (ErpyeUlasilamiyor) iki tarafa aynı tahmin uygulandığı için
   `increase()` kalır.
 - **İki kopya.** Veritabanından okunan değerler iki kopyada aynıdır, `max()` ile alınır; sayaçlar kopya başınadır, `sum()` ile toplanır.
-  İkinci kopya Prometheus'ta sabit hedef değil, adıyla DNS'te aranır (`dns_sd_configs`): çalışmıyorken hedef listede yoktur ("down"
-  görünmez), çalışınca 30 saniye içinde eklenir.
+  İki kopya da aynı Collector'a gönderir; Collector serileri `service.instance.id` ile (Prometheus'ta `instance`) ayırır, ikinci kopya
+  için ayrı hedef gerekmez.
+- **Metrikler Collector üzerinden.** Uygulamalar OTLP ile gönderir, Prometheus Collector'ı toplar (`honor_labels`: `job` servisin
+  adıdır). Collector metrik adlarını birim ve `_total` ekleriyle üretir; pano ve kurallar bu adlarla yazılıdır.
+- **Metrik toplanamıyor alarmı `up` değil `absent(target_info{job=…})` kullanır.** Prometheus artık Collector'ı topladığı için `up`
+  uygulamanın durduğunu göstermez. Collector'ın varsayılan `metric_expiration`'ı (5 dk) durmuş servisin son değerlerini sunmaya devam
+  ettireceği için 15 sn'ye indirildi. `absent()` sonucu `job` etiketini taşır; tek kural iki servis için ayrı alarm verir.
+- **Bir fatura, bir trace.** "Bu fatura neden gecikti" tek zaman çizelgesinde cevaplansın diye oluşturma, her deneme ve haberler aynı
+  trace'tedir. Zamanın koptuğu iki yerde W3C traceparent saklanır: `erp_outbox.trace_parent` (fatura oluşturulurken) ve
+  `webhook_deliveries.trace_parent` (simülatör event'i planlarken); haber isteğinde `traceparent` header'ını HttpClient
+  instrumentation ekler. Bedeli: trace dakikalarca (yeniden gönderimde daha uzun) açık kalır, kök span çok önce biter.
+- **Toplu kayıt alma ayrı trace, span link ile.** Tek alma sorgusu birden fazla faturanın kaydını alır; hiçbir faturanın trace'ine ait
+  değildir. `outbox.claim` kendi trace'idir; her faturanın `outbox.claimed` span'i ona link verir ve başlangıç/bitişi almanın
+  süresidir.
+- **Saklanan bağlamla span açarken `Activity.Current` temizlenir.** Bağlam yoksa (izlemeden önce kuyruğa girmiş kayıt)
+  `StartActivity` o an açık olan span'i parent alırdı; deneme yanlış trace'e girmesin diye yeni trace başlar.
+- **Örnekleme yok.** `AlwaysOnSampler` açıkça yazıldı; Collector'da da süzme yoktur. Jaeger varsayılan ayarıyla bellekte en fazla
+  100.000 trace tutar.
+- **Veritabanı izleme Npgsql'den.** EF Core'un instrumentation paketi beta olduğu için kullanılmadı; `Npgsql.OpenTelemetry` stabildir ve
+  EF'in gönderdiği bütün komutları görür.
+- **Log satırında trace_id küçük bir formatter'la.** Hazır `ActivityTrackingOptions` satırlara ASP.NET'in istek scope'larını da ekler
+  ve span dışındaki satırda hiçbir şey yazmaz. `TraceIdConsoleFormatter` eski tek satır biçimini korur (manual-tests script'leri onu
+  okur) ve sonuna `trace_id=<id>` ya da `trace_id=-` ekler.
 - **Alıcı katmanlara bölünmedi.** Tek iş yapar (bildirimi loglar); dört katman getirisinden çok yük olurdu.
 - **Grafana anonim görüntüleyiciye açık.** Pano compose ayağa kalkınca giriş ekranı olmadan açılır; değiştirmek için yönetici girişi gerekir.
 
@@ -386,10 +415,10 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 | Proje | Ne test eder |
 |---|---|
 | `*.Domain.Tests` | Saf kurallar: durum geçişleri, fatura numarası biçimi |
-| `*.Application.Tests` | Politikalar ve doğrulamalar (`RetryPolicy`, imza, ayarlar, istek doğrulama, `BehaviorSelector`, `WebhookPlanner`) ve **use case'ler port'ların bellek içi sahteleriyle** (`Fakes/`): veritabanı ve HTTP olmadan gönderim akışı, yeniden gönderme, webhook işleme, simülatörün davranışları ve webhook gönderimi |
+| `*.Application.Tests` | Politikalar ve doğrulamalar (`RetryPolicy`, imza, ayarlar, istek doğrulama, `BehaviorSelector`, `WebhookPlanner`) ve **use case'ler port'ların bellek içi sahteleriyle** (`Fakes/`): veritabanı ve HTTP olmadan gönderim akışı, yeniden gönderme, webhook işleme, simülatörün davranışları ve webhook gönderimi; span'lere yazılanlar ve saklanan traceparent (`ActivityListener` ile) |
 | `*.Infrastructure.Tests` | `ErpClient` (sahte `HttpMessageHandler` ile), ERP ayarları, migration'ların modeli hâlâ tarif ettiği (veritabanı gerekmez) |
-| `InvoiceService.Api.Tests` | Projeyle gelen `appsettings.json` değerleri, CORS origin doğrulaması |
-| `InvoiceService.IntegrationTests` | Bellek içi sahtelerle sınanamayan mekanizmalar **gerçek PostgreSQL'e** karşı (Testcontainers; her test kendi veritabanında, ERP yerine testin içinde açılan HTTP sunucusuyla): kayıt alma ve sahiplik, haberlerin bekleyip işlenmesi, mutabakat kilidi ve düzeltmeleri, ortak gönderim sırası. Docker gerekir |
+| `InvoiceService.Api.Tests` | Projeyle gelen `appsettings.json` değerleri, CORS origin doğrulaması, log satırının biçimi ve trace_id'si |
+| `InvoiceService.IntegrationTests` | Bellek içi sahtelerle sınanamayan mekanizmalar **gerçek PostgreSQL'e** karşı (Testcontainers; her test kendi veritabanında, ERP yerine testin içinde açılan HTTP sunucusuyla): kayıt alma ve sahiplik (alınan kaydın trace'i dahil), haberlerin bekleyip işlenmesi, mutabakat kilidi ve düzeltmeleri, ortak gönderim sırası. Docker gerekir |
 | `operations-ui` (vitest) | Toplu seçim sınırı, API istemcisinin hata türleri, Türkçe hata mesajları, kullanıcı adının doğrulanması ve kodlanması |
 
 ```bash
