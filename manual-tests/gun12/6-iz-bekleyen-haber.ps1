@@ -11,35 +11,37 @@ $settings = Get-SimSettings 'SaveThenError'
 $settings['Webhooks__FirstEventMinSeconds'] = 0
 $settings['Webhooks__FirstEventMaxSeconds'] = 1
 Restart-Simulator $settings
+# Script hata verse de simülatör varsayılan ayarlarına döner.
+try {
+    Write-Step 'Fatura oluşturuluyor'
+    $since = [DateTimeOffset]::UtcNow.AddSeconds(-5)
+    $number = (New-ServiceInvoice).InvoiceNumber
+    Write-Host "  $number"
+    Wait-InvoicesIn @($number) @('Onaylandı', 'Reddedildi') 120 'karar aldı' | Out-Null
+    Wait-EventsDone @($number) 60 | Out-Null
 
-Write-Step 'Fatura oluşturuluyor'
-$since = [DateTimeOffset]::UtcNow.AddSeconds(-5)
-$number = (New-ServiceInvoice).InvoiceNumber
-Write-Host "  $number"
-Wait-InvoicesIn @($number) @('Onaylandı', 'Reddedildi') 120 'karar aldı' | Out-Null
-Wait-EventsDone @($number) 60 | Out-Null
+    Write-Step 'Haberler (Fatura Servisi veritabanı)'
+    Show-ServiceQuery "SELECT event_id, event_type, status, received_at, processed_at FROM erp_webhook_events WHERE invoice_number = '$number' ORDER BY received_at;"
+    Show-ServiceQuery "SELECT status, send_attempt_count, updated_at FROM invoices WHERE invoice_number = '$number';"
 
-Write-Step 'Haberler (Fatura Servisi veritabanı)'
-Show-ServiceQuery "SELECT event_id, event_type, status, received_at, processed_at FROM erp_webhook_events WHERE invoice_number = '$number' ORDER BY received_at;"
-Show-ServiceQuery "SELECT status, send_attempt_count, updated_at FROM invoices WHERE invoice_number = '$number';"
+    Write-Step "Jaeger'daki iz"
+    $trace = Get-InvoiceTrace $number $since
+    Show-Trace $trace 'gun12-6-iz-bekleyen-haber.txt'
 
-Write-Step "Jaeger'daki iz"
-$trace = Get-InvoiceTrace $number $since
-Show-Trace $trace 'gun12-6-iz-bekleyen-haber.txt'
-
-# Bekleyen haber: servise geldiğinde Bekliyor kalan; aynı event_id daha sonra bir denemede uygulanmış olmalı.
-$waited = @($trace.Spans | Where-Object { $_.Name -eq 'POST /api/v1/erp-webhooks' -and $_.Tags['erp_event.status'] -eq 'Bekliyor' } | Sort-Object Start)
-$found = $false
-foreach ($w in $waited) {
-    $id = $w.Tags['erp_event.id']
-    $applied = @($trace.Spans | Where-Object { $_.Name -eq 'outbox.attempt' -and $_.Start -gt $w.Start -and
-        @($_.Events | Where-Object { $_.event -eq 'erp event applied-after-send' -and $_.'erp_event.id' -eq $id -and $_.'erp_event.status' -eq 'İşlendi' }).Count -gt 0 })
-    if ($applied.Count -eq 1) {
-        Write-Host ("  Haber {0}: {1} ms'de geldi, Bekliyor kaldı; {2}. deneme ({3} ms, sonuç {4}) faturayı Gönderildi yapınca işlendi." -f `
-            $id, $w.Start, $applied[0].Tags['outbox.attempt'], $applied[0].Start, $applied[0].Tags['outbox.outcome'])
-        $found = $true
+    # Bekleyen haber: servise geldiğinde Bekliyor kalan; aynı event_id daha sonra bir denemede uygulanmış olmalı.
+    $waited = @($trace.Spans | Where-Object { $_.Name -eq 'POST /api/v1/erp-webhooks' -and $_.Tags['erp_event.status'] -eq 'Bekliyor' } | Sort-Object Start)
+    $found = $false
+    foreach ($w in $waited) {
+        $id = $w.Tags['erp_event.id']
+        $applied = @($trace.Spans | Where-Object { $_.Name -eq 'outbox.attempt' -and $_.Start -gt $w.Start -and
+            @($_.Events | Where-Object { $_.event -eq 'erp event applied-after-send' -and $_.'erp_event.id' -eq $id -and $_.'erp_event.status' -eq 'İşlendi' }).Count -gt 0 })
+        if ($applied.Count -eq 1) {
+            Write-Host ("  Haber {0}: {1} ms'de geldi, Bekliyor kaldı; {2}. deneme ({3} ms, sonuç {4}) faturayı Gönderildi yapınca işlendi." -f `
+                $id, $w.Start, $applied[0].Tags['outbox.attempt'], $applied[0].Start, $applied[0].Tags['outbox.outcome'])
+            $found = $true
+        }
     }
+    Write-Result $found "Bekleyen haber izde: geldiğinde Bekliyor, fatura Gönderildi olunca aynı denemede İşlendi ($number)"
+    Write-Host "  Ekran görüntüsü: $JaegerUrl/trace/$($trace.TraceId)" -ForegroundColor DarkGray
 }
-Write-Result $found "Bekleyen haber izde: geldiğinde Bekliyor, fatura Gönderildi olunca aynı denemede İşlendi ($number)"
-Write-Host "  Ekran görüntüsü: $JaegerUrl/trace/$($trace.TraceId)" -ForegroundColor DarkGray
-Restart-Simulator
+finally { Restart-Simulator }
