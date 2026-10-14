@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Metrics;
+using InvoiceService.Application.Tracing;
 using InvoiceService.Application.Webhooks;
 
 namespace InvoiceService.Api.Webhooks;
@@ -90,6 +92,10 @@ public static class WebhookEndpoints
             return Results.ValidationProblem(errors);
         }
 
+        // The request's span continues the invoice's trace (traceparent header): which event it carried.
+        Activity.Current?.SetTag(InvoiceTracing.InvoiceNumber, payload.InvoiceNumber);
+        Activity.Current?.SetTag("erp_event.id", payload.EventId);
+
         // The body is valid JSON here, so it is valid UTF-8: stored exactly as received.
         var processing = ProcessInOwnScope(scopes, payload, Encoding.UTF8.GetString(body), work.Token);
         try
@@ -98,6 +104,8 @@ public static class WebhookEndpoints
             // A repeated delivery was counted with its first one.
             if (!result.Repeat)
                 metrics.WebhookReceived(WebhookResult.Of(result.Status));
+            Activity.Current?.SetTag("erp_event.status", result.Status);
+            Activity.Current?.SetTag("erp_event.repeat", result.Repeat);
             return Results.Ok(result);
         }
         catch (OperationCanceledException) when (budget.IsCancellationRequested)

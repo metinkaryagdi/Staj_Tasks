@@ -5,6 +5,7 @@ using InvoiceService.Api.Webhooks;
 using InvoiceService.Api.Workers;
 using InvoiceService.Application;
 using InvoiceService.Application.Metrics;
+using InvoiceService.Application.Tracing;
 using InvoiceService.Infrastructure;
 using Npgsql;
 using OpenTelemetry.Metrics;
@@ -28,6 +29,7 @@ builder.Services.AddOpenTelemetry()
     // Every trace is kept (no sampling): HTTP requests, HttpClient calls and database commands are traced automatically.
     .WithTracing(tracing => tracing
     .SetSampler(new AlwaysOnSampler())
+    .AddSource(InvoiceTracing.SourceName)
     .AddAspNetCoreInstrumentation()
     .AddHttpClientInstrumentation()
     .AddNpgsql()

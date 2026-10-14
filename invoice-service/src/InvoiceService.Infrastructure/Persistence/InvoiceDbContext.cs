@@ -76,6 +76,8 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.Property(e => e.LockedUntil).HasColumnName("locked_until");
             entity.Property(e => e.LockedBy).HasColumnName("locked_by").HasMaxLength(64);
             entity.Property(e => e.ClaimToken).HasColumnName("claim_token");
+            // version-traceid-spanid-flags: 2 + 32 + 16 + 2 characters and 3 dashes.
+            entity.Property(e => e.TraceParent).HasColumnName("trace_parent").HasMaxLength(55);
 
             // The worker's query: pending entries whose time has come, oldest first.
             entity.HasIndex(e => new { e.Status, e.NextAttemptAt });

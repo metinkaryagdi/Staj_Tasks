@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using ErpSimulator.Application.Abstractions;
@@ -77,6 +78,13 @@ public sealed class WebhookSender(
             }
             await transaction.CommitAsync(CancellationToken.None);
         }
+
+        var span = Activity.Current;
+        span?.SetTag("webhook.attempt", attempt);
+        span?.SetTag("webhook.outcome", status);
+        span?.SetTag("http.response.status_code", httpStatus);
+        if (!delivered)
+            span?.SetStatus(ActivityStatusCode.Error, error);
 
         logger.LogInformation(
             "Webhook send event={EventId} type={EventType} invoice={InvoiceNumber} kind={Kind} attempt={Attempt}/{MaxAttempts} " +

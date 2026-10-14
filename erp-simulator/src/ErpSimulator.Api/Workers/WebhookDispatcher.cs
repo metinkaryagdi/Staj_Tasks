@@ -77,6 +77,9 @@ public sealed class WebhookDispatcher(
 
     private async Task SendAsync(WebhookDelivery row, CancellationToken stoppingToken)
     {
+        // The send continues the invoice's trace (stored with the row); the HttpClient span under it carries the
+        // traceparent header to the invoice service.
+        using var span = SimulatorTracing.StartSend(row);
         try
         {
             await using var scope = scopes.CreateAsyncScope();

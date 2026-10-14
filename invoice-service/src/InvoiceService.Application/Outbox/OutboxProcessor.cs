@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Globalization;
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Metrics;
+using InvoiceService.Application.Tracing;
 using InvoiceService.Domain.Invoices;
 
 namespace InvoiceService.Application.Outbox;
@@ -31,6 +33,12 @@ public sealed class OutboxProcessor(
     public async Task SendAsync(ClaimedEntry entry, string workerId)
     {
         // CancellationToken.None: once the ERP is called, the outcome must be recorded even while the service stops.
+        // The worker's span for this attempt; the outcome is written on it as well as in the log.
+        var span = Activity.Current;
+        span?.SetTag(InvoiceTracing.InvoiceNumber, entry.InvoiceNumber);
+        span?.SetTag("outbox.attempt", entry.Attempt);
+        span?.SetTag("outbox.max_attempts", policy.MaxAttempts);
+
         var invoice = await invoices.GetAsync(entry.InvoiceNumber, CancellationToken.None);
 
         logger.LogInformation("ERP send start invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim}{OnlyCheck}",
@@ -43,6 +51,7 @@ public sealed class OutboxProcessor(
 
         if (outcome is null)
         {
+            span?.SetTag("outbox.outcome", "NotHeld");
             logger.LogWarning(
                 "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim} check=notHeld " +
                 "not sent: the entry is no longer held with this claim (its lock ran out and it was taken again)",
@@ -52,6 +61,7 @@ public sealed class OutboxProcessor(
 
         var (result, decision) = (outcome.Result, outcome.Decision);
         var owned = await outcomes.WriteAsync(entry, decision, result, time.GetUtcNow());
+        TagOutcome(span, outcome);
 
         logger.LogInformation(
             "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim} check={Check} outcome={Outcome} http={HttpStatus} " +
@@ -94,6 +104,27 @@ public sealed class OutboxProcessor(
         return new AttemptOutcome(
             final.Result, FinalDecision(final.Result, "last attempt was cut off; ERP asked, not sent again"),
             $"final:{final.Check}", final.Result.HttpStatus);
+    }
+
+    /// <summary>
+    /// The attempt's number, result and wait on its span. A Bekliyor (retry) or Başarısız outcome is an error span, so
+    /// failed attempts stand out in the trace.
+    /// </summary>
+    private static void TagOutcome(Activity? span, AttemptOutcome outcome)
+    {
+        if (span is null)
+            return;
+        var (result, decision) = (outcome.Result, outcome.Decision);
+        span.SetTag("outbox.outcome", decision.Outcome.ToString());
+        span.SetTag("outbox.check", outcome.Check);
+        span.SetTag("outbox.reason", decision.Reason);
+        // How long the entry waits before its next attempt (Retry-After or backoff); 0 when it is done.
+        span.SetTag("outbox.wait_seconds", decision.Delay.TotalSeconds);
+        span.SetTag("erp.http_status", outcome.HttpStatus);
+        span.SetTag("erp.retry_after", result.RetryAfter?.ToString());
+        span.SetTag("erp.reference", result.ErpReference);
+        if (decision.Outcome != SendOutcome.Sent)
+            span.SetStatus(ActivityStatusCode.Error, result.Error);
     }
 
     private static RetryDecision FinalDecision(ErpSendResult result, string reason) =>

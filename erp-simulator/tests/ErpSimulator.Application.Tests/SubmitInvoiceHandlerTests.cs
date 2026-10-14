@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ErpSimulator.Application.Invoices;
 using ErpSimulator.Application.Simulation;
 using ErpSimulator.Application.Tests.Fakes;
@@ -42,6 +43,17 @@ public class SubmitInvoiceHandlerTests
 
     private static CreateInvoiceRequest Request(string customer = "C-001") =>
         new("INV-1", customer, 10.50m, "TRY", new DateOnly(2026, 9, 29));
+
+    [Fact]
+    public async Task The_events_of_a_saved_invoice_carry_the_request_s_trace()
+    {
+        using var request = new Activity("POST /api/v1/invoices").SetIdFormat(ActivityIdFormat.W3C).Start();
+
+        await Handler(Only(Behavior.Success)).HandleAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(2, _store.Deliveries.Count);
+        Assert.All(_store.Deliveries, d => Assert.Equal(request.Id, d.TraceParent));
+    }
 
     [Theory]
     [InlineData(Behavior.Success, 1)]

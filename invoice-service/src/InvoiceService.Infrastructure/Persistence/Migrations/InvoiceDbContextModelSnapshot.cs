@@ -263,6 +263,11 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(16)")
                         .HasColumnName("status");
 
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(55)
+                        .HasColumnType("character varying(55)")
+                        .HasColumnName("trace_parent");
+
                     b.HasKey("Id");
 
                     b.HasIndex("InvoiceNumber")

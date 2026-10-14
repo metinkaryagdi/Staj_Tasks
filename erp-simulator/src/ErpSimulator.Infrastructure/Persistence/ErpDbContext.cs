@@ -69,6 +69,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             entity.Property(e => e.LastError).HasColumnName("last_error");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.CompletedAt).HasColumnName("completed_at");
+            // version-traceid-spanid-flags: 2 + 32 + 16 + 2 characters and 3 dashes.
+            entity.Property(e => e.TraceParent).HasColumnName("trace_parent").HasMaxLength(55);
 
             // The dispatcher's query: pending rows whose time has come.
             entity.HasIndex(e => new { e.Status, e.DueAt });

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ErpSimulator.Application.Tests.Fakes;
 using ErpSimulator.Application.Webhooks;
 using ErpSimulator.Domain.Webhooks;
@@ -99,5 +100,30 @@ public class WebhookSenderTests
 
         Assert.Empty(_deliveries.Recorded);
         Assert.Equal(0, _unitOfWork.Committed);
+    }
+
+    [Fact]
+    public async Task A_send_continues_the_invoice_s_trace_and_carries_its_attempt_and_outcome()
+    {
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == SimulatorTracing.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded
+        };
+        ActivitySource.AddActivityListener(listener);
+        _transport.Result = new(503, "HTTP 503");
+        var row = Row();
+        row.TraceParent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+        using var span = SimulatorTracing.StartSend(row);
+        await Sender().SendAsync(row, CancellationToken.None);
+
+        Assert.Equal("0af7651916cd43dd8448eb211c80319c", span!.TraceId.ToHexString());
+        Assert.Equal("b7ad6b7169203331", span.ParentSpanId.ToHexString());
+        Assert.Equal("FTR-000001", span.GetTagItem(SimulatorTracing.InvoiceNumber));
+        Assert.Equal(1, span.GetTagItem("webhook.attempt"));
+        Assert.Equal(DeliveryStatus.Pending, span.GetTagItem("webhook.outcome"));
+        Assert.Equal(503, span.GetTagItem("http.response.status_code"));
+        Assert.Equal(ActivityStatusCode.Error, span.Status);
     }
 }

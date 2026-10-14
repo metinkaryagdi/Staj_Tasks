@@ -3,6 +3,7 @@ using ErpSimulator.Api.Startup;
 using ErpSimulator.Api.Workers;
 using ErpSimulator.Application;
 using ErpSimulator.Application.Simulation;
+using ErpSimulator.Application.Webhooks;
 using ErpSimulator.Infrastructure;
 using Npgsql;
 using OpenTelemetry.Metrics;
@@ -25,6 +26,7 @@ builder.Services.AddOpenTelemetry()
     // Every trace is kept (no sampling): HTTP requests, HttpClient calls and database commands are traced automatically.
     .WithTracing(tracing => tracing
     .SetSampler(new AlwaysOnSampler())
+    .AddSource(SimulatorTracing.SourceName)
     .AddAspNetCoreInstrumentation()
     .AddHttpClientInstrumentation()
     .AddNpgsql()

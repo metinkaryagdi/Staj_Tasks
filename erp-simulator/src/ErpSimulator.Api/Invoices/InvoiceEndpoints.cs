@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using ErpSimulator.Application.Invoices;
 using ErpSimulator.Application.Simulation;
+using ErpSimulator.Application.Webhooks;
 using ErpSimulator.Domain.Invoices;
 
 namespace ErpSimulator.Api.Invoices;
@@ -69,6 +71,7 @@ public static class InvoiceEndpoints
             return await next(context);
 
         http.RequestServices.GetRequiredService<SimulatorMetrics>().RateLimited();
+        Activity.Current?.SetTag("simulator.outcome", "RateLimited");
         http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ErpSimulator.Invoices")
             .LogInformation("Invoice request rejected status=429 reason=rateLimited limit={Limit}/s retryAfter={RetryAfter}s",
                 limiter.PermitsPerSecond, RateLimitRetryAfterSeconds);
@@ -86,6 +89,9 @@ public static class InvoiceEndpoints
         IOptions<SimulatorOptions> options)
     {
         var result = await handler.HandleAsync(request, http.RequestAborted);
+        // On the request's span (in the invoice's trace): what the simulator did with this attempt.
+        Activity.Current?.SetTag(SimulatorTracing.InvoiceNumber, request.InvoiceNumber);
+        Activity.Current?.SetTag("simulator.outcome", result.Decision?.Behavior.ToString() ?? result.Outcome.ToString());
         switch (result.Outcome)
         {
             case SubmitOutcome.Invalid:

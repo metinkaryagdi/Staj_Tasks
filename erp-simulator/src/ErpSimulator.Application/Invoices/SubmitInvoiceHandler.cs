@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using ErpSimulator.Application.Abstractions;
 using ErpSimulator.Application.Simulation;
 using ErpSimulator.Application.Webhooks;
 using ErpSimulator.Domain.Invoices;
+using ErpSimulator.Domain.Webhooks;
 
 namespace ErpSimulator.Application.Invoices;
 
@@ -145,8 +147,16 @@ public sealed class SubmitInvoiceHandler(
             RequestSequence = decision.Sequence
         };
 
-        await invoices.SaveAsync(invoice, saved => planner.Plan(saved, saved.ReceivedAt));
+        await invoices.SaveAsync(invoice, saved => WithTrace(planner.Plan(saved, saved.ReceivedAt)));
         return invoice;
+    }
+
+    /// <summary>The events carry this request's trace (W3C traceparent), so their sends join the invoice's trace.</summary>
+    private static IReadOnlyList<WebhookDelivery> WithTrace(IReadOnlyList<WebhookDelivery> deliveries)
+    {
+        foreach (var delivery in deliveries)
+            delivery.TraceParent = Activity.Current?.Id;
+        return deliveries;
     }
 
     private SubmitInvoiceResult Duplicate(ErpInvoice existing, CreateInvoiceRequest request)

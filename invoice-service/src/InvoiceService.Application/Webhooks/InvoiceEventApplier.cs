@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Webhooks;
 
@@ -47,6 +48,16 @@ public sealed class InvoiceEventApplier(ILogger<InvoiceEventApplier> logger)
             afterSend ? "applied-after-send" : "stored", erpEvent.EventId, erpEvent.EventType, erpEvent.InvoiceNumber, erpEvent.Status,
             before, invoice.Status, erpEvent.IgnoreReason ?? "-", erpEvent.ErpReference, invoice.ErpReference ?? "-"
         ];
+        // On the current span: the webhook request's when the event arrives, the attempt's when it waited for the send.
+        Activity.Current?.AddEvent(new ActivityEvent($"erp event {args[0]}", tags: new ActivityTagsCollection
+        {
+            ["erp_event.id"] = erpEvent.EventId,
+            ["erp_event.type"] = erpEvent.EventType,
+            ["erp_event.status"] = erpEvent.Status,
+            ["erp_event.ignore_reason"] = erpEvent.IgnoreReason,
+            ["invoice.status"] = $"{before}->{invoice.Status}"
+        }));
+
         // A reference mismatch is a warning: the event is not about the record the service sent.
         if (erpEvent.IgnoreReason == IgnoreReason.ReferenceMismatch)
             logger.LogWarning(message, args);

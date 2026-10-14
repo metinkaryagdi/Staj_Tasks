@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Domain.Invoices;
@@ -19,6 +20,28 @@ public class OutboxClaimTests(PostgresFixture postgres) : IntegrationTest(postgr
         var processor = scope.ServiceProvider.GetRequiredService<OutboxProcessor>();
         await startSignal;
         return await processor.ClaimAsync(limit, workerId, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task The_claim_hands_over_the_invoice_s_trace_and_due_time_and_a_resend_keeps_the_trace()
+    {
+        string traceParent;
+        using (var request = new Activity("POST /api/v1/invoices").SetIdFormat(ActivityIdFormat.W3C).Start())
+        {
+            await CreateInvoiceAsync();
+            traceParent = request.Id!;
+        }
+        var dueAt = await ScalarAsync<DateTime>($"SELECT next_attempt_at FROM erp_outbox WHERE invoice_number = '{Number}'");
+
+        var claimed = Assert.Single(await ClaimAsync("A", 10, Task.CompletedTask));
+
+        Assert.Equal(traceParent, claimed.TraceParent);
+        Assert.Equal(dueAt, claimed.DueAt.UtcDateTime);
+
+        // A resend queues the entry again in the same trace: the journey stays one trace.
+        await using var scope = NewScope();
+        await scope.ServiceProvider.GetRequiredService<IOutboxStore>().ResetAsync(Number, DateTimeOffset.UtcNow, CancellationToken.None);
+        Assert.Equal(traceParent, await ScalarAsync<string>($"SELECT trace_parent FROM erp_outbox WHERE invoice_number = '{Number}'"));
     }
 
     [Fact]

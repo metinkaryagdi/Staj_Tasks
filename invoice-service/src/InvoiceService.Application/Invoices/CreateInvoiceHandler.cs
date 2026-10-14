@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Metrics;
+using InvoiceService.Application.Tracing;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Outbox;
 
@@ -44,12 +46,15 @@ public sealed class CreateInvoiceHandler(
             Status = OutboxStatus.Pending,
             AttemptCount = 0,
             NextAttemptAt = now,
-            CreatedAt = now
+            CreatedAt = now,
+            // The attempts continue this request's trace (W3C traceparent; null when nothing is traced).
+            TraceParent = Activity.Current?.Id
         };
 
         // One save = one transaction: both rows are written or neither is. There is never an invoice that
         // nobody will send, nor a send queued for an invoice that does not exist.
         await invoices.QueueAsync(invoice, entry, CancellationToken.None);
+        Activity.Current?.SetTag(InvoiceTracing.InvoiceNumber, invoice.InvoiceNumber);
         metrics.InvoiceCreated();
         _logger.LogInformation("Invoice queued invoice={InvoiceNumber}", invoice.InvoiceNumber);
 

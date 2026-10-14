@@ -1,5 +1,6 @@
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Metrics;
+using InvoiceService.Application.Tracing;
 using InvoiceService.Domain.Invoices;
 
 namespace InvoiceService.Application.Outbox;
@@ -97,9 +98,12 @@ public sealed class ErpSendStrategy(
 
     private async Task WaitForTurnAsync()
     {
+        using var span = InvoiceTracing.Source.StartActivity("erp.pace_wait");
         var started = time.GetTimestamp();
         await pacer.WaitForTurnAsync(CancellationToken.None);
-        metrics.PaceWait(time.GetElapsedTime(started));
+        var waited = time.GetElapsedTime(started);
+        metrics.PaceWait(waited);
+        span?.SetTag("erp.pace_wait_seconds", waited.TotalSeconds);
     }
 
     private async Task<ErpSendResult> PostAsync(Invoice invoice)

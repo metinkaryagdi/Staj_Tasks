@@ -49,6 +49,12 @@ public sealed class WebhookDelivery
 
     /// <summary>When the invoice service answered 2xx (or rejected a fake/replayed event); null until then.</summary>
     public DateTimeOffset? CompletedAt { get; set; }
+
+    /// <summary>
+    /// The W3C traceparent of the request that saved the invoice. The send continues that trace and passes it on in the
+    /// traceparent header, so the event shows in the invoice's trace even though it is sent later.
+    /// </summary>
+    public string? TraceParent { get; set; }
 }
 
 public static class DeliveryStatus

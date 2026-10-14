@@ -47,6 +47,12 @@ public sealed class ErpOutboxEntry
     /// so it can neither send nor overwrite the outcome of the worker that took the entry after it.
     /// </summary>
     public Guid? ClaimToken { get; set; }
+
+    /// <summary>
+    /// Added column: the W3C traceparent of the request that created the invoice. Every attempt continues that trace, so
+    /// the invoice's journey is one trace even though the worker takes it later. A resend does not change it.
+    /// </summary>
+    public string? TraceParent { get; set; }
 }
 
 public static class OutboxStatus
