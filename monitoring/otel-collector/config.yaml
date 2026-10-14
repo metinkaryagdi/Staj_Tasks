@@ -12,6 +12,10 @@ exporters:
   # değişmeden çalışır. job etiketi service.name'dir (invoice-service, erp-simulator).
   prometheus:
     endpoint: 0.0.0.0:8889
+    # Bir servisten bu kadar süre metrik gelmezse son değerleri sunulmaz (varsayılan 5 dakika). Kısa tutulur: servis
+    # durunca metrikleri Prometheus'ta da kaybolsun ve MetrikToplanamiyor alarmı servisin durduğunu görebilsin.
+    # Uygulamalar 5 sn'de bir gönderir; 15 sn, üç gönderimin kaçması demektir.
+    metric_expiration: 15s
 
 service:
   pipelines:

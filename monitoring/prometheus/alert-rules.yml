@@ -60,3 +60,19 @@ groups:
             kaymış ya da biri sahte haber gönderiyor. Bu haberler işlenmez; karar bekleyen faturalar takılı kalabilir.
             İlk olarak: invoice-service logunda `http=401` satırlarının nedenine (bad-signature, expired …) bakın ve
             ErpWebhooks:Secret ile simülatörün Webhooks:Secret ayarının aynı olduğunu kontrol edin.
+
+      - alert: MetrikToplanamiyor
+        # absent() sonucu job etiketini taşır; iki servis ayrı alarm olur. Collector bir servisin metriklerini son
+        # gönderimden 15 sn sonra sunmayı bırakır (metric_expiration), alarm bundan 1 dakika sonra tetiklenir.
+        expr: >-
+          absent(target_info{job="invoice-service"})
+            or absent(target_info{job="erp-simulator"})
+        for: 1m
+        annotations:
+          summary: "{{ $labels.job }} servisinin metrikleri 1 dakikadır toplanamıyor."
+          description: >-
+            Prometheus'ta {{ $labels.job }} servisinden 1 dakikadır metrik yok; servis durmuş, açılamıyor ya da metriklerini
+            OpenTelemetry Collector'a gönderemiyor. Bu sürede panodaki değerler ve diğer alarmlar bu servisi göremez. İki
+            servisin alarmı birlikte geldiyse sorun büyük olasılıkla Collector'dadır. İlk olarak: `docker compose ps`
+            ile servisin ve otel-collector'ın çalıştığını, `docker compose logs <servis>` ile açılış hatası olup
+            olmadığını kontrol edin.
