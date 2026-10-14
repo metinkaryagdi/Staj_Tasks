@@ -174,8 +174,17 @@ services:
     networks:
       - apps
 
-  # Metrikler, pano ve alarmlar. Prometheus servislerin /metrics adresinden toplar ve alarm kurallarını değerlendirir,
-  # Alertmanager alarmları alert-receiver'a iletir, Grafana panoyu gösterir. Ayarlar ve pano monitoring/ altındadır.
+  # Metrikler, pano ve alarmlar. Servisler metriklerini OTLP ile otel-collector'a gönderir, Prometheus Collector'dan
+  # toplar ve alarm kurallarını değerlendirir, Alertmanager alarmları alert-receiver'a iletir, Grafana panoyu gösterir.
+  # Ayarlar ve pano monitoring/ altındadır.
+  otel-collector:
+    image: otel/opentelemetry-collector:0.135.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./monitoring/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    networks:
+      - apps
+
   prometheus:
     image: prom/prometheus:v3.5.0
     ports:

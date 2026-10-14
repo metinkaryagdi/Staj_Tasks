@@ -19,7 +19,7 @@ builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService("erp-simulator"))
     .WithMetrics(metrics => metrics
     .AddMeter(SimulatorMetrics.MeterName)
-    .AddPrometheusExporter());
+    .AddOtlpExporter());
 
 builder.Services.AddProblemDetails();
 builder.Services.AddSimulatorOpenApi();
@@ -28,7 +28,7 @@ var app = builder.Build();
 
 await app.MigrateDatabaseAsync();
 app.LogSimulatorSettings();
-// Once the app has started OpenTelemetry listens: only then are the counters' 0s recorded, so they are scraped at 0 before
+// Once the app has started OpenTelemetry listens: only then are the counters' 0s recorded, so they are exported at 0 before
 // anything is counted.
 app.Lifetime.ApplicationStarted.Register(() => app.Services.GetRequiredService<SimulatorMetrics>().StartAtZero());
 
@@ -45,7 +45,6 @@ app.UseSwaggerUI(o =>
 app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
-app.MapPrometheusScrapingEndpoint();
 app.MapInvoiceEndpoints();
 
 app.Run();

@@ -1,5 +1,6 @@
-# Prometheus servislerin /metrics adresinden 5 saniyede bir toplar. Fatura Servisi'nin veritabanından okunan değerleri
-# (kuyruk, durum sayıları, takılı fatura, son mutabakat) servis 15 saniyede bir okur; arada gelen toplama son okumayı alır.
+# Prometheus metrikleri OpenTelemetry Collector'dan 5 saniyede bir toplar; uygulamalar metriklerini Collector'a gönderir
+# (monitoring/otel-collector/config.yaml). Fatura Servisi'nin veritabanından okunan değerleri (kuyruk, durum sayıları,
+# takılı fatura, son mutabakat) servis 15 saniyede bir okur; arada gelen gönderimler son okumayı taşır.
 global:
   scrape_interval: 5s
   evaluation_interval: 15s
@@ -13,16 +14,10 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 scrape_configs:
-  # invoice-service-2 yalnızca iki kopya testlerinde çalışır (profil iki-kopya). Adıyla DNS'te aranır: çalışmıyorken adı
-  # çözülmez ve hedef listede hiç görünmez, çalışınca 30 saniye içinde eklenir.
-  - job_name: invoice-service
+  # Collector her metriği gönderen servisin adıyla (job=invoice-service, erp-simulator) ve kopyasıyla (instance) sunar.
+  # honor_labels bu etiketleri korur; yoksa Prometheus hepsine job=otel-collector yazardı. invoice-service-2 (iki kopya
+  # testleri) de aynı Collector'a gönderdiği için ayrıca hedef gerekmez.
+  - job_name: otel-collector
+    honor_labels: true
     static_configs:
-      - targets: ["invoice-service:8080"]
-    dns_sd_configs:
-      - names: ["invoice-service-2"]
-        type: A
-        port: 8080
-        refresh_interval: 30s
-  - job_name: erp-simulator
-    static_configs:
-      - targets: ["erp-simulator:8080"]
+      - targets: ["otel-collector:8889"]

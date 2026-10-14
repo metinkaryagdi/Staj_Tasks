@@ -1,0 +1,20 @@
+# OpenTelemetry Collector: iki uygulama metriklerini OTLP ile buraya gönderir (5 saniyede bir), Collector bunları
+# Prometheus biçiminde :8889/metrics adresinde sunar ve Prometheus oradan toplar. Değiştirdikten sonra
+# `docker compose restart otel-collector`.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  # Metrik adları uygulamaların eski /metrics çıktısıyla aynıdır (birim ve _total ekleri dahil), pano ve alarmlar
+  # değişmeden çalışır. job etiketi service.name'dir (invoice-service, erp-simulator).
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheus]
