@@ -1,0 +1,9 @@
+# Maliyet ölçümünün karşılaştırma koşusu (8-maliyet.ps1): iki uygulamada OpenTelemetry SDK'sı kapalı (standart
+# OTEL_SDK_DISABLED değişkeni). Ne iz ne metrik gönderilir; kod ve ayarlar aynıdır.
+services:
+  invoice-service:
+    environment:
+      OTEL_SDK_DISABLED: "true"
+  erp-simulator:
+    environment:
+      OTEL_SDK_DISABLED: "true"

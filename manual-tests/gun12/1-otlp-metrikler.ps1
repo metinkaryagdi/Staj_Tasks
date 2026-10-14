@@ -64,20 +64,9 @@ foreach ($job in 'invoice-service', 'erp-simulator') {
 Write-Result $namesMatch 'Metrik adları aynı'
 
 Write-Step "Panonun sorguları (monitoring/grafana/dashboards/fatura-servisi.json), Prometheus'ta"
-$dashboard = Get-Content (Join-Path $RepoRoot 'monitoring\grafana\dashboards\fatura-servisi.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$panelsOk = $true
-foreach ($panel in $dashboard.panels) {
-    foreach ($target in @($panel.targets)) {
-        if (-not $target.expr) { continue }
-        $rows = @(Get-Prometheus $target.expr)
-        # "> 0" süzgeçli bulgu sorgusu bulgu yoksa boş döner; sorgunun hatasız çalışması yeterli.
-        $optional = $target.expr -match '> 0$'
-        $ok = $rows.Count -gt 0 -or $optional
-        if (-not $ok) { $panelsOk = $false }
-        Write-Line ("  [{0}] {1}: {2} seri{3}" -f $(if ($ok) { 'OK' } else { 'BOŞ' }), $panel.title, $rows.Count, $(if ($optional -and $rows.Count -eq 0) { ' (bulgu yok, boş olabilir)' } else { '' }))
-    }
-}
-Write-Result $panelsOk 'Panonun bütün sorguları değer döndürüyor'
+$panels = @(Test-DashboardQueries)
+$panels | ForEach-Object { Write-Line ("  [{0}] {1}: {2} seri" -f $(if ($_.Tamam) { 'OK' } else { 'BOŞ' }), $_.Panel, $_.Seri) }
+Write-Result (@($panels | Where-Object { -not $_.Tamam }).Count -eq 0) 'Panonun bütün sorguları değer döndürüyor'
 
 Write-Step 'Alarm kuralları'
 $rules = @((Invoke-RestMethod "$PrometheusUrl/api/v1/rules" -TimeoutSec 10).data.groups.rules)
