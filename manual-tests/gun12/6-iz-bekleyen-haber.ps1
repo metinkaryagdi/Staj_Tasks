@@ -13,6 +13,7 @@ $settings['Webhooks__FirstEventMaxSeconds'] = 1
 Restart-Simulator $settings
 
 Write-Step 'Fatura oluşturuluyor'
+$since = [DateTimeOffset]::UtcNow.AddSeconds(-5)
 $number = (New-ServiceInvoice).InvoiceNumber
 Write-Host "  $number"
 Wait-InvoicesIn @($number) @('Onaylandı', 'Reddedildi') 120 'karar aldı' | Out-Null
@@ -23,7 +24,7 @@ Show-ServiceQuery "SELECT event_id, event_type, status, received_at, processed_a
 Show-ServiceQuery "SELECT status, send_attempt_count, updated_at FROM invoices WHERE invoice_number = '$number';"
 
 Write-Step "Jaeger'daki iz"
-$trace = Get-InvoiceTrace $number
+$trace = Get-InvoiceTrace $number $since
 Show-Trace $trace 'gun12-6-iz-bekleyen-haber.txt'
 
 # Bekleyen haber: servise geldiğinde Bekliyor kalan; aynı event_id daha sonra bir denemede uygulanmış olmalı.

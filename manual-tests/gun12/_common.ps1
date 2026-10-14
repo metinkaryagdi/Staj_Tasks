@@ -28,16 +28,19 @@ function Test-DashboardQueries {
     }
 }
 
-# Jaeger'dan faturanın izi: invoice.number etiketiyle aranır, tek trace beklenir. Span'ler en fazla 5 sn sonra gönderildiği
+# Jaeger'dan faturanın izi: invoice.number etiketiyle aranır, tek trace beklenir. Yalnızca $Since'ten (faturanın
+# oluşturulmasından hemen önce) sonra başlayan izlere bakılır: başka volume'lerle yapılan koşular (ör. 8-maliyet.ps1) aynı
+# fatura numaralarını üretir ve izleri Jaeger yeniden başlayana kadar durur. Span'ler en fazla 5 sn sonra gönderildiği
 # için span sayısı iki okumada aynı kalana kadar beklenir. Dönen nesne: TraceId, Spans (her biri Name, Service, Id,
 # ParentId, Start, Ms, Tags, Events, Links).
-function Get-InvoiceTrace([string]$InvoiceNumber, [int]$TimeoutSeconds = 60) {
+function Get-InvoiceTrace([string]$InvoiceNumber, [DateTimeOffset]$Since, [int]$TimeoutSeconds = 60) {
     $tags = [Uri]::EscapeDataString((@{ 'invoice.number' = $InvoiceNumber } | ConvertTo-Json -Compress))
-    $url = "$JaegerUrl/api/traces?service=invoice-service&tags=$tags&lookback=6h&limit=20"
+    $start = $Since.ToUnixTimeMilliseconds() * 1000
+    $url = "$JaegerUrl/api/traces?service=invoice-service&tags=$tags&start=$start&limit=20"
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $previous = -1
     while ($true) {
-        $traces = @((Get-JaegerJson $url).data)
+        $traces = @((Get-JaegerJson "$url&end=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() * 1000)").data)
         $ids = @($traces | ForEach-Object { $_.traceID } | Sort-Object -Unique)
         if ($ids.Count -gt 1) { throw "$InvoiceNumber için birden fazla trace var: $($ids -join ', ')" }
         if ($ids.Count -eq 1) {

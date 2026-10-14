@@ -54,6 +54,7 @@ function Measure-Run([string]$Label) {
         }
     }
     $runId = "GUN12-MALIYET-$Label-" + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    $since = [DateTimeOffset]::UtcNow.AddSeconds(-5)
     $result = Invoke-LoadTest @{ BASE_URLS = 'http://invoice-service:8080'; RATE = $Rate; DURATION = $Duration; RUN_ID = $runId }
     Start-Sleep -Seconds 60
     New-Item $stop -ItemType File | Out-Null
@@ -66,7 +67,7 @@ function Measure-Run([string]$Label) {
     $spans = $null
     if ($Label -eq 'izli') {
         $sample = @(Get-ServiceRows "SELECT invoice_number FROM invoices WHERE customer_code = '$runId' AND status <> 'Bekliyor' ORDER BY random() LIMIT 20;")
-        $counts = @($sample | ForEach-Object { (Get-InvoiceTrace $_ 30).Spans.Count })
+        $counts = @($sample | ForEach-Object { (Get-InvoiceTrace $_ $since 30).Spans.Count })
         $spans = [pscustomobject]@{ Ortalama = [math]::Round(($counts | Measure-Object -Average).Average, 1); EnAz = ($counts | Measure-Object -Minimum).Minimum; EnCok = ($counts | Measure-Object -Maximum).Maximum }
     }
     [pscustomobject]@{ Label = $Label; RunId = $runId; Result = $result; Samples = $samples; Sent = $sent; Spans = $spans }

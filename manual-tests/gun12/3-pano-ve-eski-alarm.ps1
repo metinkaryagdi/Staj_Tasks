@@ -10,12 +10,6 @@ param([int]$Count = 30)
 
 Write-Title 'Kontrol listesi 1: pano ve önceki bir alarm'
 
-Write-Step 'Panonun sorguları'
-$panels = @(Test-DashboardQueries)
-$panels | ForEach-Object { Write-Host ("  [{0}] {1}: {2} seri" -f $(if ($_.Tamam) { 'OK' } else { 'BOŞ' }), $_.Panel, $_.Seri) }
-$panelsOk = @($panels | Where-Object { -not $_.Tamam }).Count -eq 0
-Write-Result $panelsOk 'Panonun bütün sorguları değer döndürüyor'
-
 Show-AlertRule 'ErpyeUlasilamiyor'
 $since = Get-UtcStamp
 
@@ -29,6 +23,18 @@ $passed = Test-AlertCycle 'ErpyeUlasilamiyor' $since -FireTimeoutSeconds 180 -Re
     Wait-InvoicesIn $numbers @('Gönderildi', 'İşleme Alındı', 'Onaylandı', 'Reddedildi', 'Başarısız') 300 'sonuçlandı' | Out-Null
 }
 Show-ServiceQuery "SELECT status, count(*) FROM invoices WHERE invoice_number IN ($(InList $numbers)) GROUP BY status;"
+
+# Pano faturalar gönderildikten ve bir mutabakat çalıştıktan sonra kontrol edilir: gönderim süresi ve mutabakat süresi
+# histogramları servis yeniden başladıktan sonraki ilk ölçüme kadar yoktur. Son mutabakatın zamanı veritabanından 15 sn'de
+# bir okunur, 5 sn'de bir gönderilir ve toplanır.
+Write-Step 'Bir mutabakat çalıştırılıyor (panonun mutabakat panelleri için)'
+Show-Run (Invoke-Reconciliation).run.id
+Start-Sleep -Seconds 25
+Write-Step 'Panonun sorguları'
+$panels = @(Test-DashboardQueries)
+$panels | ForEach-Object { Write-Host ("  [{0}] {1}: {2} seri" -f $(if ($_.Tamam) { 'OK' } else { 'BOŞ' }), $_.Panel, $_.Seri) }
+$panelsOk = @($panels | Where-Object { -not $_.Tamam }).Count -eq 0
+Write-Result $panelsOk 'Panonun bütün sorguları değer döndürüyor'
 
 $lines = @(Get-ReceiverLines $since)
 $lines | Set-Content (Join-Path $OutputDir 'gun12-3-alarm-alici.txt') -Encoding UTF8

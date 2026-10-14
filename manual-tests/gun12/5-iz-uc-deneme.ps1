@@ -8,6 +8,7 @@ Write-Title 'Kontrol listesi 4: en az üç kez denenen faturanın izi'
 Restart-Simulator (Get-SimSettings 'ServerError')
 
 Write-Step 'Fatura oluşturuluyor'
+$since = [DateTimeOffset]::UtcNow.AddSeconds(-5)
 $number = (New-ServiceInvoice).InvoiceNumber
 Write-Host "  $number"
 
@@ -23,7 +24,7 @@ Wait-InvoicesIn @($number) @('Onaylandı', 'Reddedildi') 180 'karar aldı' | Out
 Wait-EventsDone @($number) 60 | Out-Null
 
 Write-Step "Jaeger'daki iz"
-$trace = Get-InvoiceTrace $number
+$trace = Get-InvoiceTrace $number $since
 Show-Trace $trace 'gun12-5-iz-uc-deneme.txt'
 
 Write-Step 'Denemeler (outbox.attempt span''leri)'

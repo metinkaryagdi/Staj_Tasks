@@ -8,13 +8,14 @@ Write-Title 'Kontrol listesi 3: ilk denemede gönderilen faturanın izi'
 Restart-Simulator (Get-SimSettings 'Success')
 
 Write-Step 'Fatura oluşturuluyor'
+$since = [DateTimeOffset]::UtcNow.AddSeconds(-5)
 $number = (New-ServiceInvoice).InvoiceNumber
 Write-Host "  $number"
 Wait-InvoicesIn @($number) @('Onaylandı', 'Reddedildi') 120 'karar aldı' | Out-Null
 Wait-EventsDone @($number) 60 | Out-Null
 
 Write-Step "Jaeger'daki iz"
-$trace = Get-InvoiceTrace $number
+$trace = Get-InvoiceTrace $number $since
 Show-Trace $trace 'gun12-4-iz-ilk-deneme.txt'
 
 function Find([string]$Name, [string]$Service, [scriptblock]$Where = { $true }) {
