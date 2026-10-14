@@ -4,8 +4,10 @@ using ErpSimulator.Api.Workers;
 using ErpSimulator.Application;
 using ErpSimulator.Application.Simulation;
 using ErpSimulator.Infrastructure;
+using Npgsql;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +21,13 @@ builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService("erp-simulator"))
     .WithMetrics(metrics => metrics
     .AddMeter(SimulatorMetrics.MeterName)
+    .AddOtlpExporter())
+    // Every trace is kept (no sampling): HTTP requests, HttpClient calls and database commands are traced automatically.
+    .WithTracing(tracing => tracing
+    .SetSampler(new AlwaysOnSampler())
+    .AddAspNetCoreInstrumentation()
+    .AddHttpClientInstrumentation()
+    .AddNpgsql()
     .AddOtlpExporter());
 
 builder.Services.AddProblemDetails();

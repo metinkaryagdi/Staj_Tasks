@@ -6,8 +6,10 @@ using InvoiceService.Api.Workers;
 using InvoiceService.Application;
 using InvoiceService.Application.Metrics;
 using InvoiceService.Infrastructure;
+using Npgsql;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +24,13 @@ builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService("invoice-service"))
     .WithMetrics(metrics => metrics
     .AddMeter(InvoiceMetrics.MeterName)
+    .AddOtlpExporter())
+    // Every trace is kept (no sampling): HTTP requests, HttpClient calls and database commands are traced automatically.
+    .WithTracing(tracing => tracing
+    .SetSampler(new AlwaysOnSampler())
+    .AddAspNetCoreInstrumentation()
+    .AddHttpClientInstrumentation()
+    .AddNpgsql()
     .AddOtlpExporter());
 
 builder.Services.AddOperationsUiCors(builder.Configuration);

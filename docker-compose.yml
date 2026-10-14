@@ -174,14 +174,23 @@ services:
     networks:
       - apps
 
-  # Metrikler, pano ve alarmlar. Servisler metriklerini OTLP ile otel-collector'a gönderir, Prometheus Collector'dan
-  # toplar ve alarm kurallarını değerlendirir, Alertmanager alarmları alert-receiver'a iletir, Grafana panoyu gösterir.
+  # Metrikler, izler, pano ve alarmlar. Servisler metriklerini ve izlerini OTLP ile otel-collector'a gönderir; izler
+  # Jaeger'a gider. Prometheus metrikleri Collector'dan toplar ve alarm kurallarını değerlendirir, Alertmanager alarmları alert-receiver'a iletir, Grafana panoyu gösterir.
   # Ayarlar ve pano monitoring/ altındadır.
   otel-collector:
     image: otel/opentelemetry-collector:0.135.0
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./monitoring/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    networks:
+      - apps
+
+  # İzler: Collector izleri Jaeger'a iletir. Arayüz http://localhost:16686; servis, fatura numarası (invoice.number) ya da
+  # trace_id ile aranır. İzler bellekte tutulur: Jaeger yeniden başlayınca silinir.
+  jaeger:
+    image: jaegertracing/jaeger:2.10.0
+    ports:
+      - "16686:16686"
     networks:
       - apps
 

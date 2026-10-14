@@ -1,6 +1,6 @@
-# OpenTelemetry Collector: iki uygulama metriklerini OTLP ile buraya gönderir (5 saniyede bir), Collector bunları
-# Prometheus biçiminde :8889/metrics adresinde sunar ve Prometheus oradan toplar. Değiştirdikten sonra
-# `docker compose restart otel-collector`.
+# OpenTelemetry Collector: iki uygulama metriklerini ve izlerini OTLP ile buraya gönderir. Metrikler (5 saniyede bir)
+# Prometheus biçiminde :8889/metrics adresinde sunulur ve Prometheus oradan toplar; izler Jaeger'a iletilir.
+# Değiştirdikten sonra `docker compose restart otel-collector`.
 receivers:
   otlp:
     protocols:
@@ -17,8 +17,17 @@ exporters:
     # Uygulamalar 5 sn'de bir gönderir; 15 sn, üç gönderimin kaçması demektir.
     metric_expiration: 15s
 
+  # İzler olduğu gibi Jaeger'a gider: örnekleme yok, bütün izler saklanır. Jaeger compose ağında, TLS'siz.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
 service:
   pipelines:
     metrics:
       receivers: [otlp]
       exporters: [prometheus]
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/jaeger]
