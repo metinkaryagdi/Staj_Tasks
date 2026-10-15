@@ -26,7 +26,8 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics => metrics
     .AddMeter(InvoiceMetrics.MeterName)
     .AddOtlpExporter())
-    // Every trace is kept (no sampling): HTTP requests, HttpClient calls and database commands are traced automatically.
+    // Every trace is sent; the Collector decides which are kept (tail sampling). HTTP requests, HttpClient calls and
+    // database commands are traced automatically.
     .WithTracing(tracing => tracing
     .SetSampler(new AlwaysOnSampler())
     .AddSource(InvoiceTracing.SourceName)

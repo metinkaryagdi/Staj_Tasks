@@ -175,10 +175,11 @@ services:
       - apps
 
   # Metrikler, izler, pano ve alarmlar. Servisler metriklerini ve izlerini OTLP ile otel-collector'a gönderir; izler
-  # Jaeger'a gider. Prometheus metrikleri Collector'dan toplar ve alarm kurallarını değerlendirir, Alertmanager
+  # örneklenip Jaeger'a gider. Prometheus metrikleri Collector'dan toplar ve alarm kurallarını değerlendirir, Alertmanager
   # alarmları alert-receiver'a iletir, Grafana panoyu gösterir. Ayarlar ve pano monitoring/ altındadır.
+  # Collector'ın contrib imajı: izlerin örneklenmesi (tail_sampling) yalnız onda var.
   otel-collector:
-    image: otel/opentelemetry-collector:0.135.0
+    image: otel/opentelemetry-collector-contrib:0.135.0
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./monitoring/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
