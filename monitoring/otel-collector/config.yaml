@@ -87,6 +87,16 @@ exporters:
       insecure: true
 
 service:
+  # Collector'ın kendi metrikleri compose ağında :8888/metrics adresinde; örneklemenin kaç trace sakladığı ve attığı
+  # (otelcol_processor_tail_sampling_global_count_traces_sampled, sampled="true"/"false") buradan okunur.
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
   pipelines:
     metrics:
       receivers: [otlp]
