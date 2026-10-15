@@ -1,10 +1,15 @@
 using System.Diagnostics;
+using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Invoices;
 using InvoiceService.Application.Outbox;
+using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Tests.Fakes;
 using InvoiceService.Application.Tracing;
 using InvoiceService.Application.Webhooks;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Operators;
+using InvoiceService.Domain.Outbox;
+using InvoiceService.Domain.Reconciliation;
 using InvoiceService.Domain.Webhooks;
 
 namespace InvoiceService.Application.Tests;
@@ -118,5 +123,90 @@ public sealed class TracingTests : IDisposable
         using var root = InvoiceTracing.StartInTrace("outbox.attempt", null);
         Assert.NotEqual(unrelated.TraceId, root!.TraceId);
         Assert.Equal(default, root.ParentSpanId);
+    }
+
+    // --- Steps taken on the invoice outside its requests and attempts
+    // ---------------------------------------------------------------------------------------------
+
+    private const string StoredTrace = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+    private const string StoredTraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+
+    private System.Collections.Concurrent.ConcurrentQueue<Activity> CaptureStopped()
+    {
+        // Other test classes may run at the same time: only spans in this test's stored trace are looked at.
+        var stopped = new System.Collections.Concurrent.ConcurrentQueue<Activity>();
+        _listener.ActivityStopped = stopped.Enqueue;
+        return stopped;
+    }
+
+    private void StoreEntry(string number, string? traceParent) =>
+        _s.Outbox.Entries[number] = new ErpOutboxEntry { InvoiceNumber = number, Status = OutboxStatus.Failed, TraceParent = traceParent };
+
+    private Task<bool> ApplyDecision(string expectedStatus) => _s.FixApplier().ApplyAsync(7, new PlannedFinding(
+        Number, FindingType.StuckInvoice, "ayrıntı",
+        new Fix(FixKind.ApplyDecision, Number, expectedStatus, "ERP-1", new ErpDecision(ErpDecisionKind.Approved))));
+
+    [Fact]
+    public async Task A_reconciliation_fix_is_a_span_in_the_invoice_s_trace_and_the_caller_s_span_stays_current()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Sent, erpReference: "ERP-1");
+        StoreEntry(Number, StoredTrace);
+        var stopped = CaptureStopped();
+        using var run = Current("reconciliation");
+
+        Assert.True(await ApplyDecision(InvoiceStatus.Sent));
+
+        var fix = Assert.Single(stopped, a => a.OperationName == "reconciliation.fix" && a.TraceId.ToHexString() == StoredTraceId);
+        Assert.Equal("00f067aa0ba902b7", fix.ParentSpanId.ToHexString());
+        Assert.Equal(Number, fix.GetTagItem(InvoiceTracing.InvoiceNumber));
+        Assert.Equal(FindingType.StuckInvoice, fix.GetTagItem("reconciliation.finding_type"));
+        Assert.Equal(nameof(FixKind.ApplyDecision), fix.GetTagItem("reconciliation.fix"));
+        Assert.Equal(InvoiceStatus.Approved, fix.GetTagItem("invoice.status"));
+        Assert.Same(run, Activity.Current);
+    }
+
+    [Fact]
+    public async Task A_fix_left_alone_because_the_invoice_changed_adds_nothing_to_the_trace()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Approved, erpReference: "ERP-1");
+        StoreEntry(Number, StoredTrace);
+        var stopped = CaptureStopped();
+
+        Assert.False(await ApplyDecision(InvoiceStatus.Sent));
+
+        Assert.DoesNotContain(stopped, a => a.TraceId.ToHexString() == StoredTraceId);
+    }
+
+    [Fact]
+    public async Task An_operator_s_resend_is_a_span_in_the_invoice_s_trace_and_the_request_s_span_stays_current()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Failed);
+        StoreEntry(Number, StoredTrace);
+        var stopped = CaptureStopped();
+        using var request = Current("request");
+
+        var result = await _s.ResendInvoiceHandler().HandleAsync(Number, "Ayşe", OperatorActionType.BulkResend);
+
+        Assert.Equal(ResendStatus.Queued, result.Status);
+        var resend = Assert.Single(stopped, a => a.OperationName == "invoice.resend" && a.TraceId.ToHexString() == StoredTraceId);
+        Assert.Equal("00f067aa0ba902b7", resend.ParentSpanId.ToHexString());
+        Assert.Equal(Number, resend.GetTagItem(InvoiceTracing.InvoiceNumber));
+        Assert.Equal(OperatorActionType.BulkResend, resend.GetTagItem("operator.action"));
+        Assert.Same(request, Activity.Current);
+    }
+
+    [Fact]
+    public async Task A_step_of_an_invoice_without_a_stored_trace_is_not_recorded()
+    {
+        const string untraced = "FTR-000042";
+        _s.Invoices.Add(untraced, InvoiceStatus.Failed);
+        StoreEntry(untraced, null);
+        var stopped = CaptureStopped();
+        using var request = Current("request");
+
+        await _s.ResendInvoiceHandler().HandleAsync(untraced, "Ayşe");
+
+        Assert.DoesNotContain(stopped, a => a.OperationName == "invoice.resend" && Equals(a.GetTagItem(InvoiceTracing.InvoiceNumber), untraced));
+        Assert.Same(request, Activity.Current);
     }
 }

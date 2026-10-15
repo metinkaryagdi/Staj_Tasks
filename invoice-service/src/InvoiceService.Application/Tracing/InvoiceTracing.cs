@@ -28,4 +28,29 @@ public static class InvoiceTracing
         Activity.Current = null;
         return Source.StartActivity(name, ActivityKind.Internal, parent, startTime: startTime);
     }
+
+    /// <summary>
+    /// Records a step taken on the invoice outside its own requests and attempts (a reconciliation fix, an operator's
+    /// resend) as a span in the invoice's trace, from <paramref name="started"/> until now, so the trace shows the
+    /// journey to its end. Nothing is recorded for an invoice without a stored traceparent (queued before tracing). The
+    /// caller's current span stays current.
+    /// </summary>
+    public static void RecordStep(
+        string name, string? traceParent, string invoiceNumber, DateTimeOffset started, params (string Key, object? Value)[] tags)
+    {
+        if (!ActivityContext.TryParse(traceParent, null, out _))
+            return;
+        var previous = Activity.Current;
+        try
+        {
+            using var span = StartInTrace(name, traceParent, started);
+            span?.SetTag(InvoiceNumber, invoiceNumber);
+            foreach (var (key, value) in tags)
+                span?.SetTag(key, value);
+        }
+        finally
+        {
+            Activity.Current = previous;
+        }
+    }
 }

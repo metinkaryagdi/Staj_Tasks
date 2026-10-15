@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Tracing;
 using InvoiceService.Application.Webhooks;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Reconciliation;
@@ -24,6 +25,7 @@ public sealed class FixApplier(
     public async Task<bool> ApplyAsync(long runId, PlannedFinding finding)
     {
         var fix = finding.Fix!;
+        var started = time.GetUtcNow();
         await using var transaction = await unitOfWork.BeginAsync(CancellationToken.None);
 
         var done = fix.Kind switch
@@ -43,6 +45,17 @@ public sealed class FixApplier(
         });
         await unitOfWork.SaveChangesAsync(CancellationToken.None);
         await transaction.CommitAsync(CancellationToken.None);
+
+        // The fix is a step of the invoice's journey: it shows in the invoice's trace. An ignored event belongs to no
+        // invoice the service knows.
+        if (fix.Kind != FixKind.IgnoreEvent)
+        {
+            var entry = await outbox.FindAsync(fix.InvoiceNumber, CancellationToken.None);
+            var invoice = await invoices.FindAsync(fix.InvoiceNumber, CancellationToken.None);
+            InvoiceTracing.RecordStep("reconciliation.fix", entry?.TraceParent, fix.InvoiceNumber, started,
+                ("reconciliation.finding_type", finding.FindingType), ("reconciliation.fix", fix.Kind.ToString()),
+                ("invoice.status", invoice?.Status));
+        }
         return true;
     }
 

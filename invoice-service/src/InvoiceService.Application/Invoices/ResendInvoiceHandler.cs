@@ -1,4 +1,5 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Application.Tracing;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Operators;
 
@@ -60,6 +61,10 @@ public sealed class ResendInvoiceHandler(
 
         await transaction.CommitAsync(CancellationToken.None);
         _logger.LogInformation("Invoice queued again invoice={InvoiceNumber} operator={Operator}", invoiceNumber, operatorName);
+
+        // The resend is a step of the invoice's journey: it shows in the invoice's trace, before the attempts it causes.
+        var entry = await outbox.FindAsync(invoiceNumber, CancellationToken.None);
+        InvoiceTracing.RecordStep("invoice.resend", entry?.TraceParent, invoiceNumber, now, ("operator.action", action));
 
         var invoice = await invoices.GetAsync(invoiceNumber, CancellationToken.None);
         return new ResendInvoiceResult(ResendStatus.Queued, invoice);
