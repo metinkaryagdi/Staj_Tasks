@@ -386,6 +386,8 @@ kendisi açar. Bir faturanın yolculuğu tek trace'tir:
 | Hız sınırında bekleme | `erp.pace_wait` |
 | Simülatördeki işlem | `POST /api/v1/invoices/` (ERP Simulator), `simulator.outcome` (seçilen davranış) |
 | Simülatörden gelen haberler | `webhook.send` (ERP Simulator) → `POST /api/v1/erp-webhooks` (Invoice Service), `erp_event.status`; haber uygulanınca span'e olay eklenir: `erp event stored` ya da fatura Gönderildi olunca deneme span'inde `erp event applied-after-send` |
+| Mutabakatın düzeltmesi | `reconciliation.fix`: `reconciliation.finding_type`, `reconciliation.fix` (düzeltme türü), `invoice.status` (faturanın yeni durumu) |
+| Operatörün yeniden gönderimi | `invoice.resend`: `operator.action` (`Resend` / `BulkResend`); ardından denemeler 1'den başlar |
 
 - **Bağlam:** zamanın koptuğu iki yerde W3C traceparent saklanır: `erp_outbox.trace_parent` (fatura oluşturulurken) ve simülatörün
   `webhook_deliveries.trace_parent` (event planlanırken). Haber isteğinde `traceparent` header'ıyla gider.
@@ -405,7 +407,9 @@ kendisi açar. Bir faturanın yolculuğu tek trace'tir:
   | Fatura numarası taşımayan (worker'ların kuyruk ve diğer sorguları) | Hiçbiri |
 
   Karar süresi yetmezse henüz gönderilmemiş fatura saklanır: sorunlu fatura kaybolmaz, sorunsuz oranı %10'un üstüne çıkar. Karar
-  verildikten sonra gelen span'ler (geç haberler, sonraki denemeler) aynı karara uyar.
+  verildikten sonra gelen span'ler (geç haberler, sonraki denemeler, mutabakatın düzeltmesi) aynı karara uyar. Kaç trace'in
+  saklanıp atıldığı Collector'ın kendi metriklerinde (`otel-collector:8888/metrics`, compose ağında):
+  `otelcol_processor_tail_sampling_global_count_traces_sampled_total{sampled="true"|"false"}`.
 - **Saklama:** Jaeger izleri bellekte tutar; varsayılan ayarıyla en fazla 100.000 trace, sınır dolunca en eskileri silinir. Jaeger
   yeniden başlayınca bütün izler gider. Collector kararını bekleyen izleri bellekte tutar; Collector yeniden başlarsa onlar da gider.
 
@@ -417,7 +421,7 @@ kendisi açar. Bir faturanın yolculuğu tek trace'tir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
-| Gün 13 kontrol listesi (yük altında örnekleme ve Collector belleği, boşta worker izleri, uzun süren faturanın izi, repeat_interval) | [`manual-tests/gun13/`](manual-tests/gun13/) |
+| Gün 13 kontrol listesi (yük altında örnekleme ve Collector belleği, boşta worker izleri, uzun süren faturanın izi, mutabakat ve yeniden gönderim izde, repeat_interval) | [`manual-tests/gun13/`](manual-tests/gun13/) |
 | Gün 12 kontrol listesi (pano ve alarmlar, Jaeger'daki izler, log satırlarında trace_id) ve izlemenin maliyeti | [`manual-tests/gun12/`](manual-tests/gun12/) |
 | Gün 11 kontrol listesi (pano, alarmlar, metrikler) | [`manual-tests/gun11/`](manual-tests/gun11/README.md) |
 | Gün 10 ölçümleri (yük testi önce/sonra, iki kopya) | [`manual-tests/gun10/`](manual-tests/gun10/) |
@@ -494,12 +498,17 @@ Bugünün işi: izlerin çoğu atılıyor, sorunlu faturaların izleri hep sakla
   deneneceği ya da Başarısız olacağı o anda bilinmez. Collector trace'i 30 dakika bekletip sonucuna bakarak karar verir. Collector
   imajı `tail_sampling`'i içeren contrib'e geçti.
 - **Tek trace korundu.** Karar trace'e verildiği için bir faturanın bütün yolculuğu birlikte saklanır ya da atılır; yarım iz kalmaz.
+- **Yolculuğun sonu da izde:** mutabakatın düzeltmesi (`reconciliation.fix`) ve operatörün yeniden gönderimi (`invoice.resend`)
+  faturanın trace'ine adım olarak yazılıyor.
+- **Collector'ın kendi metrikleri** açıldı: kaç trace'in saklandığı ve atıldığı buradan okunuyor.
 - **Karar süresi 30 dakika:** saniyede 50 fatura 2 dakika gelirken ve ERP isteklerin yarısından fazlasına sorunlu cevap verirken
   saklanan sorunsuz izlerde oluşturmadan gönderime en çok 23,7 dakika ölçüldü.
 - **Alertmanager** `repeat_interval` 1 saat.
 
 Kontrol listesi: [`manual-tests/gun13/`](manual-tests/gun13/). Yük testi (`1-yuk-ornekleme.ps1`) Başarısız fatura çıksın diye
 simülatörü Success 30, ServerError 40 ile çalıştırır, bitince varsayılan ayarlara döner; sayımı `1-sayim.ps1` yapar.
+`4-mutabakat-yeniden-gonderim.ps1` mutabakatla düzeltilen, yeniden gönderilen ve 2 denemede Başarısız olan (deneme hakkı yalnız bu
+testte 2, `compose.iki-deneme.yml`) üç faturanın izine bakar.
 
 ### Bilinen sınırlar
 
@@ -507,7 +516,6 @@ simülatörü Success 30, ServerError 40 ile çalıştırır, bitince varsayıla
   daha da büyür. Collector bu sürede yeniden başlarsa ya da `num_traces` dolarsa bekleyen izler (sorunlu faturalarınki dahil)
   kaybolur.
 - **Karar süresi** ölçülen yüke göre seçildi; kuyruk daha uzun beklerse sorunsuz faturalar da saklanır, oran %10'un üstüne çıkar.
-- **Mutabakatın düzeltmesi** faturanın izinde yer almaz (mutabakatın span'i yok).
 - **Toplu kayıt alma** (`outbox.claim`) trace'leri saklanmaz; `outbox.claimed`'in link'i Jaeger'da bulunmayan trace'i gösterir.
   Kaydın bekleme süresi faturanın kendi izindedir (`outbox.queue_wait_seconds`).
 - **Jaeger** izleri bellekte tutar ve en fazla 100.000 trace saklar. Jaeger yeniden başlayınca bütün izler gider.

@@ -212,7 +212,8 @@ flowchart LR
 
 ```
 monitoring/
-  otel-collector/ config.yaml (OTLP alımı; metrikler Prometheus'a, izler örneklenip (tail_sampling) Jaeger'a)
+  otel-collector/ config.yaml (OTLP alımı; metrikler Prometheus'a, izler örneklenip (tail_sampling) Jaeger'a; kendi
+                  metrikleri :8888)
   prometheus/    prometheus.yml (toplama 5 sn, hedef Collector), alert-rules.yml (altı alarm)
   alertmanager/  alertmanager.yml (her alarm alert-receiver'a, çözülme dahil)
   grafana/       provisioning/ (veri kaynağı, pano sağlayıcısı), dashboards/fatura-servisi.json
@@ -372,7 +373,9 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   trace'tedir. Zamanın koptuğu iki yerde W3C traceparent saklanır: `erp_outbox.trace_parent` (fatura oluşturulurken) ve
   `webhook_deliveries.trace_parent` (simülatör event'i planlarken); haber isteğinde `traceparent` header'ını HttpClient
   instrumentation ekler. Bedeli: trace dakikalarca (yeniden gönderimde daha uzun) açık kalır, kök span çok önce biter.
-  Örneklemede tek trace, bir faturanın bütün yolculuğunun birlikte saklanmasını ya da atılmasını sağlar.
+  Örneklemede tek trace, bir faturanın bütün yolculuğunun birlikte saklanmasını ya da atılmasını sağlar. Faturanın kendi istekleri
+  ve denemeleri dışında atılan adımlar da (mutabakatın düzeltmesi, operatörün yeniden gönderimi) aynı saklanan traceparent'la
+  trace'e yazılır (`InvoiceTracing.RecordStep`); bunu yaparken o anki isteğin ya da worker'ın span'i değişmez.
 - **Toplu kayıt alma ayrı trace, span link ile.** Tek alma sorgusu birden fazla faturanın kaydını alır; hiçbir faturanın trace'ine ait
   değildir. `outbox.claim` kendi trace'idir; her faturanın `outbox.claimed` span'i ona link verir ve başlangıç/bitişi almanın
   süresidir.
