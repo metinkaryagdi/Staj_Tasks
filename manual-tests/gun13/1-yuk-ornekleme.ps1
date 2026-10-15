@@ -36,6 +36,8 @@ Wait-Health $SimulatorUrl
 $existing = [int]@(Get-ServiceRows 'SELECT count(*) FROM invoices;')[0]
 if ($existing -ne 0) { throw "gun13-$Name volume'ü boş değil ($existing fatura); docker volume rm ile silip yeniden çalıştırın ya da -Name verin." }
 Invoke-Compose @('up', '-d', '--force-recreate', 'otel-collector', 'jaeger')
+# Collector'ın sayaçları Prometheus container'ından okunur (compose ağında otel-collector:8888).
+Invoke-Compose @('up', '-d', 'prometheus')
 Start-Sleep -Seconds 5
 
 Restart-Simulator @{ Simulator__Rates__Success = 30; Simulator__Rates__ServerError = 40 }
@@ -61,8 +63,7 @@ try {
     $loadEnd = [DateTimeOffset]::UtcNow
 
     # Kayıtlar bitti = kuyrukta bekleyen kayıt ve simülatörde gönderilmeyi bekleyen haber yok. Karar haberi simülatörde
-    # kaybolan faturalar (LostDecisionRate) İşleme Alındı'da kalır, mutabakatı bekler; mutabakatın span'i olmadığı için
-    # izlerine bir şey eklenmez, beklenmez.
+    # kaybolan faturalar (LostDecisionRate) İşleme Alındı'da kalır, mutabakatı bekler (60 dk); mutabakat burada beklenmez.
     Write-Step 'Kuyruğun boşalması ve haberlerin gönderilmesi bekleniyor'
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $last = -1
@@ -92,6 +93,20 @@ $samples = @(Receive-Job $job -Wait -AutoRemoveJob | ForEach-Object {
     [pscustomobject]@{ At = [DateTimeOffset]::FromUnixTimeSeconds([long]$p[0]); Name = $p[1] -replace '^staj-tasks-|-1$', ''; Mem = ConvertTo-MiB $p[3] }
 })
 
+# Collector'ın kendi sayaçları (Collector koşunun başında yeniden başlatıldı, sayaçlar 0'dan başladı): karar verilen
+# bütün trace'lerden kaçı saklandı, kaçı atıldı. Faturaların ve worker sorgularının trace'leri birlikte sayılır.
+$metrics = @(Push-Location $RepoRoot; try { & docker compose exec -T prometheus wget -qO- http://otel-collector:8888/metrics } finally { Pop-Location })
+$metrics | Set-Content (Join-Path $OutputDir "gun13-1-$Name-collector-metrikleri.txt") -Encoding UTF8
+function Get-CollectorCounter([string]$Pattern) {
+    $line = $metrics | Where-Object { $_ -match "^$Pattern" } | Select-Object -First 1
+    if (-not $line) { return $null }
+    [long][double]::Parse(($line -split ' ')[-1], [Globalization.CultureInfo]::InvariantCulture)
+}
+$kept = Get-CollectorCounter 'otelcol_processor_tail_sampling_global_count_traces_sampled_total\{.*sampled="true"'
+$dropped = Get-CollectorCounter 'otelcol_processor_tail_sampling_global_count_traces_sampled_total\{.*sampled="false"'
+$received = Get-CollectorCounter 'otelcol_processor_tail_sampling_new_trace_id_received_total'
+$tooEarly = Get-CollectorCounter 'otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total'
+
 
 Write-Title 'Koşu ve Collector belleği'
 Write-Line "Koşu: $runId; yük $($loadStart.ToString('HH:mm:ss'))-$($loadEnd.ToString('HH:mm:ss')) UTC, k6 istek $($result.requests), kabul $($result.accepted)."
@@ -111,6 +126,13 @@ $peak = $col | Sort-Object Mem -Descending | Select-Object -First 1
 if ($peak) { Write-Line ('  En yüksek: {0:N0} MiB, {1} UTC' -f $peak.Mem, $peak.At.ToString('HH:mm:ss')) }
 $jae = @($samples | Where-Object Name -eq 'jaeger')
 if ($jae.Count -gt 1) { Write-Line ('Jaeger belleği: ilk örnek {0:N0} MiB, son örnek {1:N0} MiB.' -f $jae[0].Mem, $jae[-1].Mem) }
+Write-Line ''
+Write-Line "Collector'ın sayaçları (koşunun başından sayım anına):"
+if ($null -ne $kept -and $null -ne $dropped -and ($kept + $dropped) -gt 0) {
+    Write-Line ('  Karar verilen trace: {0}; saklanan {1} ({2:P1}), atılan {3} ({4:P1})' -f ($kept + $dropped), $kept, ($kept / ($kept + $dropped)), $dropped, ($dropped / ($kept + $dropped)))
+}
+else { Write-Line '  Karar sayaçları okunamadı.' }
+Write-Line "  Gelen yeni trace: $received; karar süresi dolmadan bellekten atılan (num_traces dolduğu için): $tooEarly"
 
 $report | Set-Content $out -Encoding UTF8
 $samples | Select-Object @{ n = 'At'; e = { $_.At.ToString('o') } }, Name, Mem |

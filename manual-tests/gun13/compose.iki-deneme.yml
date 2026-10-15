@@ -1,0 +1,6 @@
+# 4-mutabakat-yeniden-gonderim.ps1 için: Fatura Servisi'nin deneme hakkı 2 (kalıcı ayar 10). 3'ten az denemede Başarısız
+# olan bir faturanın izinin de saklandığını görmek için; script bitmeden servis varsayılan ayarla yeniden açılır.
+services:
+  invoice-service:
+    environment:
+      Outbox__MaxAttempts: "2"
