@@ -375,8 +375,8 @@ Her alarmın açıklamasında sorun ve operasyon ekibinin ilk yapacağı iş yaz
 
 ### İzler
 
-Örnekleme yoktur (`AlwaysOnSampler`), bütün izler Jaeger'a gider. HTTP istekleri, HttpClient çağrıları ve veritabanı sorguları
-(Npgsql) kendiliğinden izlenir; aşağıdaki span'leri uygulamalar kendisi açar. Bir faturanın yolculuğu tek trace'tir:
+HTTP istekleri, HttpClient çağrıları ve veritabanı sorguları (Npgsql) kendiliğinden izlenir; aşağıdaki span'leri uygulamalar
+kendisi açar. Bir faturanın yolculuğu tek trace'tir:
 
 | Adım | Span |
 |---|---|
@@ -393,8 +393,21 @@ Her alarmın açıklamasında sorun ve operasyon ekibinin ilk yapacağı iş yaz
 - **Loglar:** iki uygulamanın her log satırının sonunda o anki `trace_id=` yazar (span dışında `trace_id=-`); bir faturanın iki
   servisteki satırları `docker compose logs invoice-service erp-simulator | Select-String trace_id=<trace_id>` ile bulunur
   (`trace_id`, faturanın `Invoice queued` satırından alınır).
+- **Örnekleme:** uygulamalar bütün izleri gönderir (`AlwaysOnSampler`); hangilerinin saklanacağına Collector karar verir (tail
+  sampling, [`config.yaml`](monitoring/otel-collector/config.yaml)). Karar, trace'in ilk span'inden 30 dakika sonra bütün
+  yolculuğa birlikte uygulanır:
+
+  | Trace | Saklanır mı |
+  |---|---|
+  | 1. ya da 2. denemede gönderilen fatura | `sampling_percentage` kadarı (%10) |
+  | En az 3 kez denenen fatura | Hepsi |
+  | Gönderilmemiş fatura (Başarısız, ya da karar anında henüz gönderilmemiş) | Hepsi |
+  | Fatura numarası taşımayan (worker'ların kuyruk ve diğer sorguları) | Hiçbiri |
+
+  Karar süresi yetmezse henüz gönderilmemiş fatura saklanır: sorunlu fatura kaybolmaz, sorunsuz oranı %10'un üstüne çıkar. Karar
+  verildikten sonra gelen span'ler (geç haberler, sonraki denemeler) aynı karara uyar.
 - **Saklama:** Jaeger izleri bellekte tutar; varsayılan ayarıyla en fazla 100.000 trace, sınır dolunca en eskileri silinir. Jaeger
-  yeniden başlayınca bütün izler gider.
+  yeniden başlayınca bütün izler gider. Collector kararını bekleyen izleri bellekte tutar; Collector yeniden başlarsa onlar da gider.
 
 ---
 
@@ -404,6 +417,7 @@ Her alarmın açıklamasında sorun ve operasyon ekibinin ilk yapacağı iş yaz
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Gün 13 kontrol listesi (yük altında örnekleme ve Collector belleği, boşta worker izleri, uzun süren faturanın izi, repeat_interval) | [`manual-tests/gun13/`](manual-tests/gun13/) |
 | Gün 12 kontrol listesi (pano ve alarmlar, Jaeger'daki izler, log satırlarında trace_id) ve izlemenin maliyeti | [`manual-tests/gun12/`](manual-tests/gun12/) |
 | Gün 11 kontrol listesi (pano, alarmlar, metrikler) | [`manual-tests/gun11/`](manual-tests/gun11/README.md) |
 | Gün 10 ölçümleri (yük testi önce/sonra, iki kopya) | [`manual-tests/gun10/`](manual-tests/gun10/) |
@@ -472,27 +486,31 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 12 — Bir Faturanın Yolculuğunu İzlemek
+## Gün 13 — İzlerin Örneklenmesi
 
-Bugünün işi: bir faturanın oluşturulmasından ERP'nin haberlerine kadar bütün yolculuğu tek bir yerden, Jaeger'da tek trace olarak
-görülebiliyor; her log satırı o anki trace_id'yi taşıyor ([İzler](#i̇zler)).
+Bugünün işi: izlerin çoğu atılıyor, sorunlu faturaların izleri hep saklanıyor ([İzler](#i̇zler) bölümünde Örnekleme).
 
-- **Metrikler:** beta Prometheus exporter'ı kaldırıldı; metrikler OTLP ile OpenTelemetry Collector'a gidiyor, Prometheus
-  Collector'dan topluyor. Metrik adları, pano ve beş alarmın kuralları değişmedi.
-- **Yeni alarm:** `MetrikToplanamiyor`, Invoice Service'in ya da ERP Simulator'ın metrikleri 1 dakika toplanamazsa.
-- **İzler:** OpenTelemetry Collector ve Jaeger compose'a eklendi. HTTP, HttpClient ve veritabanı kendiliğinden izleniyor; örnekleme
-  yok. Bağlam Outbox kaydında ve simülatörün event kaydında saklanıyor, haber isteğinde `traceparent` header'ıyla gidiyor.
-- **Karar:** her fatura tek trace; birden fazla faturanın kaydını alan toplu alma ayrı trace, faturanın `outbox.claimed` span'i ona
-  span link ile bağlı.
-- **Loglar:** her satırın sonunda `trace_id=`.
+- **Karar Collector'da (tail sampling).** Uygulamada (head) karar ilk span'de, fatura oluşturulurken verilir; faturanın 3 kez
+  deneneceği ya da Başarısız olacağı o anda bilinmez. Collector trace'i 30 dakika bekletip sonucuna bakarak karar verir. Collector
+  imajı `tail_sampling`'i içeren contrib'e geçti.
+- **Tek trace korundu.** Karar trace'e verildiği için bir faturanın bütün yolculuğu birlikte saklanır ya da atılır; yarım iz kalmaz.
+- **Karar süresi 30 dakika:** saniyede 50 fatura 2 dakika gelirken ve ERP isteklerin yarısından fazlasına sorunlu cevap verirken
+  saklanan sorunsuz izlerde oluşturmadan gönderime en çok 23,7 dakika ölçüldü.
+- **Alertmanager** `repeat_interval` 1 saat.
 
-Kontrol listesi ve maliyet ölçümü: [`manual-tests/gun12/`](manual-tests/gun12/). Maliyet ölçümü OpenTelemetry kapalıyken
-(`OTEL_SDK_DISABLED`) ve açıkken aynı yükü iki sırayla çalıştırır (`8-maliyet.ps1`).
+Kontrol listesi: [`manual-tests/gun13/`](manual-tests/gun13/). Yük testi (`1-yuk-ornekleme.ps1`) Başarısız fatura çıksın diye
+simülatörü Success 30, ServerError 40 ile çalıştırır, bitince varsayılan ayarlara döner; sayımı `1-sayim.ps1` yapar.
 
 ### Bilinen sınırlar
 
-- **Jaeger** izleri bellekte tutar ve en fazla 100.000 trace saklar; yük altında sınır çabuk dolar ve eski faturaların izleri silinir.
-  Worker'ların boşta ve her kayıt alışında yaptığı sorgular da ayrı trace'tir. Jaeger yeniden başlayınca bütün izler gider.
+- **Collector** kararını bekleyen izleri bellekte tutar: yük sırasında belleği örneklemesizden fazladır, kuyruk boşalırken
+  daha da büyür. Collector bu sürede yeniden başlarsa ya da `num_traces` dolarsa bekleyen izler (sorunlu faturalarınki dahil)
+  kaybolur.
+- **Karar süresi** ölçülen yüke göre seçildi; kuyruk daha uzun beklerse sorunsuz faturalar da saklanır, oran %10'un üstüne çıkar.
+- **Mutabakatın düzeltmesi** faturanın izinde yer almaz (mutabakatın span'i yok).
+- **Toplu kayıt alma** (`outbox.claim`) trace'leri saklanmaz; `outbox.claimed`'in link'i Jaeger'da bulunmayan trace'i gösterir.
+  Kaydın bekleme süresi faturanın kendi izindedir (`outbox.queue_wait_seconds`).
+- **Jaeger** izleri bellekte tutar ve en fazla 100.000 trace saklar. Jaeger yeniden başlayınca bütün izler gider.
 - **Gönderim kuyrukları:** uygulamanın ve Collector'ın gönderim kuyrukları dolarsa span'ler düşebilir; bunu gösteren metrik ya da
   alarm yoktur.
 - **Mutabakat ve operatör işlemleri** bir fatura için yazdıkları log satırlarında faturanın trace_id'sini taşımaz: zamanlanmış
@@ -504,7 +522,7 @@ Kontrol listesi ve maliyet ölçümü: [`manual-tests/gun12/`](manual-tests/gun1
 - **MetrikToplanamiyor** servis bazındadır: iki kopyadan yalnız biri durursa tetiklenmez. Collector durursa iki servisin alarmı
   birlikte tetiklenir.
 - **Alertmanager** hangi alarmı bildirdiğini 15 dakikada bir diske yazar; düzgün kapanmadan yeniden başlarsa eski kaydı yükler ve aynı
-  alarm yeniden tetiklendiğinde bildirimi `repeat_interval` (4 saat) dolana kadar göndermez. Alarm Prometheus'ta ve panoda görünür.
+  alarm yeniden tetiklendiğinde bildirimi `repeat_interval` (1 saat) dolana kadar göndermez. Alarm Prometheus'ta ve panoda görünür.
 
 ---
 
@@ -524,3 +542,4 @@ Kontrol listesi ve maliyet ölçümü: [`manual-tests/gun12/`](manual-tests/gun1
 | `gun-10` | Tekrar Denenen Faturaların Sırası | [tree/gun-10](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-10) |
 | `gun-11` | Metrikler, Pano ve Alarm | [tree/gun-11](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-11) |
 | `gun-12` | Bir Faturanın Yolculuğunu İzlemek | [tree/gun-12](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-12) |
+| `gun-13` | İzlerin Örneklenmesi | [tree/gun-13](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-13) |

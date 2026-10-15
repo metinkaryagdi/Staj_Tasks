@@ -204,7 +204,7 @@ flowchart LR
     I["Invoice Service"] -- "OTLP: metrik + iz" --> C[OpenTelemetry Collector]
     E["ERP Simulator"] -- "OTLP: metrik + iz" --> C
     C -- "metrikler (:8889)" --> P[Prometheus]
-    C -- "izler" --> J[Jaeger]
+    C -- "örneklenmiş izler" --> J[Jaeger]
     P -- "alarm kuralları" --> A[Alertmanager]
     A -- webhook --> R["alert-receiver<br/>log"]
     G[Grafana] --> P
@@ -212,7 +212,7 @@ flowchart LR
 
 ```
 monitoring/
-  otel-collector/ config.yaml (OTLP alımı; metrikler Prometheus'a, izler Jaeger'a)
+  otel-collector/ config.yaml (OTLP alımı; metrikler Prometheus'a, izler örneklenip (tail_sampling) Jaeger'a)
   prometheus/    prometheus.yml (toplama 5 sn, hedef Collector), alert-rules.yml (altı alarm)
   alertmanager/  alertmanager.yml (her alarm alert-receiver'a, çözülme dahil)
   grafana/       provisioning/ (veri kaynağı, pano sağlayıcısı), dashboards/fatura-servisi.json
@@ -372,13 +372,19 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   trace'tedir. Zamanın koptuğu iki yerde W3C traceparent saklanır: `erp_outbox.trace_parent` (fatura oluşturulurken) ve
   `webhook_deliveries.trace_parent` (simülatör event'i planlarken); haber isteğinde `traceparent` header'ını HttpClient
   instrumentation ekler. Bedeli: trace dakikalarca (yeniden gönderimde daha uzun) açık kalır, kök span çok önce biter.
+  Örneklemede tek trace, bir faturanın bütün yolculuğunun birlikte saklanmasını ya da atılmasını sağlar.
 - **Toplu kayıt alma ayrı trace, span link ile.** Tek alma sorgusu birden fazla faturanın kaydını alır; hiçbir faturanın trace'ine ait
   değildir. `outbox.claim` kendi trace'idir; her faturanın `outbox.claimed` span'i ona link verir ve başlangıç/bitişi almanın
   süresidir.
 - **Saklanan bağlamla span açarken `Activity.Current` temizlenir.** Bağlam yoksa (izlemeden önce kuyruğa girmiş kayıt)
   `StartActivity` o an açık olan span'i parent alırdı; deneme yanlış trace'e girmesin diye yeni trace başlar.
-- **Örnekleme yok.** `AlwaysOnSampler` açıkça yazıldı; Collector'da da süzme yoktur. Jaeger varsayılan ayarıyla bellekte en fazla
-  100.000 trace tutar.
+- **Örnekleme Collector'da, trace bittikten sonra (tail sampling).** Saklanacak izler faturanın sonucuna göre seçilir (sorunsuzların
+  %10'u; en az 3 kez denenen ve Başarısız faturaların hepsi; fatura numarası taşımayan worker izleri hiç). Uygulamada (head) karar ilk
+  span'de verilir, o anda sonuç bilinmez; bu yüzden uygulamalar `AlwaysOnSampler` ile her şeyi gönderir. Tek trace kararı bunun için
+  korunur: karar bütün yolculuğa birlikte uygulanır. Bedeli: Collector her trace'i karar süresi (30 dk) boyunca bellekte tutar.
+  Kural "gönderildi görülmemiş fatura saklanır" diye yazıldı: süre yetmezse hata sorunsuz faturayı fazladan saklama yönünde olur,
+  sorunlu faturayı kaybetme yönünde değil. Karar önbelleği açık: karardan sonra gelen span'ler (geç haberler) aynı karara uyar, atılmış
+  faturanın yarım izi kalmaz. Jaeger varsayılan ayarıyla bellekte en fazla 100.000 trace tutar.
 - **Veritabanı izleme Npgsql'den.** EF Core'un instrumentation paketi beta olduğu için kullanılmadı; `Npgsql.OpenTelemetry` stabildir ve
   EF'in gönderdiği bütün komutları görür.
 - **Log satırında trace_id küçük bir formatter'la.** Hazır `ActivityTrackingOptions` satırlara ASP.NET'in istek scope'larını da ekler
