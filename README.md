@@ -316,7 +316,7 @@ Collector izleri Jaeger'a iletir ([İzler](#i̇zler)). Hepsi `docker compose up 
 
 | Dosya | İçerik |
 |---|---|
-| [`monitoring/otel-collector/config.yaml`](monitoring/otel-collector/config.yaml) | OTLP alımı; metriklerin Prometheus'a sunulması (`metric_expiration` 15 sn: metrik göndermeyen servisin değerleri 15 sn sonra kalkar), izlerin Jaeger'a iletilmesi; değişiklikten sonra `docker compose restart otel-collector` |
+| [`monitoring/otel-collector/config.yaml`](monitoring/otel-collector/config.yaml) | OTLP alımı; metriklerin Prometheus'a sunulması (`metric_expiration` 15 sn: metrik göndermeyen servisin değerleri 15 sn sonra kalkar), izlerin Jaeger'a iletilmesi; Collector'ın bellek sınırı (`memory_limiter`; container sınırı `docker-compose.yml`'da `mem_limit`); değişiklikten sonra `docker compose restart otel-collector` |
 | [`monitoring/prometheus/prometheus.yml`](monitoring/prometheus/prometheus.yml) | Toplama aralığı (5 sn), hedef (Collector; `honor_labels` ile `job` servisin adıdır), Alertmanager adresi |
 | [`monitoring/prometheus/alert-rules.yml`](monitoring/prometheus/alert-rules.yml) | Altı alarmın eşiği, süresi ve açıklaması; değişiklikten sonra `docker compose restart prometheus` |
 | [`monitoring/alertmanager/alertmanager.yml`](monitoring/alertmanager/alertmanager.yml) | Bütün alarmlar alıcıya; çözülen alarm da bildirilir |
@@ -412,6 +412,9 @@ kendisi açar. Bir faturanın yolculuğu tek trace'tir:
   `otelcol_processor_tail_sampling_global_count_traces_sampled_total{sampled="true"|"false"}`.
 - **Saklama:** Jaeger izleri bellekte tutar; varsayılan ayarıyla en fazla 100.000 trace, sınır dolunca en eskileri silinir. Jaeger
   yeniden başlayınca bütün izler gider. Collector kararını bekleyen izleri bellekte tutar; Collector yeniden başlarsa onlar da gider.
+- **Collector'ın belleği:** `memory_limiter` heap'i 1 saniyede bir ölçer; 1.200 MiB'ı (`limit_mib` 1600 − `spike_limit_mib` 400)
+  geçince gelen veriyi reddeder, altına inince yeniden kabul eder. Container'ın sınırı 2.048 MiB'tır (`mem_limit`); `limit_mib`
+  bunun altında tutulur ki Collector öldürülmeden önce veri reddetsin. Biri değişirse diğeri de değişmelidir.
 
 ---
 
@@ -421,6 +424,7 @@ kendisi açar. Bir faturanın yolculuğu tek trace'tir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Gün 14 kontrol listesi (Collector'ın bellek sınırı; 10 dakikalık yük testinde Collector belleği, reddedilen span'ler, zaman içinde saklanan sorunsuz oranı, sorunlu faturaların izleri) | [`manual-tests/gun14/`](manual-tests/gun14/) |
 | Gün 13 kontrol listesi (yük altında örnekleme ve Collector belleği, boşta worker izleri, uzun süren faturanın izi, mutabakat ve yeniden gönderim izde, repeat_interval) | [`manual-tests/gun13/`](manual-tests/gun13/) |
 | Gün 12 kontrol listesi (pano ve alarmlar, Jaeger'daki izler, log satırlarında trace_id) ve izlemenin maliyeti | [`manual-tests/gun12/`](manual-tests/gun12/) |
 | Gün 11 kontrol listesi (pano, alarmlar, metrikler) | [`manual-tests/gun11/`](manual-tests/gun11/README.md) |
@@ -490,32 +494,28 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 13 — İzlerin Örneklenmesi
+## Gün 14 — Collector'ı Yüke Karşı Korumak
 
-Bugünün işi: izlerin çoğu atılıyor, sorunlu faturaların izleri hep saklanıyor ([İzler](#i̇zler) bölümünde Örnekleme).
+Bugünün işi: Collector'ın belleğine sınır konuldu ve tasarım uzun bir yük altında ölçüldü.
 
-- **Karar Collector'da (tail sampling).** Uygulamada (head) karar ilk span'de, fatura oluşturulurken verilir; faturanın 3 kez
-  deneneceği ya da Başarısız olacağı o anda bilinmez. Collector trace'i 30 dakika bekletip sonucuna bakarak karar verir. Collector
-  imajı `tail_sampling`'i içeren contrib'e geçti.
-- **Tek trace korundu.** Karar trace'e verildiği için bir faturanın bütün yolculuğu birlikte saklanır ya da atılır; yarım iz kalmaz.
-- **Yolculuğun sonu da izde:** mutabakatın düzeltmesi (`reconciliation.fix`) ve operatörün yeniden gönderimi (`invoice.resend`)
-  faturanın trace'ine adım olarak yazılıyor.
-- **Collector'ın kendi metrikleri** açıldı: kaç trace'in saklandığı ve atıldığı buradan okunuyor.
-- **Karar süresi 30 dakika:** saniyede 50 fatura 2 dakika gelirken ve ERP isteklerin yarısından fazlasına sorunlu cevap verirken
-  saklanan sorunsuz izlerde oluşturmadan gönderime en çok 23,7 dakika ölçüldü.
-- **Alertmanager** `repeat_interval` 1 saat.
+- **Bellek sınırı:** Collector'da `memory_limiter` (`limit_mib` 1600, `spike_limit_mib` 400), container'da `mem_limit: 2048m`
+  ([İzler](#i̇zler) bölümünde Collector'ın belleği).
+- **Uzun yük testi** (saniyede 50 fatura, 10 dakika; kuyruk 2 saat 10 dakikada boşaldı): Collector'ın belleği en çok 934 MiB oldu,
+  bellek sınırı devreye girmedi, reddedilen span olmadı; sorunlu faturaların hiçbirinin izi kaybolmadı. Kuyruk beklemesi 30 dakikayı
+  geçen sorunsuz faturaların çoğu karar anında henüz gönderilmemiş olduğu için saklandı.
 
-Kontrol listesi: [`manual-tests/gun13/`](manual-tests/gun13/). Yük testi (`1-yuk-ornekleme.ps1`) Başarısız fatura çıksın diye
-simülatörü Success 30, ServerError 40 ile çalıştırır, bitince varsayılan ayarlara döner; sayımı `1-sayim.ps1` yapar.
-`4-mutabakat-yeniden-gonderim.ps1` mutabakatla düzeltilen, yeniden gönderilen ve 2 denemede Başarısız olan (deneme hakkı yalnız bu
-testte 2, `compose.iki-deneme.yml`) üç faturanın izine bakar.
+Kontrol listesi: [`manual-tests/gun14/`](manual-tests/gun14/). Yük testi (`1-uzun-yuk.ps1`) Gün 13'teki gibi simülatörü Success 30,
+ServerError 40 ile çalıştırır, bitince varsayılan ayarlara döner; Collector'ın belleğini, kendi metriklerini ve logunu koşu boyunca
+kaydeder. Sayımı `2-sayim.ps1` yapar (her fatura Jaeger'da aranır; 30.000 fatura yaklaşık 2 saat sürer).
 
 ### Bilinen sınırlar
 
-- **Collector** kararını bekleyen izleri bellekte tutar: yük sırasında belleği örneklemesizden fazladır, kuyruk boşalırken
-  daha da büyür. Collector bu sürede yeniden başlarsa ya da `num_traces` dolarsa bekleyen izler (sorunlu faturalarınki dahil)
-  kaybolur.
-- **Karar süresi** ölçülen yüke göre seçildi; kuyruk daha uzun beklerse sorunsuz faturalar da saklanır, oran %10'un üstüne çıkar.
+- **Collector** kararını bekleyen izleri bellekte tutar; yeniden başlarsa bekleyen izler (sorunlu faturalarınki dahil) kaybolur.
+  Bellek sınırı aşılınca reddedilen span'leri uygulamalar yeniden göndermez, o span'ler kaybolur. Ölçüme göre bellek sınırından önce
+  `num_traces` (100.000) dolar: 30 dakika boyunca saniyede yaklaşık 22 fatura gelirse; dolunca en eski trace'ler (faturalarınki dahil)
+  karar verilmeden atılır.
+- **Karar süresi** faturanın oluşturulmasından başlar: kuyruk beklemesi 30 dakikayı geçerse sorunsuz faturalar da saklanır (uzun
+  testte 30. dakikadan sonra gönderilen sorunsuzların %97,5'i).
 - **Toplu kayıt alma** (`outbox.claim`) trace'leri saklanmaz; `outbox.claimed`'in link'i Jaeger'da bulunmayan trace'i gösterir.
   Kaydın bekleme süresi faturanın kendi izindedir (`outbox.queue_wait_seconds`).
 - **Jaeger** izleri bellekte tutar ve en fazla 100.000 trace saklar. Jaeger yeniden başlayınca bütün izler gider.
@@ -551,3 +551,4 @@ testte 2, `compose.iki-deneme.yml`) üç faturanın izine bakar.
 | `gun-11` | Metrikler, Pano ve Alarm | [tree/gun-11](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-11) |
 | `gun-12` | Bir Faturanın Yolculuğunu İzlemek | [tree/gun-12](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-12) |
 | `gun-13` | İzlerin Örneklenmesi | [tree/gun-13](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-13) |
+| `gun-14` | Collector'ı Yüke Karşı Korumak | [tree/gun-14](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-14) |

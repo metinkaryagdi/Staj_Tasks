@@ -212,8 +212,8 @@ flowchart LR
 
 ```
 monitoring/
-  otel-collector/ config.yaml (OTLP alımı; metrikler Prometheus'a, izler örneklenip (tail_sampling) Jaeger'a; kendi
-                  metrikleri :8888)
+  otel-collector/ config.yaml (OTLP alımı; bellek sınırı (memory_limiter); metrikler Prometheus'a, izler örneklenip
+                  (tail_sampling) Jaeger'a; kendi metrikleri :8888)
   prometheus/    prometheus.yml (toplama 5 sn, hedef Collector), alert-rules.yml (altı alarm)
   alertmanager/  alertmanager.yml (her alarm alert-receiver'a, çözülme dahil)
   grafana/       provisioning/ (veri kaynağı, pano sağlayıcısı), dashboards/fatura-servisi.json
@@ -388,6 +388,11 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   Kural "gönderildi görülmemiş fatura saklanır" diye yazıldı: süre yetmezse hata sorunsuz faturayı fazladan saklama yönünde olur,
   sorunlu faturayı kaybetme yönünde değil. Karar önbelleği açık: karardan sonra gelen span'ler (geç haberler) aynı karara uyar, atılmış
   faturanın yarım izi kalmaz. Jaeger varsayılan ayarıyla bellekte en fazla 100.000 trace tutar.
+- **Collector'ın belleği container sınırının altında sınırlı.** `memory_limiter` her iki pipeline'da ilk processor'dür; heap
+  1.200 MiB'ı (`limit_mib` 1600 − `spike_limit_mib` 400) geçince gelen veriyi reddeder. Container sınırı (`mem_limit: 2048m`)
+  `limit_mib`'in üstünde tutulur: Collector öldürülürse bekleyen bütün izler kaybolur, veri reddetmek ise yalnız o anda gelen span'leri
+  kaybettirir (uygulamalar reddedilen span'i yeniden göndermez). Aradaki pay heap dışındaki bellek içindir; yükte bu fark 40-170 MiB
+  ölçüldü.
 - **Veritabanı izleme Npgsql'den.** EF Core'un instrumentation paketi beta olduğu için kullanılmadı; `Npgsql.OpenTelemetry` stabildir ve
   EF'in gönderdiği bütün komutları görür.
 - **Log satırında trace_id küçük bir formatter'la.** Hazır `ActivityTrackingOptions` satırlara ASP.NET'in istek scope'larını da ekler
