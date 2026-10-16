@@ -181,6 +181,9 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.135.0
     command: ["--config=/etc/otelcol/config.yaml"]
+    # Container'ın bellek sınırı; aşılırsa Collector öldürülür. Collector'ın kendi sınırı (memory_limiter, config.yaml) bunun
+    # altında tutulur ki Collector önce veri reddetsin; biri değişirse diğeri de değişmelidir.
+    mem_limit: 2048m
     volumes:
       - ./monitoring/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
     networks:

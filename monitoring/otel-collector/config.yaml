@@ -8,6 +8,20 @@ receivers:
         endpoint: 0.0.0.0:4317
 
 processors:
+  # Collector'ın bellek sınırı. Bellek her check_interval'da ölçülür. limit_mib - spike_limit_mib (yumuşak sınır) aşılınca
+  # gelen veri reddedilir: uygulamalar hata alır, reddedilen span'ler kaybolur. limit_mib (sert sınır) aşılınca ayrıca
+  # çöp toplama zorlanır. Bellek yumuşak sınırın altına inince veri yeniden kabul edilir. Reddetmek yalnız yeni gelen
+  # veriyi durdurur: tail_sampling'in tuttuğu izler kararları verilene kadar bellekte kalır.
+  # Değerler docker-compose.yml'deki container sınırına (mem_limit: 2048m) göre seçildi. limit_mib bunun ~%80'i; kalan
+  # ~450 MiB, Collector'ın ölçülen belleğinin dışında kalan kısmı (Go çalışma zamanı, dosyalar) içindir, container sınırı
+  # aşılırsa Collector öldürülür ve bellekteki bütün izler kaybolur. spike_limit_mib, iki ölçüm arasındaki artış payıdır
+  # (limit_mib'in %25'i).
+  # Container sınırı değişirse bu ikisi de aynı oranlarla değiştirilmelidir.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 1600
+    spike_limit_mib: 400
+
   # İzlerin örneklenmesi (tail sampling): uygulamalar bütün izleri gönderir, saklanıp saklanmayacağına burada, izin
   # span'leri geldikten sonra karar verilir. Bir faturanın sorunlu olup olmadığı ancak denemeleri yapılınca belli olur;
   # karar bu yüzden uygulamada (ilk span'de) değil burada verilir. Bir faturanın bütün yolculuğu (oluşturma, denemeler,
@@ -100,8 +114,9 @@ service:
   pipelines:
     metrics:
       receivers: [otlp]
+      processors: [memory_limiter]
       exporters: [prometheus]
     traces:
       receivers: [otlp]
-      processors: [tail_sampling]
+      processors: [memory_limiter, tail_sampling]
       exporters: [otlp/jaeger]
