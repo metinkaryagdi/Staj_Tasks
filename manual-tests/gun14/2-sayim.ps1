@@ -5,9 +5,8 @@
 #
 # Gruplar Fatura Servisi veritabanından (customer_code = koşu kimliği):
 #   Sorunsuz: Başarısız değil ve 3'ten az denendi. Sorunlu: en az 3 kez denendi ya da Başarısız.
-# Sorunsuzlar kuyruk beklemesine göre ikiye ayrılır: faturanın oluşturulmasından gönderiminin bitmesine
-# (erp_outbox.processed_at) geçen süre 30 dakikaya kadar ve 30 dakikadan sonra. Collector'ın kararı ilk span'den 30 dk
-# sonra verildiği için ikinci gruptakiler karar anında henüz gönderilmemişti.
+# Sorunsuzlar testin zamanına göre ikiye ayrılır: gönderimi (erp_outbox.processed_at) testin ilk 30 dakikasında bitenler
+# ve 30 dakikadan sonra bitenler. Testin başlangıcı koşunun ilk faturasının oluşturulduğu andır.
 # Saklanan iz Jaeger'dan: invoice.number etiketi faturanın numarası olan trace. Saklanan izin tam olup olmadığı da
 # bakılır: oluşturma isteği, 1..send_attempt_count numaralı bütün denemeler ve veritabanındaki her ERP haberi.
 # Çıktı output\gun14-2-<Name>-sayim.txt ve -faturalar.csv (fatura başına sonuç).
@@ -87,17 +86,19 @@ function Format-Ratio($All) {
 Write-Title 'Sayım'
 Write-Line "Koşu: $RunId; $($rows.Count) fatura; Jaeger'da arama aralığı $($from.ToString('HH:mm:ss'))-$($to.ToString('HH:mm:ss')) UTC."
 Write-Line ''
-Write-Line "Saklanan sorunsuz fatura oranı (izi saklanan / fatura), kuyruk beklemesine (oluşturma -> gönderimin bitmesi) göre:"
-Write-Line ("  İlk 30 dakika (bekleme <= 30 dk):     {0}" -f (Format-Ratio @($sorunsuz | Where-Object { $null -ne $_.WaitMinutes -and $_.WaitMinutes -le 30 })))
-Write-Line ("  30 dakikadan sonra (bekleme > 30 dk): {0}" -f (Format-Ratio @($sorunsuz | Where-Object { $_.WaitMinutes -gt 30 })))
-Write-Line ("  Hepsi:                                {0}" -f (Format-Ratio $sorunsuz))
-Write-Line '  Beklemeye göre 10 dakikalık dilimler:'
-$sorunsuz | Where-Object { $null -ne $_.WaitMinutes } | Group-Object { [int][math]::Floor($_.WaitMinutes / 10) } |
+$testStart = ($rows | Measure-Object -Property Created -Minimum).Minimum
+foreach ($r in $rows) { $r | Add-Member SentMinute $(if ($r.Processed) { ($r.Processed - $testStart).TotalMinutes } else { $null }) }
+Write-Line "Saklanan sorunsuz fatura oranı (izi saklanan / fatura), gönderimin bittiği ana göre (test başlangıcı $($testStart.ToString('HH:mm:ss')) UTC):"
+Write-Line ("  İlk 30 dakika:      {0}" -f (Format-Ratio @($sorunsuz | Where-Object { $null -ne $_.SentMinute -and $_.SentMinute -le 30 })))
+Write-Line ("  30 dakikadan sonra: {0}" -f (Format-Ratio @($sorunsuz | Where-Object { $_.SentMinute -gt 30 })))
+Write-Line ("  Hepsi:              {0}" -f (Format-Ratio $sorunsuz))
+Write-Line '  Testin 10 dakikalık dilimleri:'
+$sorunsuz | Where-Object { $null -ne $_.SentMinute } | Group-Object { [int][math]::Floor($_.SentMinute / 10) } |
     Sort-Object { [int]$_.Name } | ForEach-Object {
         $b = [int]$_.Name
         Write-Line ("    {0,3}-{1,3} dk: {2}" -f ($b * 10), ($b * 10 + 10), (Format-Ratio $_.Group))
     }
-$noProcessed = @($sorunsuz | Where-Object { $null -eq $_.WaitMinutes }).Count
+$noProcessed = @($sorunsuz | Where-Object { $null -eq $_.SentMinute }).Count
 if ($noProcessed) { Write-Line "  Gönderimi bitmemiş sorunsuz fatura: $noProcessed" }
 Write-Line ''
 $lost = @($sorunlu | Where-Object { $_.Traces -eq 0 })
@@ -119,7 +120,7 @@ if ($waits.Count) {
 
 $report | Set-Content $out -Encoding UTF8
 $rows | Select-Object Number, Attempts, Status, Events, @{ n = 'Created'; e = { $_.Created.ToString('o') } },
-    @{ n = 'Processed'; e = { if ($_.Processed) { $_.Processed.ToString('o') } } }, @{ n = 'WaitMinutes'; e = { if ($null -ne $_.WaitMinutes) { [math]::Round($_.WaitMinutes, 2) } } }, Traces, Missing |
+    @{ n = 'Processed'; e = { if ($_.Processed) { $_.Processed.ToString('o') } } }, @{ n = 'WaitMinutes'; e = { if ($null -ne $_.WaitMinutes) { [math]::Round($_.WaitMinutes, 2) } } }, @{ n = 'SentMinute'; e = { if ($null -ne $_.SentMinute) { [math]::Round($_.SentMinute, 2) } } }, Traces, Missing |
     Export-Csv (Join-Path $OutputDir "$prefix-faturalar.csv") -NoTypeInformation -Encoding UTF8
 Write-Host "  Çıktı: manual-tests\output\$prefix-sayim.txt (+ -faturalar.csv)" -ForegroundColor DarkGray
 
