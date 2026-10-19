@@ -23,25 +23,29 @@ public class OutboxClaimTests(PostgresFixture postgres) : IntegrationTest(postgr
     }
 
     [Fact]
-    public async Task The_claim_hands_over_the_invoice_s_trace_and_due_time_and_a_resend_keeps_the_trace()
+    public async Task The_first_attempt_stores_the_trace_it_started_and_a_resend_keeps_it()
     {
-        string traceParent;
-        using (var request = new Activity("POST /api/v1/invoices").SetIdFormat(ActivityIdFormat.W3C).Start())
-        {
+        using (new Activity("POST /api/v1/invoices").SetIdFormat(ActivityIdFormat.W3C).Start())
             await CreateInvoiceAsync();
-            traceParent = request.Id!;
-        }
+        var createdAt = await ScalarAsync<DateTime>($"SELECT created_at FROM erp_outbox WHERE invoice_number = '{Number}'");
         var dueAt = await ScalarAsync<DateTime>($"SELECT next_attempt_at FROM erp_outbox WHERE invoice_number = '{Number}'");
 
         var claimed = Assert.Single(await ClaimAsync("A", 10, Task.CompletedTask));
 
-        Assert.Equal(traceParent, claimed.TraceParent);
+        // The request's trace is not the invoice's: the entry has none until the worker takes it.
+        Assert.Null(claimed.TraceParent);
+        Assert.Equal(createdAt, claimed.CreatedAt.UtcDateTime);
         Assert.Equal(dueAt, claimed.DueAt.UtcDateTime);
 
+        const string started = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        await using (var scope = NewScope())
+            await scope.ServiceProvider.GetRequiredService<OutboxProcessor>().SendAsync(claimed, "A", started);
+        Assert.Equal(started, await ScalarAsync<string>($"SELECT trace_parent FROM erp_outbox WHERE invoice_number = '{Number}'"));
+
         // A resend queues the entry again in the same trace: the journey stays one trace.
-        await using var scope = NewScope();
-        await scope.ServiceProvider.GetRequiredService<IOutboxStore>().ResetAsync(Number, DateTimeOffset.UtcNow, CancellationToken.None);
-        Assert.Equal(traceParent, await ScalarAsync<string>($"SELECT trace_parent FROM erp_outbox WHERE invoice_number = '{Number}'"));
+        await using (var scope = NewScope())
+            await scope.ServiceProvider.GetRequiredService<IOutboxStore>().ResetAsync(Number, DateTimeOffset.UtcNow, CancellationToken.None);
+        Assert.Equal(started, await ScalarAsync<string>($"SELECT trace_parent FROM erp_outbox WHERE invoice_number = '{Number}'"));
     }
 
     [Fact]

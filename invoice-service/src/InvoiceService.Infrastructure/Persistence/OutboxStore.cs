@@ -31,7 +31,7 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
                 FROM due d
                 WHERE o.id = d.id
                 RETURNING o.id, o.invoice_number, o.attempt_count, d.attempt_count >= {maxAttempts} AS used_up, o.claim_token,
-                          o.next_attempt_at, o.trace_parent
+                          o.next_attempt_at, o.trace_parent, o.created_at
             ), counted AS (
                 UPDATE invoices i
                 SET send_attempt_count = i.send_attempt_count + 1, updated_at = {now}
@@ -39,7 +39,8 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
                 WHERE i.invoice_number = c.invoice_number AND NOT c.used_up
             )
             SELECT id AS "Id", invoice_number AS "InvoiceNumber", attempt_count AS "Attempt", used_up AS "AttemptsUsedUp",
-                   claim_token AS "ClaimToken", next_attempt_at AS "DueAt", trace_parent AS "TraceParent"
+                   claim_token AS "ClaimToken", next_attempt_at AS "DueAt", trace_parent AS "TraceParent",
+                   created_at AS "CreatedAt"
             FROM claimed
             """).ToListAsync(ct);
 
@@ -56,6 +57,11 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
     public Task<bool> IsHeldAsync(long id, Guid claimToken, DateTimeOffset now, CancellationToken ct) =>
         db.ErpOutbox.AsNoTracking().AnyAsync(
             o => o.Id == id && o.ClaimToken == claimToken && o.LockedUntil > now, ct);
+
+    public async Task<bool> StartTraceAsync(long id, Guid claimToken, string traceParent, CancellationToken ct) =>
+        await db.ErpOutbox
+            .Where(o => o.Id == id && o.ClaimToken == claimToken && o.TraceParent == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(o => o.TraceParent, traceParent), ct) == 1;
 
     public async Task<bool> WriteOutcomeAsync(
         long id, Guid claimToken, string status, string? lastError, DateTimeOffset nextAttemptAt, DateTimeOffset? processedAt,

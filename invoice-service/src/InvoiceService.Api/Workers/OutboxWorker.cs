@@ -35,24 +35,20 @@ public sealed class OutboxWorker(
                 var free = slots.CurrentCount + 1;
 
                 IReadOnlyList<ClaimedEntry> claimed;
-                Claim claim;
-                // One claim takes entries of several invoices, so it is its own trace; each attempt links to it.
-                using (var claimSpan = InvoiceTracing.Source.StartActivity("outbox.claim"))
+                // The queue query has no trace of its own: it is made by no request, so it is not recorded (the sampler
+                // in Program.cs). The attempts record when their claim started and ended.
+                var claimStarted = DateTimeOffset.UtcNow;
+                try
                 {
-                    var claimStarted = DateTimeOffset.UtcNow;
-                    try
-                    {
-                        await using var scope = scopes.CreateAsyncScope();
-                        claimed = await scope.ServiceProvider.GetRequiredService<OutboxProcessor>().ClaimAsync(free, WorkerId, stoppingToken);
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        logger.LogWarning("Outbox claim failed: {Message}", ex.Message);
-                        claimed = [];
-                    }
-                    claimSpan?.SetTag("outbox.claimed", claimed.Count);
-                    claim = new Claim(claimSpan?.Context ?? default, claimStarted, DateTimeOffset.UtcNow);
+                    await using var scope = scopes.CreateAsyncScope();
+                    claimed = await scope.ServiceProvider.GetRequiredService<OutboxProcessor>().ClaimAsync(free, WorkerId, stoppingToken);
                 }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning("Outbox claim failed: {Message}", ex.Message);
+                    claimed = [];
+                }
+                var claim = new Claim(claimStarted, DateTimeOffset.UtcNow);
 
                 if (claimed.Count == 0)
                 {
@@ -91,11 +87,13 @@ public sealed class OutboxWorker(
 
     private async Task SendAsync(ClaimedEntry entry, Claim claim, SemaphoreSlim slots)
     {
-        // The attempt continues the invoice's trace (stored with the entry) from the moment the entry was taken.
-        using var attempt = InvoiceTracing.StartInTrace("outbox.attempt", entry.TraceParent, claim.Started);
+        // The entry's first time out of the queue starts the invoice's trace; later attempts continue the trace stored
+        // with the entry. The attempt starts from the moment the entry was taken.
+        using var queueWait = entry.TraceParent is null ? StartTrace(entry, claim) : null;
+        var startedTrace = queueWait?.Id;
+        using var attempt = InvoiceTracing.StartInTrace("outbox.attempt", entry.TraceParent ?? startedTrace, claim.Started);
         using (var claimed = InvoiceTracing.Source.StartActivity(
-            "outbox.claimed", ActivityKind.Internal, parentContext: default,
-            links: claim.Context == default ? null : [new ActivityLink(claim.Context)], startTime: claim.Started))
+            "outbox.claimed", ActivityKind.Internal, parentContext: default, startTime: claim.Started))
         {
             claimed?.SetTag("outbox.worker", WorkerId);
             // How long the entry waited after its time had come (next_attempt_at) until a worker took it.
@@ -106,7 +104,7 @@ public sealed class OutboxWorker(
         try
         {
             await using var scope = scopes.CreateAsyncScope();
-            await scope.ServiceProvider.GetRequiredService<OutboxProcessor>().SendAsync(entry, WorkerId);
+            await scope.ServiceProvider.GetRequiredService<OutboxProcessor>().SendAsync(entry, WorkerId, startedTrace);
         }
         catch (Exception ex)
         {
@@ -121,6 +119,20 @@ public sealed class OutboxWorker(
         }
     }
 
-    /// <summary>One claim: its span (for the attempts' links) and when it started and ended.</summary>
-    private sealed record Claim(ActivityContext Context, DateTimeOffset Started, DateTimeOffset Ended);
+    /// <summary>
+    /// The invoice's trace starts with its time in the queue: a span from when the entry entered the queue until this
+    /// claim took it, recorded now, backdated. The attempts are under it. It is stopped together with the attempt, so it
+    /// is sent only after the trace has been stored with the entry.
+    /// </summary>
+    private static Activity? StartTrace(ClaimedEntry entry, Claim claim)
+    {
+        var span = InvoiceTracing.StartInTrace("outbox.queue_wait", null, entry.CreatedAt);
+        span?.SetTag(InvoiceTracing.InvoiceNumber, entry.InvoiceNumber);
+        span?.SetTag("outbox.queue_wait_seconds", Math.Max(0, (claim.Started - entry.CreatedAt).TotalSeconds));
+        span?.SetEndTime(claim.Started.UtcDateTime);
+        return span;
+    }
+
+    /// <summary>One claim: when it started and ended.</summary>
+    private sealed record Claim(DateTimeOffset Started, DateTimeOffset Ended);
 }

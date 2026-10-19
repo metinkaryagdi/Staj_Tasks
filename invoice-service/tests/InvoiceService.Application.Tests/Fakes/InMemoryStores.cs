@@ -194,6 +194,16 @@ public sealed class FakeOutboxStore : IOutboxStore
 
     public Task<bool> IsHeldAsync(long id, Guid claimToken, DateTimeOffset now, CancellationToken ct) => Task.FromResult(Held);
 
+    /// <summary>The traces <see cref="StartTraceAsync"/> stored, by entry id (only while <see cref="Held"/>).</summary>
+    public Dictionary<long, string> StartedTraces { get; } = [];
+
+    public Task<bool> StartTraceAsync(long id, Guid claimToken, string traceParent, CancellationToken ct)
+    {
+        if (Held)
+            StartedTraces[id] = traceParent;
+        return Task.FromResult(Held);
+    }
+
     public Task<bool> WriteOutcomeAsync(
         long id, Guid claimToken, string status, string? lastError, DateTimeOffset nextAttemptAt, DateTimeOffset? processedAt,
         CancellationToken ct)

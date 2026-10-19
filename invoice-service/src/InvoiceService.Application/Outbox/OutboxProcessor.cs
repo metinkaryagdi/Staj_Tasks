@@ -29,8 +29,11 @@ public sealed class OutboxProcessor(
     /// <summary>
     /// Makes one attempt and writes its outcome: Gönderildi, Bekliyor (retry later) or Başarısız. Before giving up, the
     /// ERP is asked once more, because the last attempt may have been saved without us being told.
+    /// <paramref name="startedTrace"/>: the invoice's trace this attempt started (the entry's first time out of the
+    /// queue). It is stored before the ERP is called, so the later attempts, the ERP's events and the steps taken on the
+    /// invoice continue it.
     /// </summary>
-    public async Task SendAsync(ClaimedEntry entry, string workerId)
+    public async Task SendAsync(ClaimedEntry entry, string workerId, string? startedTrace = null)
     {
         // CancellationToken.None: once the ERP is called, the outcome must be recorded even while the service stops.
         // The worker's span for this attempt; the outcome is written on it as well as in the log.
@@ -45,8 +48,10 @@ public sealed class OutboxProcessor(
             entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim,
             entry.AttemptsUsedUp ? " (last attempt was cut off: only asking the ERP)" : "");
 
-        var outcome = entry.AttemptsUsedUp
-            ? await ConfirmCutOffAttemptAsync(invoice)
+        var held = startedTrace is null
+            || await outbox.StartTraceAsync(entry.Id, entry.ClaimToken, startedTrace, CancellationToken.None);
+        var outcome = !held ? null
+            : entry.AttemptsUsedUp ? await ConfirmCutOffAttemptAsync(invoice)
             : await AttemptAsync(invoice, entry);
 
         if (outcome is null)

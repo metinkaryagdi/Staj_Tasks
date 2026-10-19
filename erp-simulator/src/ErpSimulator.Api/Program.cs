@@ -23,10 +23,10 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics => metrics
     .AddMeter(SimulatorMetrics.MeterName)
     .AddOtlpExporter())
-    // Every trace is sent; the Collector decides which are kept (tail sampling). HTTP requests, HttpClient calls and
-    // database commands are traced automatically.
+    // Every recorded trace is sent; the Collector decides which are kept (tail sampling). HTTP requests, HttpClient
+    // calls and database commands are traced automatically. A background worker's query is not recorded at all.
     .WithTracing(tracing => tracing
-    .SetSampler(new AlwaysOnSampler())
+    .SetSampler(new ParentBasedSampler(new BackgroundQuerySampler()))
     .AddSource(SimulatorTracing.SourceName)
     .AddAspNetCoreInstrumentation()
     .AddHttpClientInstrumentation()

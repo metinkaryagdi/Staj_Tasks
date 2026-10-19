@@ -25,6 +25,12 @@ public interface IOutboxStore
     Task<bool> IsHeldAsync(long id, Guid claimToken, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>
+    /// Stores the invoice's trace that the first attempt started, only if the entry still carries this claim and has no
+    /// trace yet. Returns false when it does not: the entry was taken again, so nothing is sent.
+    /// </summary>
+    Task<bool> StartTraceAsync(long id, Guid claimToken, string traceParent, CancellationToken ct);
+
+    /// <summary>
     /// Writes the outcome, only if the entry is still Bekliyor and still carries this claim (and clears the lock and
     /// the claim). Returns false when it does not: the entry was taken again, so this older outcome is dropped.
     /// </summary>

@@ -46,14 +46,14 @@ public sealed class CreateInvoiceHandler(
             Status = OutboxStatus.Pending,
             AttemptCount = 0,
             NextAttemptAt = now,
-            CreatedAt = now,
-            // The attempts continue this request's trace (W3C traceparent; null when nothing is traced).
-            TraceParent = Activity.Current?.Id
+            // The invoice's trace starts when the worker first takes the entry, its queue wait from this moment on.
+            CreatedAt = now
         };
 
         // One save = one transaction: both rows are written or neither is. There is never an invoice that
         // nobody will send, nor a send queued for an invoice that does not exist.
         await invoices.QueueAsync(invoice, entry, CancellationToken.None);
+        // The request stays a trace of its own; the invoice number finds it next to the invoice's trace.
         Activity.Current?.SetTag(InvoiceTracing.InvoiceNumber, invoice.InvoiceNumber);
         metrics.InvoiceCreated();
         _logger.LogInformation("Invoice queued invoice={InvoiceNumber}", invoice.InvoiceNumber);

@@ -22,22 +22,23 @@ processors:
     limit_mib: 1600
     spike_limit_mib: 400
 
-  # İzlerin örneklenmesi (tail sampling): uygulamalar bütün izleri gönderir, saklanıp saklanmayacağına burada, izin
-  # span'leri geldikten sonra karar verilir. Bir faturanın sorunlu olup olmadığı ancak denemeleri yapılınca belli olur;
-  # karar bu yüzden uygulamada (ilk span'de) değil burada verilir. Bir faturanın bütün yolculuğu (oluşturma, denemeler,
-  # ERP haberleri) tek trace'tir; karar bütün yolculuğa birlikte uygulanır.
+  # İzlerin örneklenmesi (tail sampling): uygulamalar kaydettikleri bütün izleri gönderir, saklanıp saklanmayacağına
+  # burada, izin span'leri geldikten sonra karar verilir. Bir faturanın sorunlu olup olmadığı ancak denemeleri yapılınca
+  # belli olur; karar bu yüzden uygulamada (ilk span'de) değil burada verilir. Bir faturanın yolculuğu, worker kaydı
+  # kuyruktan ilk aldığı anda başlar (ilk adım, oluşturulmadan o ana kadarki kuyruk beklemesidir, geriye tarihli) ve
+  # denemeleri, ERP haberleri, düzeltme ve yeniden gönderimle tek trace'tir; karar bütün yolculuğa birlikte uygulanır.
+  # Oluşturma isteği kendi trace'idir.
   tail_sampling:
-    # Bir trace'in ilk span'i geldikten sonra karar için beklenen süre. Sorunsuz bir faturanın oluşturulmasından
+    # Bir trace'in ilk span'i geldikten sonra karar için beklenen süre. Sorunsuz bir faturanın kuyruktan ilk alınmasından
     # gönderilmesine (1. ya da 2. denemede) kadar geçen süreyi kapsamalı: o ana kadar 3. deneme gerekip gerekmediği belli
-    # olur. Yükte bu süre kuyruk beklemesiyle uzar: saniyede 50 fatura 2 dakika gelir ve ERP isteklerin yarısından
-    # fazlasına sorunlu cevap verirse saklanan sorunsuz izlerde en uzun 23,7 dk ölçüldü; 30 dk bunun üstünde pay bırakır.
+    # olur. İlk alınmadan önceki kuyruk beklemesi bu süreye girmez; 2. denemenin kuyrukta beklemesi girer.
     # Süre yetmezse fatura aşağıdaki ihtiyat kuralıyla saklanır: sorunlu fatura kaybolmaz, sorunsuz oranı %10'un üstüne
     # çıkar.
     # Bedeli bellek: bu süre boyunca gelen bütün span'ler Collector'da tutulur.
     decision_wait: 30m
     # Bellekte aynı anda tutulan en fazla trace; dolarsa en eskiler kararsız atılır. decision_wait boyunca oluşan bütün
-    # trace'leri tutmalı: faturalar (2 dakikalık yükte 6000) ve worker'ların sorguları (her biri ayrı trace; sayıları
-    # ölçülmedi). Varsayılanın (50.000) iki katı pay olarak seçildi.
+    # trace'leri tutmalı: faturaların oluşturma istekleri ve faturaların izleri. Worker'ların sorguları uygulamalarda
+    # kaydedilmez, buraya gelmez. Varsayılanın (50.000) iki katı pay olarak seçildi.
     num_traces: 100000
     # Karar verilip bellekten çıkmış trace'lere sonradan gelen span'ler (geç gelen ERP haberleri, karar süresinden uzun
     # süren faturaların sonraki denemeleri) aynı karara uyar: saklanan faturanınki saklanır, atılanınki atılır. Kapalı
@@ -47,11 +48,14 @@ processors:
       sampled_cache_size: 500000
       non_sampled_cache_size: 500000
     # Politikalardan biri "sakla" derse trace saklanır; hiçbiri demezse atılır. Fatura numarası (invoice.number)
-    # taşımayan trace'ler hiçbir politikaya uymaz: worker'ların kuyruk ve diğer sorguları saklanmaz.
+    # taşımayan trace'ler (bir faturayla ilgili olmayan istekler) hiçbir politikaya uymaz, saklanmaz.
     policies:
       # 1) Kalıcı olarak Başarısız olan ve henüz gönderilmemiş faturalar: trace'te sonucu "Sent" olan bir deneme yoksa
       #    saklanır. Başarısız faturalar buraya girer. İhtiyat kuralı da budur: karar anında fatura henüz denenmemiş
-      #    ya da denemesi sürüyorsa, ileride sorunlu çıkabileceği için saklanır.
+      #    ya da denemesi sürüyorsa, ileride sorunlu çıkabileceği için saklanır. Oluşturma isteğinin trace'i de gönderim
+      #    içermediği için buraya girer: her faturanınki saklanır, Jaeger'da fatura numarasıyla bulunur. Oluşturma anında
+      #    faturanın sorunlu olup olmayacağı bilinmez; yüzdeyle saklansaydı sorunlu faturaların oluşturma isteği
+      #    kaybolabilirdi.
       - name: gonderilmemis-ya-da-basarisiz
         type: and
         and:
@@ -68,7 +72,8 @@ processors:
       - name: en-az-3-deneme
         type: numeric_attribute
         numeric_attribute: { key: outbox.attempt, min_value: 3 }
-      # 3) Sorunsuz faturalar: 1. ya da 2. denemede gönderilen faturaların bu yüzdesi saklanır (trace ID'ye göre).
+      # 3) Sorunsuz faturalar: 1. ya da 2. denemede gönderilen faturaların izlerinin bu yüzdesi saklanır (trace ID'ye
+      #    göre).
       - name: sorunsuz-ornek
         type: and
         and:

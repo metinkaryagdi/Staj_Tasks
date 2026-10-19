@@ -49,8 +49,9 @@ public sealed class ErpOutboxEntry
     public Guid? ClaimToken { get; set; }
 
     /// <summary>
-    /// Added column: the W3C traceparent of the request that created the invoice. Every attempt continues that trace, so
-    /// the invoice's journey is one trace even though the worker takes it later. A resend does not change it.
+    /// Added column: the W3C traceparent of the invoice's trace. Null until the worker takes the entry for the first time;
+    /// that attempt starts the trace and stores it here. The later attempts continue it, so the invoice's journey from
+    /// the queue on is one trace. A resend does not change it.
     /// </summary>
     public string? TraceParent { get; set; }
 }

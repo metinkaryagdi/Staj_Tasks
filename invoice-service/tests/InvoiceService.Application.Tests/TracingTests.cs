@@ -35,14 +35,14 @@ public sealed class TracingTests : IDisposable
     private static Activity Current(string name = "test") => new Activity(name).SetIdFormat(ActivityIdFormat.W3C).Start();
 
     [Fact]
-    public async Task A_created_invoice_queues_the_request_s_traceparent_and_names_the_invoice_on_its_span()
+    public async Task A_created_invoice_names_the_invoice_on_the_request_s_span_and_leaves_its_trace_to_the_worker()
     {
         using var request = Current();
 
         await _s.CreateInvoiceHandler().HandleAsync(new CreateInvoiceRequest("C-001", 10m, "TRY", new DateOnly(2026, 10, 1)));
 
         var (invoice, entry) = Assert.Single(_s.Invoices.Queued);
-        Assert.Equal(request.Id, entry.TraceParent);
+        Assert.Null(entry.TraceParent);
         Assert.Equal(invoice.InvoiceNumber, request.GetTagItem(InvoiceTracing.InvoiceNumber));
     }
 
