@@ -14,10 +14,12 @@ Write-Title 'Kontrol listesi 3: kuyrukta 30 dakikadan uzun beklemiş bir faturan
 $csv = Join-Path $OutputDir "gun15-2-$Name-faturalar.csv"
 if (-not (Test-Path $csv)) { throw "$csv yok; önce 1-uzun-yuk.ps1 -Name $Name çalıştırılmalı." }
 $rows = @(Import-Csv $csv -Encoding UTF8)
+# Export-Csv ondalıkları makinenin kültürüyle yazar (Türkçe: virgül); sayı olarak okumadan önce noktaya çevrilir.
+function ConvertTo-Minutes([string]$Text) { [double]::Parse(($Text -replace ',', '.'), [Globalization.CultureInfo]::InvariantCulture) }
 $candidates = if ($InvoiceNumber) { @($rows | Where-Object Number -eq $InvoiceNumber) } else {
     @($rows | Where-Object { [int]$_.Attempts -ge 3 -and [int]$_.Traces -eq 1 -and [int]$_.CreationTraces -eq 1 -and [int]$_.Events -ge 2 -and
-        $_.QueueWaitMinutes -and [double]::Parse($_.QueueWaitMinutes, [Globalization.CultureInfo]::InvariantCulture) -gt 30 } |
-        Sort-Object { [double]::Parse($_.QueueWaitMinutes, [Globalization.CultureInfo]::InvariantCulture) })
+        $_.QueueWaitMinutes -and (ConvertTo-Minutes $_.QueueWaitMinutes) -gt 30 } |
+        Sort-Object { ConvertTo-Minutes $_.QueueWaitMinutes })
 }
 Write-Host "  Aday (en az 3 deneme, kuyrukta 30 dk'dan uzun, bir fatura izi, bir oluşturma izi, iki haber): $($candidates.Count)"
 if ($candidates.Count -eq 0) { throw 'Uygun fatura bulunamadı.' }

@@ -137,7 +137,8 @@ Remove-Item $stop -ErrorAction SilentlyContinue
 # Collector öldürüldüyse (container sınırı) bellekteki izler kaybolmuştur.
 $state = (docker inspect staj-tasks-otel-collector-1 --format '{{.State.Status}}|{{.State.OOMKilled}}|{{.State.StartedAt}}').Split('|')
 
-# Bellek sınırı: memory_limiter yumuşak sınırı aşınca "above soft limit", altına inince "back within limits" yazar.
+# Bellek sınırı: memory_limiter yumuşak sınırı aşınca önce GC zorlar ("above soft limit. Forcing a GC"); hâlâ üstündeyse
+# veriyi reddetmeye başlar ("Refusing data"), altına inince "back within limits" yazar. Red penceresi bu ikisi arasıdır.
 $limiterLines = @(docker logs staj-tasks-otel-collector-1 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'memorylimiter|Memory usage|Memory limiter' })
 $limiterLines | Set-Content (Join-Path $OutputDir "$prefix-limiter-log.txt") -Encoding UTF8
 $engaged = 0.0; $periods = 0; $openAt = $null; $hard = 0; $windows = @()
@@ -145,7 +146,7 @@ foreach ($l in $limiterLines) {
     if ($l -notmatch '^(\S+Z)') { continue }
     $at = [DateTimeOffset]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
     if ($l -match 'above hard limit') { $hard++ }
-    if ($l -match 'above soft limit|above hard limit') { if (-not $openAt) { $openAt = $at; $periods++ } }
+    if ($l -match 'Refusing data') { if (-not $openAt) { $openAt = $at; $periods++ } }
     elseif ($l -match 'back within limits' -and $openAt) { $engaged += ($at - $openAt).TotalSeconds; $windows += , @($openAt, $at); $openAt = $null }
 }
 if ($openAt) { $engaged += ([DateTimeOffset]::UtcNow - $openAt).TotalSeconds; $windows += , @($openAt, [DateTimeOffset]::UtcNow) }

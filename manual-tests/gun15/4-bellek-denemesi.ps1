@@ -63,18 +63,19 @@ try {
     $run | Select-Object -First 5 | ForEach-Object { Write-Line $_ }
 
     # Red pencereleri: Collector'ın logunda yumuşak sınırın aşıldığı ve altına inildiği anlar.
-    $windows = @(); $openAt = $null; $soft = 0; $hard = 0; $resumed = 0
+    $windows = @(); $openAt = $null; $soft = 0; $hard = 0; $resumed = 0; $refusing = 0
     foreach ($l in Get-Content (Join-Path $OutputDir "gun15-1-$Name-limiter-log.txt") -Encoding UTF8) {
         if ($l -notmatch '^(\S+Z)') { continue }
         $at = [DateTimeOffset]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
         if ($l -match 'above soft limit') { $soft++ }
+        if ($l -match 'Refusing data') { $refusing++ }
         if ($l -match 'above hard limit') { $hard++ }
-        if ($l -match 'above soft limit|above hard limit') { if (-not $openAt) { $openAt = $at } }
+        if ($l -match 'Refusing data') { if (-not $openAt) { $openAt = $at } }
         elseif ($l -match 'back within limits') { $resumed++; if ($openAt) { $windows += , @($openAt, $at); $openAt = $null } }
     }
     if ($openAt) { $windows += , @($openAt, [DateTimeOffset]::UtcNow) }
     Write-Line ''
-    Write-Line "Collector logu: 'above soft limit' $soft satır, 'above hard limit' $hard satır, 'back within limits' $resumed satır; red penceresi $($windows.Count)."
+    Write-Line "Collector logu: 'above soft limit' $soft satır (GC zorlaması ve red), 'Refusing data' $refusing satır, 'above hard limit' $hard satır, 'back within limits' $resumed satır; red penceresi $($windows.Count)."
     foreach ($w in $windows) { Write-Line ('  {0}-{1} UTC ({2})' -f $w[0].ToString('HH:mm:ss'), $w[1].ToString('HH:mm:ss'), (Format-Duration ($w[1] - $w[0]).TotalSeconds)) }
     $sample = @(Get-Content (Join-Path $OutputDir "gun15-1-$Name-limiter-log.txt") -Encoding UTF8 | Where-Object { $_ -match 'soft limit|hard limit|within limits' } | Select-Object -First 3)
     foreach ($l in $sample) { Write-Line "  örnek: $l" }

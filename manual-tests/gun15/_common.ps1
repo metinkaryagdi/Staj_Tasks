@@ -62,8 +62,9 @@ function Save-Screenshot([string]$Url, [string]$File, [int]$Width = 1800, [int]$
         Where-Object { Test-Path $_ } | Select-Object -First 1
     if (-not $edge) { throw 'Edge bulunamadı.' }
     $edgeProfile = Join-Path $env:TEMP "gun15-edge-$([guid]::NewGuid().ToString('N'))"
-    $p = Start-Process $edge -ArgumentList @('--headless=new', '--disable-gpu', '--hide-scrollbars', "--user-data-dir=$edgeProfile",
-        "--window-size=$Width,$Height", '--virtual-time-budget=20000', "--screenshot=$File", "`"$Url`"") -PassThru -Wait -WindowStyle Hidden
+    # Yollar boşluk ve Türkçe karakter içerebilir: tırnak içinde verilir.
+    $p = Start-Process $edge -ArgumentList @('--headless=new', '--disable-gpu', '--hide-scrollbars', "`"--user-data-dir=$edgeProfile`"",
+        "--window-size=$Width,$Height", '--virtual-time-budget=20000', "`"--screenshot=$File`"", "`"$Url`"") -PassThru -Wait -WindowStyle Hidden
     Remove-Item $edgeProfile -Recurse -Force -ErrorAction SilentlyContinue
     if (-not (Test-Path $File)) { throw "Ekran görüntüsü alınamadı: $Url" }
 }
