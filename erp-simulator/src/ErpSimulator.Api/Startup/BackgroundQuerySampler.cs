@@ -8,7 +8,7 @@ namespace ErpSimulator.Api.Startup;
 /// recorded. Those are the webhook dispatcher's queue queries; none of them names an invoice, so the Collector would
 /// never keep them, only hold each one for its whole decision wait. Everything else starts a recorded trace. Used under
 /// ParentBasedSampler: spans with a parent follow the parent's decision, so a request from the invoice service whose
-/// trace is not recorded there (a reconciliation lookup) is not recorded here either.
+/// trace is not recorded there (a scheduled reconciliation's lookup) is not recorded here either.
 /// </summary>
 public sealed class BackgroundQuerySampler : Sampler
 {

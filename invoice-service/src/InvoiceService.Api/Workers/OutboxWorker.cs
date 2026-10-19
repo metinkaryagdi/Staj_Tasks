@@ -87,9 +87,13 @@ public sealed class OutboxWorker(
 
     private async Task SendAsync(ClaimedEntry entry, Claim claim, SemaphoreSlim slots)
     {
-        // The entry's first time out of the queue starts the invoice's trace; later attempts continue the trace stored
-        // with the entry. The attempt starts from the moment the entry was taken.
-        using var queueWait = entry.TraceParent is null ? StartTrace(entry, claim) : null;
+        // The entry's first time out of the queue starts the invoice's trace with its queue wait; later attempts continue
+        // the trace stored with the entry. The attempt starts from the moment the entry was taken. The queue wait span is
+        // stopped (sent) with the attempt: normally after the trace was stored, but also when it could not be stored (the
+        // entry was taken again, or an error came first), and never if the service dies during the attempt.
+        using var queueWait = entry.TraceParent is null
+            ? InvoiceTracing.StartQueueWait(entry.InvoiceNumber, entry.CreatedAt, claim.Started)
+            : null;
         var startedTrace = queueWait?.Id;
         using var attempt = InvoiceTracing.StartInTrace("outbox.attempt", entry.TraceParent ?? startedTrace, claim.Started);
         using (var claimed = InvoiceTracing.Source.StartActivity(
@@ -117,20 +121,6 @@ public sealed class OutboxWorker(
         {
             slots.Release();
         }
-    }
-
-    /// <summary>
-    /// The invoice's trace starts with its time in the queue: a span from when the entry entered the queue until this
-    /// claim took it, recorded now, backdated. The attempts are under it. It is stopped together with the attempt, so it
-    /// is sent only after the trace has been stored with the entry.
-    /// </summary>
-    private static Activity? StartTrace(ClaimedEntry entry, Claim claim)
-    {
-        var span = InvoiceTracing.StartInTrace("outbox.queue_wait", null, entry.CreatedAt);
-        span?.SetTag(InvoiceTracing.InvoiceNumber, entry.InvoiceNumber);
-        span?.SetTag("outbox.queue_wait_seconds", Math.Max(0, (claim.Started - entry.CreatedAt).TotalSeconds));
-        span?.SetEndTime(claim.Started.UtcDateTime);
-        return span;
     }
 
     /// <summary>One claim: when it started and ended.</summary>

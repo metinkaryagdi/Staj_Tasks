@@ -30,6 +30,20 @@ public static class InvoiceTracing
     }
 
     /// <summary>
+    /// Starts the invoice's trace with its time in the queue: a root span from <paramref name="createdAt"/> (the entry
+    /// entered the queue) to <paramref name="takenAt"/> (the worker took it for the first time), recorded later, backdated.
+    /// The attempts go under it. Its end is set here; the caller stops it.
+    /// </summary>
+    public static Activity? StartQueueWait(string invoiceNumber, DateTimeOffset createdAt, DateTimeOffset takenAt)
+    {
+        var span = StartInTrace("outbox.queue_wait", null, createdAt);
+        span?.SetTag(InvoiceNumber, invoiceNumber);
+        span?.SetTag("outbox.queue_wait_seconds", Math.Max(0, (takenAt - createdAt).TotalSeconds));
+        span?.SetEndTime(takenAt.UtcDateTime);
+        return span;
+    }
+
+    /// <summary>
     /// Records a step taken on the invoice outside its own requests and attempts (a reconciliation fix, an operator's
     /// resend) as a span in the invoice's trace, from <paramref name="started"/> until now, so the trace shows the
     /// journey to its end. Nothing is recorded for an invoice without a stored traceparent (queued before tracing). The

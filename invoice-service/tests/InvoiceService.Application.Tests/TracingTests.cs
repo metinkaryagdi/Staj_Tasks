@@ -85,6 +85,38 @@ public sealed class TracingTests : IDisposable
     }
 
     [Fact]
+    public async Task A_first_attempt_stores_the_trace_it_started_and_sends()
+    {
+        const string started = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 1);
+        _s.Erp.SendResults.Enqueue(FakeErpGateway.Accepted("ERP-1"));
+        using var attempt = Current();
+
+        await _s.OutboxProcessor().SendAsync(new ClaimedEntry(1, Number, 1, false, Guid.NewGuid()), "worker-1", started);
+
+        Assert.Equal(started, _s.Outbox.StartedTraces[1]);
+        Assert.Contains($"POST {Number}", _s.Erp.Calls);
+        Assert.Equal(nameof(SendOutcome.Sent), attempt.GetTagItem("outbox.outcome"));
+    }
+
+    [Fact]
+    public async Task A_first_attempt_whose_trace_cannot_be_stored_does_not_call_the_ERP()
+    {
+        // The entry was taken again meanwhile: the trace is not stored, so nothing is sent.
+        _s.Outbox.Held = false;
+        _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 1);
+        using var attempt = Current();
+
+        await _s.OutboxProcessor().SendAsync(new ClaimedEntry(1, Number, 1, false, Guid.NewGuid()), "worker-1",
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
+
+        Assert.Empty(_s.Outbox.StartedTraces);
+        Assert.Empty(_s.Erp.Calls);
+        Assert.Empty(_s.Outbox.Outcomes);
+        Assert.Equal("NotHeld", attempt.GetTagItem("outbox.outcome"));
+    }
+
+    [Fact]
     public async Task An_event_that_waited_for_the_send_shows_on_the_attempt_that_applied_it()
     {
         _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 1);
@@ -105,6 +137,26 @@ public sealed class TracingTests : IDisposable
         Assert.Equal("erp event applied-after-send", applied.Name);
         Assert.Equal("e-1", applied.Tags.Single(t => t.Key == "erp_event.id").Value);
         Assert.Equal(WebhookEventStatus.Processed, applied.Tags.Single(t => t.Key == "erp_event.status").Value);
+    }
+
+    [Fact]
+    public void The_queue_wait_starts_a_new_trace_backdated_to_the_entry_s_creation_and_the_attempt_goes_under_it()
+    {
+        var createdAt = new DateTimeOffset(2026, 10, 19, 9, 0, 0, TimeSpan.Zero);
+        var takenAt = createdAt.AddMinutes(31);
+        using var unrelated = Current();
+
+        using var queueWait = InvoiceTracing.StartQueueWait(Number, createdAt, takenAt);
+        using var attempt = InvoiceTracing.StartInTrace("outbox.attempt", queueWait!.Id, takenAt);
+
+        Assert.Equal(default, queueWait.ParentSpanId);
+        Assert.NotEqual(unrelated.TraceId, queueWait.TraceId);
+        Assert.Equal(createdAt.UtcDateTime, queueWait.StartTimeUtc);
+        Assert.Equal(TimeSpan.FromMinutes(31), queueWait.Duration);
+        Assert.Equal(Number, queueWait.GetTagItem(InvoiceTracing.InvoiceNumber));
+        Assert.Equal(31 * 60d, queueWait.GetTagItem("outbox.queue_wait_seconds"));
+        Assert.Equal(queueWait.TraceId, attempt!.TraceId);
+        Assert.Equal(queueWait.SpanId, attempt.ParentSpanId);
     }
 
     [Fact]
