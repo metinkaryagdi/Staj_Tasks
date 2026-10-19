@@ -1,6 +1,6 @@
 ﻿# Kontrol listesi 4: bellek sınırı denemesi. Collector'ın bellek sınırı bilerek düşürülür, uzun yük testi (saniyede 50
 # fatura, 10 dakika, simülatörün varsayılan oranları) çalıştırılır ve sınıra ulaşılınca ne olduğu gözlenir.
-#   .\manual-tests\gun15\4-bellek-denemesi.ps1 -LimitMib 200 -SpikeMib 50
+#   .\manual-tests\gun15\4-bellek-denemesi.ps1 -LimitMib 400 -SpikeMib 100
 # Yumuşak sınır = LimitMib - SpikeMib: memory_limiter Collector'ın heap'i bunu aşınca gelen veriyi reddeder. Değerler
 # uzun testte (1-uzun-yuk.ps1) ölçülen boştaki ve en yüksek heap'e göre seçilir: yumuşak sınır ikisinin arasında.
 #
@@ -8,11 +8,11 @@
 #   - monitoring/otel-collector/config.yaml'daki limit_mib ve spike_limit_mib değiştirilir; deneme bitince (hata olsa
 #     da) dosya eski haline döner, Collector yeniden başlatılır ve açılış logundaki sınır satırı kaydedilir.
 #   - İki uygulamada OpenTelemetry'nin kendi tanılama logu (self-diagnostics) açılır: OTLP gönderiminin hataları konsol
-#     loguna yazılmaz, yalnız bu loga düşer. Ayar dosyası ve compose eki output\gun15-4-tanilama altında üretilir; deneme
+#     loguna yazılmaz, yalnız bu loga düşer. Ayar dosyası ve compose eki output\gun15-4-<Name>-tanilama altında üretilir; deneme
 #     bitince uygulamalar eksiz yeniden başlatılır.
 # Gözlenenler: Collector'ın reddettiği span'ler ve metrik noktaları, Collector'ın logu, iki uygulamanın konsol logu ve
-# tanılama logu, metriklerin Prometheus'ta görünmediği dakikalar ve alarm, gönderilmeyen fatura, red penceresinin içinde
-# ve dışında dakika başına gönderilen fatura (veritabanındaki processed_at).
+# tanılama logu, metriklerin Prometheus'ta görünmediği dakikalar ve alarm, gönderilmeyen fatura, red aralıklarıyla en
+# az 30 sn kesişen dakikalarda ve diğerlerinde dakika başına gönderilen fatura (veritabanındaki processed_at).
 param([Parameter(Mandatory)][int]$LimitMib, [Parameter(Mandatory)][int]$SpikeMib, [string]$Name = 'bellek')
 
 . "$PSScriptRoot\_common.ps1"
@@ -62,21 +62,22 @@ try {
     $run = Get-Content (Join-Path $OutputDir "gun15-1-$Name.txt") -Encoding UTF8
     $run | Select-Object -First 5 | ForEach-Object { Write-Line $_ }
 
-    # Red pencereleri: Collector'ın logunda yumuşak sınırın aşıldığı ve altına inildiği anlar.
-    $windows = @(); $openAt = $null; $soft = 0; $hard = 0; $resumed = 0; $refusing = 0
-    foreach ($l in Get-Content (Join-Path $OutputDir "gun15-1-$Name-limiter-log.txt") -Encoding UTF8) {
-        if ($l -notmatch '^(\S+Z)') { continue }
-        $at = [DateTimeOffset]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
-        if ($l -match 'above soft limit') { $soft++ }
-        if ($l -match 'Refusing data') { $refusing++ }
-        if ($l -match 'above hard limit') { $hard++ }
-        if ($l -match 'Refusing data') { if (-not $openAt) { $openAt = $at } }
-        elseif ($l -match 'back within limits') { $resumed++; if ($openAt) { $windows += , @($openAt, $at); $openAt = $null } }
-    }
-    if ($openAt) { $windows += , @($openAt, [DateTimeOffset]::UtcNow) }
+    # Red aralıkları (_common.ps1, Get-RefusalWindows) ve logdaki satır sayıları.
+    $limiterLog = @(Get-Content (Join-Path $OutputDir "gun15-1-$Name-limiter-log.txt") -Encoding UTF8)
+    $count = { param($Pattern) @($limiterLog | Where-Object { $_ -match $Pattern }).Count }
+    $windows = @(Get-RefusalWindows $limiterLog)
+    $seconds = @($windows | ForEach-Object { ($_.To - $_.From).TotalSeconds })
     Write-Line ''
-    Write-Line "Collector logu: 'above soft limit' $soft satır (GC zorlaması ve red), 'Refusing data' $refusing satır, 'above hard limit' $hard satır, 'back within limits' $resumed satır; red penceresi $($windows.Count)."
-    foreach ($w in $windows) { Write-Line ('  {0}-{1} UTC ({2})' -f $w[0].ToString('HH:mm:ss'), $w[1].ToString('HH:mm:ss'), (Format-Duration ($w[1] - $w[0]).TotalSeconds)) }
+    Write-Line ("Collector logu: GC zorlaması (yumuşak sınır) {0}, 'Refusing data' {1}, 'above hard limit' {2}, 'back within limits' {3} satır." -f
+        (& $count 'above soft limit. Forcing a GC'), (& $count 'Refusing data'), (& $count 'above hard limit'), (& $count 'back within limits'))
+    if ($windows.Count) {
+        Write-Line ('Red aralıkları: {0}; ilki {1} UTC başladı, sonuncusu {2} UTC bitti; toplam {3}, en uzun {4}.' -f $windows.Count,
+            $windows[0].From.ToString('HH:mm:ss'), $windows[-1].To.ToString('HH:mm:ss'), (Format-Duration ($seconds | Measure-Object -Sum).Sum),
+            (Format-Duration ($seconds | Measure-Object -Maximum).Maximum))
+        $windows | Select-Object @{ n = 'From'; e = { $_.From.ToString('o') } }, @{ n = 'To'; e = { $_.To.ToString('o') } } |
+            Export-Csv (Join-Path $OutputDir "$prefix-red-araliklari.csv") -NoTypeInformation -Encoding UTF8
+    }
+    else { Write-Line 'Red aralığı yok: sınıra ulaşılmadı.' }
     $sample = @(Get-Content (Join-Path $OutputDir "gun15-1-$Name-limiter-log.txt") -Encoding UTF8 | Where-Object { $_ -match 'soft limit|hard limit|within limits' } | Select-Object -First 3)
     foreach ($l in $sample) { Write-Line "  örnek: $l" }
 
@@ -97,7 +98,7 @@ WHERE i.customer_code = '$runId' AND o.processed_at IS NOT NULL GROUP BY 1 ORDER
     foreach ($m in $full) {
         $overlap = 0.0
         foreach ($w in $windows) {
-            $a = [math]::Max($m.At.ToUnixTimeSeconds(), $w[0].ToUnixTimeSeconds()); $b = [math]::Min($m.At.AddMinutes(1).ToUnixTimeSeconds(), $w[1].ToUnixTimeSeconds())
+            $a = [math]::Max($m.At.ToUnixTimeSeconds(), $w.From.ToUnixTimeSeconds()); $b = [math]::Min($m.At.AddMinutes(1).ToUnixTimeSeconds(), $w.To.ToUnixTimeSeconds())
             if ($b -gt $a) { $overlap += $b - $a }
         }
         $m | Add-Member Inside ($overlap -ge 30)
@@ -117,7 +118,7 @@ WHERE i.customer_code = '$runId' AND o.processed_at IS NOT NULL GROUP BY 1 ORDER
         $previous = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
         try { $lines = @(& docker compose logs $svc --no-log-prefix 2>$null | ForEach-Object { "$_" }) }
         finally { $ErrorActionPreference = $previous; Pop-Location }
-        $otel = @($lines | Where-Object { $_ -match 'OpenTelemetry|OTLP|otel-collector|4317|grpc|Exporter' })
+        $otel = @($lines | Where-Object { $_ -match 'OpenTelemetry|OTLP|otel-collector|refused|Unavailable' })
         $otel | Set-Content (Join-Path $OutputDir "$prefix-$svc-konsol-otel.txt") -Encoding UTF8
         Write-Line ("  {0}: {1} satır; OpenTelemetry / OTLP / Collector geçen satır: {2}" -f $svc, $lines.Count, $otel.Count)
         foreach ($l in $otel | Select-Object -First 3) { Write-Line "    $l" }

@@ -137,19 +137,13 @@ Remove-Item $stop -ErrorAction SilentlyContinue
 # Collector öldürüldüyse (container sınırı) bellekteki izler kaybolmuştur.
 $state = (docker inspect staj-tasks-otel-collector-1 --format '{{.State.Status}}|{{.State.OOMKilled}}|{{.State.StartedAt}}').Split('|')
 
-# Bellek sınırı: memory_limiter yumuşak sınırı aşınca önce GC zorlar ("above soft limit. Forcing a GC"); hâlâ üstündeyse
-# veriyi reddetmeye başlar ("Refusing data"), altına inince "back within limits" yazar. Red penceresi bu ikisi arasıdır.
+# Bellek sınırının veri reddettiği aralıklar (_common.ps1, Get-RefusalWindows).
 $limiterLines = @(docker logs staj-tasks-otel-collector-1 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'memorylimiter|Memory usage|Memory limiter' })
 $limiterLines | Set-Content (Join-Path $OutputDir "$prefix-limiter-log.txt") -Encoding UTF8
-$engaged = 0.0; $periods = 0; $openAt = $null; $hard = 0; $windows = @()
-foreach ($l in $limiterLines) {
-    if ($l -notmatch '^(\S+Z)') { continue }
-    $at = [DateTimeOffset]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
-    if ($l -match 'above hard limit') { $hard++ }
-    if ($l -match 'Refusing data') { if (-not $openAt) { $openAt = $at; $periods++ } }
-    elseif ($l -match 'back within limits' -and $openAt) { $engaged += ($at - $openAt).TotalSeconds; $windows += , @($openAt, $at); $openAt = $null }
-}
-if ($openAt) { $engaged += ([DateTimeOffset]::UtcNow - $openAt).TotalSeconds; $windows += , @($openAt, [DateTimeOffset]::UtcNow) }
+$hard = @($limiterLines | Where-Object { $_ -match 'above hard limit' }).Count
+$windows = @(Get-RefusalWindows $limiterLines)
+$periods = $windows.Count
+$engaged = [double]($windows | ForEach-Object { ($_.To - $_.From).TotalSeconds } | Measure-Object -Sum).Sum
 
 $snapshots = @(Read-CollectorSnapshots $metricsFile)
 $lastLines = $snapshots[-1].Lines
@@ -190,7 +184,10 @@ if ($jae.Count -gt 1) { Write-Line ('Jaeger belleği: ilk örnek {0:N0} MiB, en 
 Write-Line ''
 Write-Line 'Bellek sınırı (memory_limiter, Collector logu):'
 Write-Line ("  Devreye girdiği süre: {0} ({1} kez); sert sınırın aşıldığı log satırı: {2}" -f (Format-Duration $engaged), $periods, $hard)
-foreach ($w in $windows) { Write-Line ('    {0}-{1} UTC' -f $w[0].ToString('HH:mm:ss'), $w[1].ToString('HH:mm:ss')) }
+if ($windows.Count) {
+    Write-Line ('    ilki {0} UTC, sonuncusu {1} UTC bitti; en uzun {2}' -f $windows[0].From.ToString('HH:mm:ss'), $windows[-1].To.ToString('HH:mm:ss'),
+        (Format-Duration ($windows | ForEach-Object { ($_.To - $_.From).TotalSeconds } | Measure-Object -Maximum).Maximum))
+}
 Write-Line ''
 Write-Line "Collector'ın sayaçları (koşunun başından son ölçüme):"
 Write-Line "  Kabul edilen span: $accepted; bellek sınırı yüzünden reddedilen span: $refused, metrik noktası: $refusedMetrics"

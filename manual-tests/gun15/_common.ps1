@@ -27,6 +27,28 @@ function Get-JaegerJsonRetry([string]$Url) {
     }
 }
 
+# Collector'ın logundan memory_limiter'ın veri reddettiği aralıklar. Yumuşak sınır aşılınca önce GC zorlanır; GC'den sonra
+# bellek hâlâ sınırın üstündeyse "Refusing data" yazılır ve red başlar. Red, sonraki bir GC'den sonra bellek sınırın altına
+# inince ("Memory usage after GC", cur_mem_mib) ya da ölçümde bellek zaten altındaysa ("back within limits") biter; ilki
+# logda ayrı satır olarak yazılmaz. Yumuşak sınır açılış satırındaki limit_mib - spike_limit_mib'dir. Dönen: From, To.
+function Get-RefusalWindows([string[]]$Lines) {
+    $configured = $Lines | Where-Object { $_ -match '"limit_mib": (\d+), "spike_limit_mib": (\d+)' } | Select-Object -Last 1
+    if (-not $configured) { return @() }
+    $null = $configured -match '"limit_mib": (\d+), "spike_limit_mib": (\d+)'
+    $soft = [int]$Matches[1] - [int]$Matches[2]
+    $windows = @(); $openAt = $null
+    foreach ($l in $Lines) {
+        if ($l -notmatch '^(\S+Z)') { continue }
+        $at = [DateTimeOffset]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+        if ($l -match 'Refusing data') { if (-not $openAt) { $openAt = $at } }
+        elseif ($openAt -and ($l -match 'back within limits' -or ($l -match 'after GC.*"cur_mem_mib": (\d+)' -and [int]$Matches[1] -lt $soft))) {
+            $windows += [pscustomobject]@{ From = $openAt; To = $at }; $openAt = $null
+        }
+    }
+    if ($openAt) { $windows += [pscustomobject]@{ From = $openAt; To = [DateTimeOffset]::UtcNow } }
+    $windows
+}
+
 # Bir faturanın izlerini türüne göre ayırır. Jaeger'da invoice.number ile bulunan trace'ler:
 #   fatura izi: worker'ın kuyruktan ilk alışında başlayan iz (outbox.queue_wait ya da outbox.attempt span'i var),
 #   oluşturma izi: oluşturma isteğinin kendi izi (fatura servisinde POST /api/v1/invoices span'i var, deneme yok).
