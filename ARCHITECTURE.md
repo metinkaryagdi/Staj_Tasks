@@ -63,7 +63,7 @@ invoice-service/
       Workers/         OutboxWorker, ReconciliationWorker, DatabaseMetricsWorker
       Paging.cs        sayfalı listelerin page / pageSize doğrulaması
       Startup/         LoggingExtensions (TraceIdConsoleFormatter), OpenApiExtensions, DatabaseMigrator, SettingsLogger,
-                       CorsExtensions
+                       CorsExtensions, BackgroundQuerySampler
       Program.cs
   tests/
     InvoiceService.Domain.Tests / .Application.Tests / .Infrastructure.Tests / .Api.Tests / .IntegrationTests
@@ -87,8 +87,8 @@ invoice-service/
 ### Akışlar
 
 **Fatura oluşturma** — `POST /api/v1/invoices` → `CreateInvoiceHandler`: doğrula, numara al, faturayı ve outbox
-kaydını tek kayıtta yaz (`IInvoiceStore.QueueAsync`) → `202`. ERP bu istekte çağrılmaz. Outbox kaydı isteğin W3C traceparent'ını
-saklar (`trace_parent`); gönderim denemeleri bu trace'i sürdürür ([İzleme](#i̇zleme)).
+kaydını tek kayıtta yaz (`IInvoiceStore.QueueAsync`) → `202`. ERP bu istekte çağrılmaz. İstek kendi trace'idir; faturanın
+trace'i worker kaydı kuyruktan ilk aldığında başlar ve `trace_parent`'a yazılır ([İzleme](#i̇zleme)).
 
 **Gönderim** — `OutboxWorker` (Api) boş slot kadar kaydı `OutboxProcessor.ClaimAsync` ile alır ve her biri için
 yeni bir DI scope'unda `OutboxProcessor.SendAsync` çağırır:
@@ -160,7 +160,8 @@ erp-simulator/
     ErpSimulator.Api/
       Invoices/        InvoiceEndpoints, InvoiceResponses
       Workers/         WebhookDispatcher
-      Startup/         LoggingExtensions (TraceIdConsoleFormatter), OpenApiExtensions, DatabaseMigrator, SettingsLogger
+      Startup/         LoggingExtensions (TraceIdConsoleFormatter), OpenApiExtensions, DatabaseMigrator, SettingsLogger,
+                       BackgroundQuerySampler
       Program.cs
   tests/
     ErpSimulator.Application.Tests / .Infrastructure.Tests
@@ -369,22 +370,32 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Metrik toplanamıyor alarmı `up` değil `absent(target_info{job=…})` kullanır.** Prometheus artık Collector'ı topladığı için `up`
   uygulamanın durduğunu göstermez. Collector'ın varsayılan `metric_expiration`'ı (5 dk) durmuş servisin son değerlerini sunmaya devam
   ettireceği için 15 sn'ye indirildi. `absent()` sonucu `job` etiketini taşır; tek kural iki servis için ayrı alarm verir.
-- **Bir fatura, bir trace.** "Bu fatura neden gecikti" tek zaman çizelgesinde cevaplansın diye oluşturma, her deneme ve haberler aynı
-  trace'tedir. Zamanın koptuğu iki yerde W3C traceparent saklanır: `erp_outbox.trace_parent` (fatura oluşturulurken) ve
+- **Bir fatura, bir trace; kuyruktan ilk alınışta başlar.** "Bu fatura neden gecikti" tek zaman çizelgesinde cevaplansın diye her
+  deneme ve haberler aynı trace'tedir. Trace worker kaydı kuyruktan ilk aldığında başlar: ilk span (`outbox.queue_wait`) faturanın
+  oluşturulma anından alınma anına kadarki kuyruk beklemesidir, geriye tarihlidir; denemeler onun altındadır. Collector'ın karar
+  süresi trace'in ilk span'i geldiğinde başladığı için kuyruk beklemesi böylece karar süresinin dışında kalır: iz oluşturmada
+  başlarken kuyruk beklemesi 30 dakikayı geçince karar fatura gönderilmeden veriliyor, sorunsuz faturalar da saklanıyordu. Oluşturma isteği
+  kendi trace'idir, fatura numarasını taşır. Zamanın koptuğu iki yerde W3C traceparent saklanır: `erp_outbox.trace_parent` (ilk
+  deneme, ERP çağrılmadan önce, kayıt hâlâ o alımın `claim_token`'ını taşıyorsa ve izi yoksa yazar; yazamazsa göndermez) ve
   `webhook_deliveries.trace_parent` (simülatör event'i planlarken); haber isteğinde `traceparent` header'ını HttpClient
-  instrumentation ekler. Bedeli: trace dakikalarca (yeniden gönderimde daha uzun) açık kalır, kök span çok önce biter.
-  Örneklemede tek trace, bir faturanın bütün yolculuğunun birlikte saklanmasını ya da atılmasını sağlar. Faturanın kendi istekleri
-  ve denemeleri dışında atılan adımlar da (mutabakatın düzeltmesi, operatörün yeniden gönderimi) aynı saklanan traceparent'la
-  trace'e yazılır (`InvoiceTracing.RecordStep`); bunu yaparken o anki isteğin ya da worker'ın span'i değişmez.
-- **Toplu kayıt alma ayrı trace, span link ile.** Tek alma sorgusu birden fazla faturanın kaydını alır; hiçbir faturanın trace'ine ait
-  değildir. `outbox.claim` kendi trace'idir; her faturanın `outbox.claimed` span'i ona link verir ve başlangıç/bitişi almanın
-  süresidir.
-- **Saklanan bağlamla span açarken `Activity.Current` temizlenir.** Bağlam yoksa (izlemeden önce kuyruğa girmiş kayıt)
-  `StartActivity` o an açık olan span'i parent alırdı; deneme yanlış trace'e girmesin diye yeni trace başlar.
+  instrumentation ekler. Kuyruk beklemesi span'i deneme bitince gönderilir: iz kayda yazılamadıysa da gönderilir (faturanın ikinci
+  bir izi olur), servis deneme sırasında durursa hiç gönderilmez. Faturanın kendi denemeleri
+  dışında atılan adımlar da (mutabakatın düzeltmesi, operatörün yeniden gönderimi) aynı saklanan traceparent'la trace'e yazılır
+  (`InvoiceTracing.RecordStep`); bunu yaparken o anki isteğin ya da worker'ın span'i değişmez.
+- **Arka plan sorguları hiç kaydedilmez.** İki uygulamada sampler `ParentBasedSampler(BackgroundQuerySampler)`: hiçbir istek ya da
+  adım altında olmayan veritabanı / HTTP çağrısı (kök Client span) kaydedilmez; bunlar worker'ların kuyruk sorguları, metrik okumaları
+  ve zamanlanmış mutabakatın sorgularıdır (elle başlatılan mutabakat, başlatan isteğin izinde kaydedilir). Hiçbiri fatura numarası taşımadığı için hiç saklanmıyordu, Collector'da yalnız karar süresi boyunca
+  bellek tutuyordu; Collector'da ayıklansalar da gönderilme ve alınma bedelleri kalırdı. Kaydedilmeyen çağrının bağlamı "örneklenmedi"
+  işaretiyle geçer; simülatör de ParentBased olduğu için zamanlanmış mutabakatın ona gelen isteğini kaydetmez. Toplu kayıt almanın kendi span'i
+  yoktur; her denemenin `outbox.claimed` span'i almanın başlangıç/bitişini ve `outbox.queue_wait_seconds`'ı taşır.
+- **Saklanan bağlamla span açarken `Activity.Current` temizlenir.** Bağlam yoksa `StartActivity` o an açık olan span'i parent alırdı;
+  yeni trace (ilk alışta kuyruk beklemesi span'i) başka bir span'in altına girmesin diye.
 - **Örnekleme Collector'da, trace bittikten sonra (tail sampling).** Saklanacak izler faturanın sonucuna göre seçilir (sorunsuzların
-  %10'u; en az 3 kez denenen ve Başarısız faturaların hepsi; fatura numarası taşımayan worker izleri hiç). Uygulamada (head) karar ilk
-  span'de verilir, o anda sonuç bilinmez; bu yüzden uygulamalar `AlwaysOnSampler` ile her şeyi gönderir. Tek trace kararı bunun için
-  korunur: karar bütün yolculuğa birlikte uygulanır. Bedeli: Collector her trace'i karar süresi (30 dk) boyunca bellekte tutar.
+  %10'u; en az 3 kez denenen ve Başarısız faturaların hepsi). Uygulamada (head) karar ilk span'de verilir, o anda sonuç bilinmez; bu
+  yüzden uygulamalar kaydettikleri her şeyi gönderir. Tek trace kararı bunun için korunur: karar bütün yolculuğa birlikte uygulanır.
+  Oluşturma isteğinin trace'i gönderim içermediği için "gönderildi görülmemiş fatura saklanır" kuralıyla her fatura için saklanır:
+  oluşturma anında faturanın sorunlu olup olmayacağı bilinmez, yüzdeyle saklansa sorunlu faturaların oluşturma isteği kaybolabilirdi.
+  Bedeli: Collector her trace'i karar süresi (30 dk) boyunca bellekte tutar.
   Kural "gönderildi görülmemiş fatura saklanır" diye yazıldı: süre yetmezse hata sorunsuz faturayı fazladan saklama yönünde olur,
   sorunlu faturayı kaybetme yönünde değil. Karar önbelleği açık: karardan sonra gelen span'ler (geç haberler) aynı karara uyar, atılmış
   faturanın yarım izi kalmaz. Jaeger varsayılan ayarıyla bellekte en fazla 100.000 trace tutar.

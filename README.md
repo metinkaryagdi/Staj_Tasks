@@ -143,7 +143,7 @@ da başka nedenle ERP'den ayrışan faturalar için mutabakat işi servisin içi
 | Tablo | İçerik |
 |---|---|
 | `invoices` | Fatura ve durumu. Numarayı servis üretir (sequence → `FTR-000001`; body'deki `invoiceNumber` yok sayılır). `send_attempt_count` ömür boyu sayaçtır, resend'de sıfırlanmaz. `reject_reason` yalnızca `Reddedildi`'de dolu. `erp_checked_at` / `erp_check_result`: mutabakatın ERP'ye bu faturayı en son ne zaman sorduğu ve cevabı (`Kayıt yok`, `Kayıtlı, karar: …`); yazılması `updated_at`'i değiştirmez |
-| `erp_outbox` | Faturanın Outbox kaydı (fatura başına bir satır). `locked_until` / `locked_by` / `claim_token` sahipliği ve eski alımın sonucunun yenisini ezmesini önler. `trace_parent`: faturayı oluşturan isteğin W3C traceparent'ı; her deneme bu trace'i sürdürür, resend değiştirmez ([İzler](#i̇zler)) |
+| `erp_outbox` | Faturanın Outbox kaydı (fatura başına bir satır). `locked_until` / `locked_by` / `claim_token` sahipliği ve eski alımın sonucunun yenisini ezmesini önler. `trace_parent`: faturanın trace'inin W3C traceparent'ı; worker kaydı ilk aldığında yazılır, sonraki denemeler bu trace'i sürdürür, resend değiştirmez ([İzler](#i̇zler)) |
 | `erp_webhook_events` | Gelen her geçerli event bir satır (`event_id` birincil anahtar). `delivery_count` tekrar gelişi sayar, `ignore_reason` `Yok Sayıldı`'nın nedenidir (`Geri Götürüyor`, `Kesin Durumda`, `İlerletmiyor`, `Referans Farklı`, `Fatura Yok`) |
 | `reconciliation_runs` | Bir mutabakat çalışması: durum (`Çalışıyor` / `Tamamlandı` / `Başarısız`), karşılaştırılan, düzeltilen ve raporlanan sayısı, hata, `started_by` (başlatan kişi ya da `Zamanlayıcı`; başlatanın kaydedilmesinden önceki çalışmalarda boş) |
 | `reconciliation_findings` | Çalışmanın bulduğu fark: tür, eylem (`Düzeltildi` / `Raporlandı`), ayrıntı. `Düzeltildi` yalnızca düzeltilen üç türde olabilir (check constraint). Fatura tablosuna foreign key yoktur: ERP'de olup serviste olmayan fatura da raporlanır |
@@ -376,12 +376,14 @@ Her alarmın açıklamasında sorun ve operasyon ekibinin ilk yapacağı iş yaz
 ### İzler
 
 HTTP istekleri, HttpClient çağrıları ve veritabanı sorguları (Npgsql) kendiliğinden izlenir; aşağıdaki span'leri uygulamalar
-kendisi açar. Bir faturanın yolculuğu tek trace'tir:
+kendisi açar. Bir faturanın yolculuğu, worker kaydı kuyruktan ilk aldığında başlayan tek trace'tir; oluşturma isteği kendi
+trace'idir:
 
 | Adım | Span |
 |---|---|
-| Faturanın oluşturulması | `POST /api/v1/invoices/` (Invoice Service) |
-| Worker'ın kaydı alması | `outbox.claimed` (`outbox.queue_wait_seconds`); toplu alma `outbox.claim` ayrı bir trace'tir, `outbox.claimed` ona span link ile bağlanır |
+| Faturanın oluşturulması (ayrı trace) | `POST /api/v1/invoices/` (Invoice Service), `invoice.number` |
+| Kuyrukta bekleme (faturanın trace'inin ilk span'i) | `outbox.queue_wait`: başlangıcı faturanın oluşturulma anı, bitişi kaydın kuyruktan ilk alınması (geriye tarihli), `outbox.queue_wait_seconds` |
+| Worker'ın kaydı alması | `outbox.claimed` (her denemede; `outbox.queue_wait_seconds`: kaydın zamanı geldikten alınmasına kadar) |
 | Her gönderim denemesi | `outbox.attempt`: `outbox.attempt` (deneme numarası), `outbox.outcome` (`Sent` / `Retry` / `Failed`), `outbox.wait_seconds` (sonraki denemeye kadar), `outbox.check`, `erp.http_status`; başarısız deneme hata olarak işaretlenir |
 | Hız sınırında bekleme | `erp.pace_wait` |
 | Simülatördeki işlem | `POST /api/v1/invoices/` (ERP Simulator), `simulator.outcome` (seçilen davranış) |
@@ -389,22 +391,28 @@ kendisi açar. Bir faturanın yolculuğu tek trace'tir:
 | Mutabakatın düzeltmesi | `reconciliation.fix`: `reconciliation.finding_type`, `reconciliation.fix` (düzeltme türü), `invoice.status` (faturanın yeni durumu) |
 | Operatörün yeniden gönderimi | `invoice.resend`: `operator.action` (`Resend` / `BulkResend`); ardından denemeler 1'den başlar |
 
-- **Bağlam:** zamanın koptuğu iki yerde W3C traceparent saklanır: `erp_outbox.trace_parent` (fatura oluşturulurken) ve simülatörün
-  `webhook_deliveries.trace_parent` (event planlanırken). Haber isteğinde `traceparent` header'ıyla gider.
-- **Faturanın izini bulmak:** Jaeger'da (http://localhost:16686) Service `invoice-service`, Tags `invoice.number=FTR-000123`.
+- **Bağlam:** zamanın koptuğu iki yerde W3C traceparent saklanır: `erp_outbox.trace_parent` (kaydın ilk alındığı denemede, ERP
+  çağrılmadan önce) ve simülatörün `webhook_deliveries.trace_parent` (event planlanırken). Haber isteğinde `traceparent` header'ıyla
+  gider.
+- **Faturanın izini bulmak:** Jaeger'da (http://localhost:16686) Service `invoice-service`, Tags `invoice.number=FTR-000123`; iki trace
+  çıkar: faturanın trace'i (`outbox.queue_wait` ile başlar) ve oluşturma isteği (`POST /api/v1/invoices/`).
 - **Loglar:** iki uygulamanın her log satırının sonunda o anki `trace_id=` yazar (span dışında `trace_id=-`); bir faturanın iki
   servisteki satırları `docker compose logs invoice-service erp-simulator | Select-String trace_id=<trace_id>` ile bulunur
-  (`trace_id`, faturanın `Invoice queued` satırından alınır).
-- **Örnekleme:** uygulamalar bütün izleri gönderir (`AlwaysOnSampler`); hangilerinin saklanacağına Collector karar verir (tail
-  sampling, [`config.yaml`](monitoring/otel-collector/config.yaml)). Karar, trace'in ilk span'inden 30 dakika sonra bütün
-  yolculuğa birlikte uygulanır:
+  (`trace_id`, faturanın `ERP send start` satırından alınır; `Invoice queued` satırı oluşturma isteğinin trace_id'sini taşır).
+- **Worker'ların sorguları kaydedilmez:** iki uygulamada sampler, hiçbir istek ya da adım altında olmayan veritabanı / HTTP
+  çağrısını (worker'ların kuyruk sorguları, metrik okumaları, zamanlanmış mutabakatın sorguları) kaydetmez; bu izler Collector'a
+  gelmez. Elle başlatılan mutabakatın sorguları, başlatan isteğin izinde kaydedilir.
+- **Örnekleme:** uygulamalar kaydettikleri izleri gönderir; hangilerinin saklanacağına Collector karar verir (tail sampling,
+  [`config.yaml`](monitoring/otel-collector/config.yaml)). Karar, trace'in ilk span'i geldikten 30 dakika sonra bütün yolculuğa
+  birlikte uygulanır; faturanın trace'inde bu süre kaydın kuyruktan ilk alınmasıyla başlar:
 
   | Trace | Saklanır mı |
   |---|---|
   | 1. ya da 2. denemede gönderilen fatura | `sampling_percentage` kadarı (%10) |
   | En az 3 kez denenen fatura | Hepsi |
   | Gönderilmemiş fatura (Başarısız, ya da karar anında henüz gönderilmemiş) | Hepsi |
-  | Fatura numarası taşımayan (worker'ların kuyruk ve diğer sorguları) | Hiçbiri |
+  | Oluşturma isteği (gönderim içermez) | Hepsi |
+  | Fatura numarası taşımayan (faturayla ilgisi olmayan istekler) | Hiçbiri |
 
   Karar süresi yetmezse henüz gönderilmemiş fatura saklanır: sorunlu fatura kaybolmaz, sorunsuz oranı %10'un üstüne çıkar. Karar
   verildikten sonra gelen span'ler (geç haberler, sonraki denemeler, mutabakatın düzeltmesi) aynı karara uyar. Kaç trace'in
@@ -424,6 +432,7 @@ kendisi açar. Bir faturanın yolculuğu tek trace'tir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Gün 15 kontrol listesi (10 dakikalık yük testinde saklanan sorunsuz oranı, sorunlu ve oluşturma izleri, Collector belleği; boşta bekleyen trace; kuyrukta 30 dakikadan uzun beklemiş faturanın izi; bellek sınırı denemesi) | [`manual-tests/gun15/`](manual-tests/gun15/) |
 | Gün 14 kontrol listesi (Collector'ın bellek sınırı; 10 dakikalık yük testinde Collector belleği, reddedilen span'ler, zaman içinde saklanan sorunsuz oranı, sorunlu faturaların izleri) | [`manual-tests/gun14/`](manual-tests/gun14/) |
 | Gün 13 kontrol listesi (yük altında örnekleme ve Collector belleği, boşta worker izleri, uzun süren faturanın izi, mutabakat ve yeniden gönderim izde, repeat_interval) | [`manual-tests/gun13/`](manual-tests/gun13/) |
 | Gün 12 kontrol listesi (pano ve alarmlar, Jaeger'daki izler, log satırlarında trace_id) ve izlemenin maliyeti | [`manual-tests/gun12/`](manual-tests/gun12/) |
@@ -468,7 +477,7 @@ bağlıdır (`Eventually.WaitUntilAsync`); sabit süreli bekleme yoktur.
 | 8. İki kopya, 100 sıra: ardışık sıralar ve gönderimlerin başladığı anlar aralıktan kısa değil; sistem boşta kaldıktan sonra da | `SendPaceTests` (2 test: sıra `now()` iken ve bir dakika geride iken) |
 | 9. Zamanı gelmiş kayıtlar kuyruğa giriş sırasıyla alınır | `OutboxClaimTests.Entries_whose_time_has_come_are_taken_in_the_order_they_entered_the_queue_...` |
 | 10. Sürekli hata alan faturalar yeni faturanın gönderimini durdurmaz | `OutboxClaimTests.Invoices_that_keep_failing_do_not_hold_back_a_new_invoice` |
-| 11. Kayıt alınınca faturanın trace'i geri gelir, resend trace'i değiştirmez | `OutboxClaimTests.The_claim_hands_over_the_invoice_s_trace_and_due_time_and_a_resend_keeps_the_trace` |
+| 11. İlk deneme başlattığı trace'i kayda yazar, resend trace'i değiştirmez | `OutboxClaimTests.The_first_attempt_stores_the_trace_it_started_and_a_resend_keeps_it` |
 
 Özet sayısının yük altındaki ölçümü: [`manual-tests/gun9/1-ozet-yuk-altinda.ps1`](manual-tests/gun9/1-ozet-yuk-altinda.ps1)
 (yük testi sürerken çalıştırılır).
@@ -494,37 +503,56 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 14 — Collector'ı Yüke Karşı Korumak
+## Gün 15 — İzlemeyi Toparlamak
 
-Bugünün işi: Collector'ın belleğine sınır konuldu ve tasarım uzun bir yük altında ölçüldü.
+Bugünün işi: faturanın izi worker kaydı kuyruktan ilk aldığında başlıyor, worker'ların sorguları hiç kaydedilmiyor ve
+Collector'ın bellek sınırı bilerek düşürülerek denendi.
 
-- **Bellek sınırı:** Collector'da `memory_limiter` (`limit_mib` 1600, `spike_limit_mib` 400), container'da `mem_limit: 2048m`
-  ([İzler](#i̇zler) bölümünde Collector'ın belleği).
-- **Uzun yük testi** (saniyede 50 fatura, 10 dakika; kuyruk 2 saat 10 dakikada boşaldı): Collector'ın belleği en çok 934 MiB oldu,
-  bellek sınırı devreye girmedi, reddedilen span olmadı; sorunlu faturaların hiçbirinin izi kaybolmadı. Kuyruk beklemesi 30 dakikayı
-  geçen sorunsuz faturaların çoğu karar anında henüz gönderilmemiş olduğu için saklandı.
+- **İzin başlangıcı:** ilk span kuyrukta bekleme (`outbox.queue_wait`, faturanın oluşturulma anından geriye tarihli);
+  oluşturma isteği kendi izidir ve fatura numarasıyla bulunur ([İzler](#i̇zler)).
+- **Worker sorguları:** iki uygulamada sampler, hiçbir istek altında olmayan veritabanı / HTTP çağrısını kaydetmez; toplu kayıt
+  almanın span'i ve link'i kalktı.
+- **Uzun yük testi** (saniyede 50 fatura, 10 dakika, simülatörün varsayılan oranları; kuyruk 1 sa 18 dk'da boşaldı): saklanan
+  sorunsuz fatura oranı ilk 30 dakikada %9,9, sonrasında %9,4; 3.010 sorunlu faturanın hiçbirinin izi kaybolmadı. Collector'da
+  bellekte en çok 41.704 trace, en yüksek bellek 1.068 MiB; sistem boştayken bellekte 0 trace.
+- **Başarısız faturalar** (ayrı kısa koşu, simülatör yalnız 500 döndürür): 30 faturanın 30'u Başarısız oldu, hepsinin izi saklandı.
+- **Bellek sınırı denemesi** (`limit_mib` 400, `spike_limit_mib` 100): Collector 857.490 span'i ve 21.734 metrik noktasını
+  reddetti; faturaların hepsi gönderildi, aynı faturanın gönderim süresi normal sınırlı (1600 / 400) koşudakinden ortanca 1,4 sn farklı. Sınır
+  1600 / 400'e döndü.
 
-Kontrol listesi: [`manual-tests/gun14/`](manual-tests/gun14/). Yük testi (`1-uzun-yuk.ps1`) Gün 13'teki gibi simülatörü Success 30,
-ServerError 40 ile çalıştırır, bitince varsayılan ayarlara döner; Collector'ın belleğini, kendi metriklerini ve logunu koşu boyunca
-kaydeder. Sayımı `2-sayim.ps1` yapar (her fatura Jaeger'da aranır; 30.000 fatura yaklaşık 2 saat sürer).
+Kontrol listesi: [`manual-tests/gun15/`](manual-tests/gun15/). `1-uzun-yuk.ps1` yük testini simülatörün ayarına dokunmadan çalıştırır,
+Collector'ın belleğini ve kendi metriklerini kaydeder, sonunda boşta bir mutabakat çalışmasından sonra bellekteki trace'leri okur;
+ardından `2-sayim.ps1` (her fatura Jaeger'da aranır, fatura izi ve oluşturma izi ayrı sayılır) ve `3-ekran.ps1` (Jaeger görüntüleri)
+çalışır. `4-bellek-denemesi.ps1 -LimitMib 400 -SpikeMib 100` sınırı yalnız deneme süresince düşürür, uygulamaların OpenTelemetry
+tanılama logunu açar ve bitince ikisini de geri alır. `5-basarisiz.ps1` simülatörü yalnız 500 döndürecek şekilde açar, Başarısız
+olan faturaların izlerini sayar ve simülatörü varsayılan ayarlarına döndürür.
 
 ### Bilinen sınırlar
 
 - **Collector** kararını bekleyen izleri bellekte tutar; yeniden başlarsa bekleyen izler (sorunlu faturalarınki dahil) kaybolur.
-  Bellek sınırı aşılınca reddedilen span'leri uygulamalar yeniden göndermez, o span'ler kaybolur. Ölçüme göre bellek sınırından önce
-  `num_traces` (100.000) dolar: 30 dakika boyunca saniyede yaklaşık 22 fatura gelirse; dolunca en eski trace'ler (faturalarınki dahil)
-  karar verilmeden atılır.
-- **Karar süresi** faturanın oluşturulmasından başlar: kuyruk beklemesi 30 dakikayı geçerse sorunsuz faturalar da saklanır (uzun
-  testte 30. dakikadan sonra gönderilen sorunsuzların %97,5'i).
-- **Toplu kayıt alma** (`outbox.claim`) trace'leri saklanmaz; `outbox.claimed`'in link'i Jaeger'da bulunmayan trace'i gösterir.
-  Kaydın bekleme süresi faturanın kendi izindedir (`outbox.queue_wait_seconds`).
-- **Jaeger** izleri bellekte tutar ve en fazla 100.000 trace saklar. Jaeger yeniden başlayınca bütün izler gider.
+  Ölçüme göre (simülatörün varsayılan oranlarında işleme hızı saniyede 6,4) ilk dolan sınır `num_traces`'tir (100.000): 30 dakika
+  boyunca saniyede yaklaşık 49 fatura gelirse; dolunca en eski trace'ler karar verilmeden atılır.
+- **Bellek sınırı** aşılınca reddedilen span'ler ve metrik noktaları kaybolur: uygulamalar yeniden göndermez ve bunu konsol loguna
+  yazmaz (yalnız OpenTelemetry'nin tanılama loguna, açıksa). Metrikler de reddedildiği için servisler çalışırken
+  `MetrikToplanamiyor` alarmı tetiklenebilir (denemede servislerin metrikleri 36-38 dakika görünmedi).
+- **Collector'ın belleğini** çoğunlukla fatura izleri doldurur (karar süresi boyunca bütün span'leriyle); sayıları faturaların
+  kuyruktan alınma hızına bağlıdır. Fatura izi başına heap varsayılan oranlarda ölçüldü; buna göre birikmiş bir kuyruk saniyede
+  yaklaşık 10 faturadan hızlı boşalırsa heap bellek sınırına ulaşır.
+- **Karar süresi** (30 dakika) kuyruk beklemesini kapsayacak biçimde seçilmişti; iz artık kuyruktan çıkışta başladığı için bu gerekçe
+  yoktur, değer değiştirilmedi.
+- **Oluşturma isteğinin izi** her fatura için saklanır: uzun testte 30.000 fatura için 35.596 trace saklandı. Jaeger en fazla
+  100.000 trace tutar ve en eskileri siler; bu oranla yaklaşık 84.000 faturada dolar (oluşturma izleri olmadan yaklaşık 536.000).
+  Jaeger yeniden başlayınca bütün izler gider.
+- **İlk alış yarıda kalırsa:** iz kayda yazılamadan deneme biterse (kayıt bu arada başka bir worker'a geçtiyse ya da iz
+  yazılmadan bir hata çıktıysa) kuyruk adımı yine gönderilir ve faturanın ikinci bir izi oluşur. Servis deneme sırasında durursa
+  kuyruk adımı hiç gönderilmez: iz kayda yazılmışsa sonraki denemeler kökü olmayan bir izde sürer, yazılmamışsa sonraki alış yeni
+  bir iz başlatır ve kuyruk adımı ilk denemeyi ve kilit süresini de içerir.
 - **Gönderim kuyrukları:** uygulamanın ve Collector'ın gönderim kuyrukları dolarsa span'ler düşebilir; bunu gösteren metrik ya da
   alarm yoktur.
 - **Mutabakat ve operatör işlemleri** bir fatura için yazdıkları log satırlarında faturanın trace_id'sini taşımaz: zamanlanmış
   mutabakatta `trace_id=-`, elle başlatılan mutabakatta ve operatör işlemlerinde isteğin trace_id'si yazar.
 - **Loglar** container'da tutulur; container yeniden oluşturulunca eski satırlar gider.
-- **Eski kayıtlar:** izleme eklenmeden önce kuyruğa girmiş kayıtların trace'i yoktur; denemeleri yeni bir trace başlatır.
+- **Eski kayıtlar:** bu sürümden önce kuyruğa girmiş kayıtlar, `trace_parent`'larındaki oluşturma isteğinin izini sürdürür.
 - **Aynı fatura numarası** farklı veritabanlarında yeniden üretildiği için Jaeger'da birden fazla trace'te çıkabilir; arama zaman
   aralığıyla daraltılmalıdır.
 - **MetrikToplanamiyor** servis bazındadır: iki kopyadan yalnız biri durursa tetiklenmez. Collector durursa iki servisin alarmı
@@ -552,3 +580,4 @@ kaydeder. Sayımı `2-sayim.ps1` yapar (her fatura Jaeger'da aranır; 30.000 fat
 | `gun-12` | Bir Faturanın Yolculuğunu İzlemek | [tree/gun-12](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-12) |
 | `gun-13` | İzlerin Örneklenmesi | [tree/gun-13](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-13) |
 | `gun-14` | Collector'ı Yüke Karşı Korumak | [tree/gun-14](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-14) |
+| `gun-15` | İzlemeyi Toparlamak | [tree/gun-15](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-15) |
