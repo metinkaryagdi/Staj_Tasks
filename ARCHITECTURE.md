@@ -375,11 +375,10 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Metrikler ve izler ayrı Collector'larda.** İkisi aynı Collector'dan ve aynı bellek sınırından geçince izlerin yükü sınırı
   aşınca metrikler de reddediliyordu: servisler çalışırken Prometheus'ta görünmüyor, `MetrikToplanamiyor` yanlış tetikleniyor, kuyruk
   ve takılı fatura alarmları sistemin en çok zorlandığı anda çalışmayabiliyordu. Metrik Collector'ı ayrı bir süreç ve ayrı bir bellek
-  sınırıdır; izler ne kadar yük getirirse getirsin (iz Collector'ı veri reddetse ya da dursa da) ona dokunmaz. Pano ve alarmlar
+  sınırıdır; izler ne kadar yük getirirse getirsin (iz Collector'ı veri reddetse de; yük yokken durdurulduğunda da metrikler sürdü) ona dokunmaz. Pano ve alarmlar
   aynı metrik adlarıyla değişmeden çalışır. Bedeli bir container (iz Collector'ıyla aynı imaj ve sürüm). Düşünülen diğer yollar:
-  Prometheus'un uygulamaları doğrudan toplaması (yeni bileşen yok, ama .NET'in Prometheus exporter'ının kararlı sürümü yok,
-  metriklerin Collector üzerinden gönderildiği yapı geri alınır ve her servis kopyası Prometheus'ta ayrı hedef ister); aynı Collector'da metrik pipeline'ını bellek sınırı olmadan bırakmak
-  (tek süreçtir: container sınırında ikisi birlikte öldürülür); izlerin belleğini sınırın altında tutmak (yüke bağlıdır, garanti
+  aynı Collector'da metrik pipeline'ını bellek sınırı olmadan bırakmak (tek süreçtir: container sınırında ikisi birlikte
+  öldürülür); izlerin belleğini sınırın altında tutmak (yüke bağlıdır, garanti
   vermez); uygulamalarda yeniden gönderim (kısa retleri kapatır, uzun retlerde boşluk kalır).
   OTLP exporter'ı `AddOtlpExporter` ile eklendiğinde yalnız genel adresi (`OTEL_EXPORTER_OTLP_ENDPOINT`, iz Collector'ı) okur;
   metrik adresi (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) `Program.cs`'te verilir. Sinyal adreslerini kendisi okuyan
@@ -387,7 +386,7 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Ret alarmı yalnız ret sayacına bakar.** `CollectorIzReddediyor` iz Collector'ının reddettiği span sayacının
   (`otelcol_receiver_refused_spans_total`) son 5 dakikadaki artışına bakar; servislerin metriklerine bakmadığı için servis durunca
   tetiklenmez, ret sırasında da servisin durduğu sanılmaz. Ret aralıklıdır (bellek çöp toplamayla iner, yeniden çıkar); 5 dakikalık
-  aralık arada kısa kabul dönemleri olsa da alarmı açık tutar, son retten yaklaşık 5 dakika sonra çözülür. Prometheus bu sayacı iz
+  aralık arada kısa kabul dönemleri olsa da alarmı açık tutar, son retten 4-5 dakika sonra çözülür. Prometheus bu sayacı iz
   Collector'ının kendi metrik adresinden toplar; bu adres Collector veri reddederken de cevap verir.
 - **Metrik toplanamıyor alarmı `up` değil `absent(target_info{job=…})` kullanır.** Prometheus artık Collector'ı topladığı için `up`
   uygulamanın durduğunu göstermez. Collector'ın varsayılan `metric_expiration`'ı (5 dk) durmuş servisin son değerlerini sunmaya devam
@@ -425,7 +424,7 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   görülmesi için gerekir; sorunlu fatura süreden bağımsız saklanır (karar anında gönderilmemişse ihtiyat kuralı, sonrası karar
   önbelleği). Kayıtlar kuyruğa giriş sırasıyla alındığı için zamanı gelen 2. deneme kuyruk ne kadar dolu olursa olsun yeni faturaların
   önüne geçer; bir denemenin ERP çağrıları en çok 3 x `Erp:TimeoutSeconds`, aradaki bekleme en çok ERP'nin Retry-After'ı (simülatörde 30 sn) sürer:
-  2. denemede gönderilen fatura yaklaşık 1,5 dakikada gönderilmiş olur. Önceki 30 dakika, iz oluşturmada başlarken kuyruk beklemesini
+  2. denemede gönderilen faturanın yaklaşık 1,5 dakikada gönderilmiş olması beklenir. Önceki 30 dakika, iz oluşturmada başlarken kuyruk beklemesini
   kapsamak içindi; iz kuyruktan çıkışta başlayınca gerekçesi kalmadı.
 - **İz Collector'ının belleği container sınırının altında sınırlı.** `memory_limiter` iz pipeline'ında ilk processor'dür; heap
   1.200 MiB'ı (`limit_mib` 1600 − `spike_limit_mib` 400) geçince gelen veriyi reddeder. Container sınırı (`mem_limit: 2048m`)

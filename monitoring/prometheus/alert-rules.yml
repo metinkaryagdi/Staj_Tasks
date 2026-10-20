@@ -84,7 +84,7 @@ groups:
       - alert: CollectorIzReddediyor
         # Yalnız reddedilen span sayacına bakar, servislerin metriklerine bakmaz: servis dururken tetiklenmez, Collector
         # reddederken servisin durduğu sanılmaz. Ret aralıklı olabilir (bellek çöp toplamayla iner, yeniden çıkar); 5
-        # dakikalık aralık arada kısa kabul dönemleri olsa da alarmı açık tutar. Son retten 5 dakika sonra çözülür.
+        # dakikalık aralık arada kısa kabul dönemleri olsa da alarmı açık tutar. Son retten 4-5 dakika sonra çözülür.
         expr: sum(increase(otelcol_receiver_refused_spans_total{job="otel-collector"}[5m])) > 0
         annotations:
           summary: "İz Collector'ı son 5 dakikada gelen span'leri reddetti."

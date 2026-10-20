@@ -1,4 +1,4 @@
-﻿# Kontrol listesi 1'in sayımı: uzun yük testinin faturalarından hangilerinin izi Jaeger'da saklandı; her faturanın
+﻿# Kontrol listesi 3'ün sayımı: uzun yük testinin faturalarından hangilerinin izi Jaeger'da saklandı; her faturanın
 # oluşturma isteği de fatura numarasıyla bulunuyor mu.
 #   .\manual-tests\gun16\2-sayim.ps1 -RunId GUN16-uzun-20261020-120000
 # 1-uzun-yuk.ps1 koşunun sonunda bunu çağırır; ayrıca çalıştırılırsa aynı koşu yeniden sayılır (yığın o koşunun

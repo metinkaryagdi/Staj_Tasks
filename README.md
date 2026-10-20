@@ -374,7 +374,7 @@ veritabanından okunan değerler `max()`, sayaçlar `sum()` ile alınır.
 | `BasariliMutabakatYok` | En son `Tamamlandı` çalışma 2 saatten eski |
 | `CokSayida401` | Son 5 dakikada 20'den fazla haber 401 |
 | `MetrikToplanamiyor` | Invoice Service'in ya da ERP Simulator'ın metrikleri Prometheus'ta 1 dakika boyunca yok; servis başına ayrı alarm. Servis durduktan sonra bildirim yaklaşık 1,5-2 dakikada gelir (metrik Collector'ının 15 sn'si, değerlendirme aralığı, `for` ve Alertmanager'ın beklemesi). İz Collector'ının reddi bunu tetiklemez |
-| `CollectorIzReddediyor` | İz Collector'ı son 5 dakikada gelen span'leri reddetti (bellek sınırı, `otelcol_receiver_refused_spans_total`); yalnız ret sayacına bakar, servisin durmasıyla karışmaz. Son retten yaklaşık 5 dakika sonra çözülür |
+| `CollectorIzReddediyor` | İz Collector'ı son 5 dakikada gelen span'leri reddetti (bellek sınırı, `otelcol_receiver_refused_spans_total`); yalnız ret sayacına bakar, servisin durmasıyla karışmaz. Son retten 4-5 dakika sonra çözülür |
 
 Her alarmın açıklamasında sorun ve operasyon ekibinin ilk yapacağı iş yazar. Bildirimler alıcının logunda:
 `docker compose logs -f alert-receiver` (`Alert status=firing alertname=… summary="…" description="…"`; koşul kalkınca
@@ -525,13 +525,13 @@ Collector'ın karar süresi 2 dakikaya indi.
 - **Bellek sınırı denemesi** (karar süresi 30 dakika, `limit_mib` 400, `spike_limit_mib` 100, saniyede 50 fatura, 10 dakika):
   iz Collector'ı 855.032 span reddetti (46 aralıkta toplam 43 dk); uygulamaların hiçbir metrik gönderimi başarısız olmadı, iki
   servisin metrikleri Prometheus'tan kaybolmadı, `MetrikToplanamiyor` tetiklenmedi, `CollectorIzReddediyor` tetiklendi; kuyruk ve
-  takılı fatura alarmları ret sırasında tetiklenip çözüldü. Sınır kuyruk boşaldıktan 60 saniye sonra 1600 / 400'e döndü, ret alarmı
-  3 dk 58 sn sonra çözüldü.
+  takılı fatura alarmları ret sırasında tetiklenip çözüldü. Kuyruk boşaldıktan sonra 60 saniye beklendi, sınır kuyruğun boşalmasından
+  1 dk 19 sn sonra, aralıklı ret sürerken 1600 / 400'e döndü; ret alarmının çözüldüğü bildirim 3 dk 58 sn sonra geldi.
 - **Uzun yük testi** (karar süresi 2 dakika; saniyede 50 fatura, 10 dakika, simülatörün varsayılan oranları; kuyruk yük başından
   1 sa 18 dk'da boşaldı): saklanan sorunsuz fatura oranı %10,0; 2.959 sorunlu faturanın hiçbirinin izi kaybolmadı; kuyruktan ilk
   alınmadan gönderilmeye izi saklanan sorunsuzlarda en uzun 0,55 dakika geçti, 2 dakikayı geçen sorunsuz fatura olmadı. İz Collector'ında bellekte en çok 6.911 trace, en yüksek bellek
-  230 MiB (dün 41.704 ve 1.068 MiB). Metrik Collector'ı ortalama 106 MiB bellek ve %0,09 işlemci kullandı.
-- **İz Collector'ı durdurulunca** (2 dakika) metrikler kesintisiz sürdü, hiçbir alarm tetiklenmedi; Collector başlatılınca izler
+  230 MiB (dün 41.704 ve 1.068 MiB). Metrik Collector'ı ortalama 106,0 MiB bellek ve %0,09 işlemci kullandı.
+- **İz Collector'ı durdurulunca** (yük yokken, 2 dakika) metrikler kesintisiz sürdü, hiçbir alarm tetiklenmedi; Collector başlatılınca izler
   yeniden alındı. İkinci servis kopyası açıkken iki kopyanın metrikleri metrik Collector'ından ayrı ayrı geldi.
 
 Kontrol listesi: [`manual-tests/gun16/`](manual-tests/gun16/). `4-bellek-denemesi.ps1 -LimitMib 400 -SpikeMib 100` iz Collector'ının
@@ -566,15 +566,16 @@ servisin `MetrikToplanamiyor` alarmının gelmesini ve çözülmesini bekler.
   yazılmadan bir hata çıktıysa) kuyruk adımı yine gönderilir ve faturanın ikinci bir izi oluşur. Servis deneme sırasında durursa
   kuyruk adımı hiç gönderilmez: iz kayda yazılmışsa sonraki denemeler kökü olmayan bir izde sürer, yazılmamışsa sonraki alış yeni
   bir iz başlatır ve kuyruk adımı ilk denemeyi ve kilit süresini de içerir.
-- **Gönderim kuyrukları:** uygulamanın ve Collector'ların gönderim kuyrukları dolarsa span'ler ya da metrikler düşebilir; bunu
-  gösteren metrik ya da alarm yoktur.
+- **Gönderim kuyrukları:** uygulamanın ve Collector'ların gönderim kuyrukları dolarsa span'ler ya da metrikler düşebilir. İz
+  Collector'ının Jaeger'a gönderim kuyruğu Prometheus'ta görünür (`otelcol_exporter_queue_size`), diğerleri için metrik yoktur;
+  hiçbiri için alarm yoktur.
 - **Mutabakat ve operatör işlemleri** bir fatura için yazdıkları log satırlarında faturanın trace_id'sini taşımaz: zamanlanmış
   mutabakatta `trace_id=-`, elle başlatılan mutabakatta ve operatör işlemlerinde isteğin trace_id'si yazar.
 - **Loglar** container'da tutulur; container yeniden oluşturulunca eski satırlar gider.
 - **Aynı fatura numarası** farklı veritabanlarında yeniden üretildiği için Jaeger'da birden fazla trace'te çıkabilir; arama zaman
   aralığıyla daraltılmalıdır.
 - **MetrikToplanamiyor** servis bazındadır: iki kopyadan yalnız biri durursa tetiklenmez. Metrik Collector'ı durursa iki servisin alarmı
-  birlikte tetiklenir (denemede 1 dk 29 sn sonra); metrikleri reddederse de aynısı beklenir, bu ret için ayrı alarm yoktur.
+  birlikte tetiklenir (denemede 1 dk 29 sn sonra); metrikleri uzun süre reddederse de aynısı beklenir, bu ret için ayrı alarm yoktur.
 - **Alertmanager** hangi alarmı bildirdiğini 15 dakikada bir diske yazar; düzgün kapanmadan yeniden başlarsa eski kaydı yükler ve aynı
   alarm yeniden tetiklendiğinde bildirimi `repeat_interval` (1 saat) dolana kadar göndermez. Alarm Prometheus'ta ve panoda görünür.
 

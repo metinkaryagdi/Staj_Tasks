@@ -35,12 +35,12 @@ processors:
     # olur. İlk alınmadan önceki kuyruk beklemesi bu süreye girmez; 2. denemenin kuyrukta beklemesi girer.
     # Süre yetmezse fatura aşağıdaki ihtiyat kuralıyla saklanır: sorunlu fatura kaybolmaz, sorunsuz oranı %10'un üstüne
     # çıkar.
-    # 2 dakika: bir denemenin ERP çağrıları (sor, gönder, son kez sor) en çok 3 x Erp:TimeoutSeconds (30 sn) sürer,
-    # iki deneme arasındaki bekleme en çok ERP'nin Retry-After'ı kadardır (simülatörde en çok 30 sn; 500 ve zaman
-    # aşımında birkaç saniye) ve zamanı gelen deneme kuyruktaki yeni faturaların önüne geçer (kayıtlar kuyruğa giriş
-    # sırasıyla alınır). 2. denemede gönderilen fatura bu yüzden kuyruk ne kadar dolu olursa olsun ilk alınmasından
-    # yaklaşık 1,5 dakikada gönderilmiş olur; kalan pay hız sınırı ve boş bir gönderim yerinin beklenmesi ve
-    # span'lerin uygulamadan gelme gecikmesi içindir.
+    # 2 dakika: bir denemenin ERP çağrıları (sor, gönder; haklar bitince ayrıca son kez sor) en çok
+    # 3 x Erp:TimeoutSeconds (30 sn) sürer, iki deneme arasındaki bekleme en çok ERP'nin Retry-After'ı kadardır
+    # (simülatörde en çok 30 sn; 500 ve zaman aşımında birkaç saniye) ve zamanı gelen deneme kuyruktaki yeni faturaların
+    # önüne geçer (kayıtlar kuyruğa giriş sırasıyla alınır). 2. denemede gönderilen faturanın bu yüzden kuyruk ne kadar
+    # dolu olursa olsun ilk alınmasından yaklaşık 1,5 dakikada gönderilmiş olması beklenir; kalan pay hız sınırı ve boş
+    # bir gönderim yerinin beklenmesi ve span'lerin uygulamadan gelme gecikmesi içindir.
     # Erp:TimeoutSeconds ya da Retry-After büyürse ya da kuyruğun sırası değişirse süre de gözden geçirilmelidir.
     # Bedeli bellek: bu süre boyunca gelen bütün span'ler Collector'da tutulur.
     decision_wait: 2m

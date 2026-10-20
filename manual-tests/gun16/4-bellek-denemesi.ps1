@@ -194,7 +194,7 @@ finally {
     Write-Line "Dönüş ($($restoredAt.ToString('HH:mm:ss')) UTC): config.yaml denemeden önceki haliyle aynı: $same; Collector açılış logu: $back"
     Write-Line 'Uygulamalar tanılama eki olmadan yeniden başlatıldı.'
 
-    # Kontrol listesi 2: ret alarmının çözülmesi (son retten 5 dk sonra beklenir).
+    # Kontrol listesi 2: ret alarmının çözülmesi (son retten 4-5 dk sonra beklenir).
     Write-Step "CollectorIzReddediyor'un çözülmesi bekleniyor (en çok $ResolveTimeoutMinutes dk)"
     $fired = @(Get-ReceiverLines $since | Where-Object { $_ -match 'status=firing alertname=CollectorIzReddediyor ' }).Count
     if ($fired) {

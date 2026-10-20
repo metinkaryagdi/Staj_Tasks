@@ -14,7 +14,7 @@
 #   Collector'ın logu: bellek sınırının devreye girdiği ve çıktığı anlar (-limiter-log.txt).
 # Kayıtlar bittikten (kuyruk boş, simülatörde bekleyen haber yok) sonra decision_wait + 60 sn beklenir: koşunun bütün
 # trace'leri karara bağlanır. Sonra sistem boştadır: bir mutabakat çalışmasının bitmesi beklenir (bütün worker'lar en az
-# bir kez çalışmış olsun) ve bellekte bekleyen trace sayısı ile yeni trace hızı okunur (kontrol listesi 2).
+# bir kez çalışmış olsun) ve bellekte bekleyen trace sayısı ile yeni trace hızı okunur.
 #
 # -SkipIdle: boştaki ölçüm yapılmaz. -SkipCount: sayım ve görüntüler yapılmaz. -ComposeFile: compose'a eklenecek dosya
 # (bellek sınırı denemesinde kullanılır). -WaitSeconds: son kararlar için beklenen süre (varsayılan decision_wait + 60 sn;
@@ -218,7 +218,7 @@ if ($recon) {
     $win = @($onMemory | Where-Object { $_.At -ge $idleFrom -and $_.At -le $idleTo })
     $firstAfter = @($onMemory | Where-Object { $_.At -ge $recon.Finished.AddSeconds(15) }) | Select-Object -First 1
     Write-Line ''
-    Write-Line "Sistem boştayken (kontrol listesi 2), $($idleFrom.ToString('HH:mm:ss'))-$($idleTo.ToString('HH:mm:ss')) UTC:"
+    Write-Line "Sistem boştayken, $($idleFrom.ToString('HH:mm:ss'))-$($idleTo.ToString('HH:mm:ss')) UTC:"
     Write-Line ("  Mutabakat #{0} {1}-{2} UTC ({3})" -f $recon.Id, $recon.Started.ToString('HH:mm:ss'), $recon.Finished.ToString('HH:mm:ss'), $recon.Status)
     if ($win.Count -ge 2) {
         $dt = ($win[-1].At - $win[0].At).TotalSeconds
