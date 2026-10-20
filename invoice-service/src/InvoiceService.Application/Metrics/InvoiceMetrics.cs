@@ -4,8 +4,8 @@ using InvoiceService.Domain.Reconciliation;
 namespace InvoiceService.Application.Metrics;
 
 /// <summary>
-/// The service's metrics (meter <see cref="MeterName"/>), exported over OTLP to the Collector, where Prometheus reads
-/// them. OpenTelemetry names them with dots; Prometheus shows them with underscores, the unit (_seconds) and, for
+/// The service's metrics (meter <see cref="MeterName"/>), exported over OTLP to the metrics Collector, where Prometheus
+/// reads them. OpenTelemetry names them with dots; Prometheus shows them with underscores, the unit (_seconds) and, for
 /// counters, _total.
 /// </summary>
 public sealed class InvoiceMetrics

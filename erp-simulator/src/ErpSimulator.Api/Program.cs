@@ -22,7 +22,13 @@ builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService("erp-simulator"))
     .WithMetrics(metrics => metrics
     .AddMeter(SimulatorMetrics.MeterName)
-    .AddOtlpExporter())
+    // Metrics go to their own Collector (OTEL_EXPORTER_OTLP_METRICS_ENDPOINT), so the trace load cannot block them.
+    // AddOtlpExporter reads only OTEL_EXPORTER_OTLP_ENDPOINT (the trace Collector), the metrics address is set here.
+    .AddOtlpExporter(otlp =>
+    {
+        if (builder.Configuration["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"] is { } endpoint)
+            otlp.Endpoint = new Uri(endpoint);
+    }))
     // Every recorded trace is sent; the Collector decides which are kept (tail sampling). HTTP requests, HttpClient
     // calls and database commands are traced automatically. A background worker's query is not recorded at all.
     .WithTracing(tracing => tracing

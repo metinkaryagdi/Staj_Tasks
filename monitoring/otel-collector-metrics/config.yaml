@@ -1,0 +1,39 @@
+# Metrik Collector'ı: iki uygulama metriklerini OTLP ile buraya gönderir (5 saniyede bir); metrikler Prometheus biçiminde
+# :8889/metrics adresinde sunulur ve Prometheus oradan toplar. İzler buraya gelmez, otel-collector'a gider
+# (monitoring/otel-collector/config.yaml).
+# Metrikler iz Collector'ından ayrı bir süreçtedir: izlerin yükü o Collector'ın belleğini doldurup veri reddettirse ya da
+# Collector'ı öldürse bile metrikler Prometheus'a ulaşmaya, alarmlar çalışmaya devam eder.
+# Değiştirdikten sonra `docker compose restart otel-collector-metrics`.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Bellek sınırı: limit_mib - spike_limit_mib (yumuşak sınır) aşılınca gelen metrikler reddedilir, limit_mib (sert sınır)
+  # aşılınca ayrıca çöp toplama zorlanır. Burada yalnız metrik tutulduğu için sınıra normalde yaklaşılmaz; sınır,
+  # beklenmedik bir artışta container sınırı aşılıp Collector öldürülmesin diye vardır.
+  # Değerler docker-compose.yml'deki container sınırına (mem_limit: 256m) göre, iz Collector'ındaki oranlarla seçildi:
+  # limit_mib bunun ~%80'i, spike_limit_mib limit_mib'in %25'i. Container sınırı değişirse bu ikisi de değiştirilmelidir.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 200
+    spike_limit_mib: 50
+
+exporters:
+  # Metrik adları uygulamaların eski /metrics çıktısıyla aynıdır (birim ve _total ekleri dahil), pano ve alarmlar
+  # değişmeden çalışır. job etiketi service.name'dir (invoice-service, erp-simulator).
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Bir servisten bu kadar süre metrik gelmezse son değerleri sunulmaz (varsayılan 5 dakika). Kısa tutulur: servis
+    # durunca metrikleri Prometheus'ta da kaybolsun ve MetrikToplanamiyor alarmı servisin durduğunu görebilsin.
+    # Uygulamalar 5 sn'de bir gönderir; 15 sn, üç gönderimin kaçması demektir.
+    metric_expiration: 15s
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [prometheus]

@@ -1,6 +1,6 @@
-# Prometheus metrikleri OpenTelemetry Collector'dan 5 saniyede bir toplar; uygulamalar metriklerini Collector'a gönderir
-# (monitoring/otel-collector/config.yaml). Fatura Servisi'nin veritabanından okunan değerleri (kuyruk, durum sayıları,
-# takılı fatura, son mutabakat) servis 15 saniyede bir okur; arada gelen gönderimler son okumayı taşır.
+# Prometheus metrikleri metrik Collector'ından 5 saniyede bir toplar; uygulamalar metriklerini oraya gönderir
+# (monitoring/otel-collector-metrics/config.yaml). Fatura Servisi'nin veritabanından okunan değerleri (kuyruk, durum
+# sayıları, takılı fatura, son mutabakat) servis 15 saniyede bir okur; arada gelen gönderimler son okumayı taşır.
 global:
   scrape_interval: 5s
   evaluation_interval: 15s
@@ -14,10 +14,16 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 scrape_configs:
-  # Collector her metriği gönderen servisin adıyla (job=invoice-service, erp-simulator) ve kopyasıyla (instance) sunar.
-  # honor_labels bu etiketleri korur; yoksa Prometheus hepsine job=otel-collector yazardı. invoice-service-2 (iki kopya
-  # testleri) de aynı Collector'a gönderdiği için ayrıca hedef gerekmez.
-  - job_name: otel-collector
+  # Uygulamaların metrikleri. Collector her metriği gönderen servisin adıyla (job=invoice-service, erp-simulator) ve
+  # kopyasıyla (instance) sunar. honor_labels bu etiketleri korur; yoksa Prometheus hepsine job=otel-collector-metrics
+  # yazardı. invoice-service-2 (iki kopya testleri) de aynı Collector'a gönderdiği için ayrıca hedef gerekmez.
+  - job_name: otel-collector-metrics
     honor_labels: true
     static_configs:
-      - targets: ["otel-collector:8889"]
+      - targets: ["otel-collector-metrics:8889"]
+
+  # İz Collector'ının kendi metrikleri (otelcol_*): reddedilen span'ler (CollectorIzReddediyor alarmı), örneklemenin
+  # sakladığı ve attığı trace'ler. Uygulamaların metriklerinden ayrı bir adres; Collector veri reddederken de sunulur.
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8888"]

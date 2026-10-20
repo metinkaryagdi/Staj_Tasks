@@ -1,5 +1,6 @@
-# OpenTelemetry Collector: iki uygulama metriklerini ve izlerini OTLP ile buraya gönderir. Metrikler (5 saniyede bir)
-# Prometheus biçiminde :8889/metrics adresinde sunulur ve Prometheus oradan toplar; izler örneklenip Jaeger'a iletilir.
+# İz Collector'ı: iki uygulama izlerini OTLP ile buraya gönderir; izler örneklenip Jaeger'a iletilir. Metrikler buraya
+# gelmez, ayrı bir Collector'a gider (monitoring/otel-collector-metrics/config.yaml): izlerin yükü bu Collector'ı veri
+# reddetmeye zorlasa ya da öldürse bile metrikler ve alarmlar etkilenmez.
 # Değiştirdikten sonra `docker compose restart otel-collector`.
 receivers:
   otlp:
@@ -90,15 +91,6 @@ processors:
                 sampling_percentage: 10
 
 exporters:
-  # Metrik adları uygulamaların eski /metrics çıktısıyla aynıdır (birim ve _total ekleri dahil), pano ve alarmlar
-  # değişmeden çalışır. job etiketi service.name'dir (invoice-service, erp-simulator).
-  prometheus:
-    endpoint: 0.0.0.0:8889
-    # Bir servisten bu kadar süre metrik gelmezse son değerleri sunulmaz (varsayılan 5 dakika). Kısa tutulur: servis
-    # durunca metrikleri Prometheus'ta da kaybolsun ve MetrikToplanamiyor alarmı servisin durduğunu görebilsin.
-    # Uygulamalar 5 sn'de bir gönderir; 15 sn, üç gönderimin kaçması demektir.
-    metric_expiration: 15s
-
   # Saklanmasına karar verilen izler Jaeger'a gider. Jaeger compose ağında, TLS'siz.
   otlp/jaeger:
     endpoint: jaeger:4317
@@ -106,8 +98,10 @@ exporters:
       insecure: true
 
 service:
-  # Collector'ın kendi metrikleri compose ağında :8888/metrics adresinde; örneklemenin kaç trace sakladığı ve attığı
-  # (otelcol_processor_tail_sampling_global_count_traces_sampled, sampled="true"/"false") buradan okunur.
+  # Collector'ın kendi metrikleri compose ağında :8888/metrics adresinde; Prometheus bunları da toplar (job=otel-collector).
+  # Örneklemenin kaç trace sakladığı ve attığı (otelcol_processor_tail_sampling_global_count_traces_sampled,
+  # sampled="true"/"false") ve bellek sınırı yüzünden reddedilen span'ler (otelcol_receiver_refused_spans_total,
+  # CollectorIzReddediyor alarmı) buradan okunur.
   telemetry:
     metrics:
       readers:
@@ -117,10 +111,6 @@ service:
                 host: 0.0.0.0
                 port: 8888
   pipelines:
-    metrics:
-      receivers: [otlp]
-      processors: [memory_limiter]
-      exporters: [prometheus]
     traces:
       receivers: [otlp]
       processors: [memory_limiter, tail_sampling]

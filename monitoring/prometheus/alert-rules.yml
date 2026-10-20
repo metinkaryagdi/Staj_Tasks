@@ -75,7 +75,24 @@ groups:
           summary: "{{ $labels.job }} servisinin metrikleri 1 dakikadır toplanamıyor."
           description: >-
             Prometheus'ta {{ $labels.job }} servisinden 1 dakikadır metrik yok; servis durmuş, açılamıyor ya da metriklerini
-            OpenTelemetry Collector'a gönderemiyor. Bu sürede panodaki değerler ve diğer alarmlar bu servisi göremez. İki
-            servisin alarmı birlikte geldiyse sorun büyük olasılıkla Collector'dadır. İlk olarak: `docker compose ps`
-            ile servisin ve otel-collector'ın çalıştığını, `docker compose logs <servis>` ile açılış hatası olup
-            olmadığını kontrol edin.
+            metrik Collector'ına gönderemiyor. Bu sürede panodaki değerler ve diğer alarmlar bu servisi göremez. İki
+            servisin alarmı birlikte geldiyse sorun büyük olasılıkla metrik Collector'ındadır. İzlerin yükü bu alarmı
+            tetiklemez: izler ayrı Collector'a gider. İlk olarak: `docker compose ps` ile servisin ve
+            otel-collector-metrics'in çalıştığını, `docker compose logs <servis>` ile açılış hatası olup olmadığını
+            kontrol edin.
+
+      - alert: CollectorIzReddediyor
+        # Yalnız reddedilen span sayacına bakar, servislerin metriklerine bakmaz: servis dururken tetiklenmez, Collector
+        # reddederken servisin durduğu sanılmaz. Ret aralıklı olabilir (bellek çöp toplamayla iner, yeniden çıkar); 5
+        # dakikalık aralık arada kısa kabul dönemleri olsa da alarmı açık tutar. Son retten 5 dakika sonra çözülür.
+        expr: sum(increase(otelcol_receiver_refused_spans_total{job="otel-collector"}[5m])) > 0
+        annotations:
+          summary: "İz Collector'ı son 5 dakikada gelen span'leri reddetti."
+          description: >-
+            otel-collector'ın belleği sınırına (memory_limiter) ulaştı ve gelen izleri reddediyor; reddedilen span'ler
+            yeniden gönderilmez, kaybolur, bu izler Jaeger'da eksik görünür. Metrikler ve faturaların gönderimi bundan
+            etkilenmez. Collector izleri karar süresi boyunca bellekte tuttuğu için çok sayıda fatura kısa sürede
+            kuyruktan alındığında olabilir. İlk olarak: `docker stats otel-collector` ile belleğine ve
+            `docker compose logs otel-collector` ile bellek sınırı satırlarına bakın; sürüyorsa yükün azalmasını
+            bekleyin ya da Collector'ın bellek sınırını (monitoring/otel-collector/config.yaml ve docker-compose.yml)
+            birlikte yükseltin.

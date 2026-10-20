@@ -174,10 +174,11 @@ services:
     networks:
       - apps
 
-  # Metrikler, izler, pano ve alarmlar. Servisler metriklerini ve izlerini OTLP ile otel-collector'a gönderir; izler
-  # örneklenip Jaeger'a gider. Prometheus metrikleri Collector'dan toplar ve alarm kurallarını değerlendirir, Alertmanager
-  # alarmları alert-receiver'a iletir, Grafana panoyu gösterir. Ayarlar ve pano monitoring/ altındadır.
-  # Collector'ın contrib imajı: izlerin örneklenmesi (tail_sampling) yalnız onda var.
+  # Metrikler, izler, pano ve alarmlar. Servisler metriklerini OTLP ile otel-collector-metrics'e, izlerini otel-collector'a
+  # gönderir; izler örneklenip Jaeger'a gider. Prometheus metrikleri otel-collector-metrics'ten toplar ve alarm kurallarını
+  # değerlendirir, Alertmanager alarmları alert-receiver'a iletir, Grafana panoyu gösterir. Ayarlar ve pano monitoring/
+  # altındadır.
+  # İz Collector'ı. Collector'ın contrib imajı: izlerin örneklenmesi (tail_sampling) yalnız onda var.
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.135.0
     command: ["--config=/etc/otelcol/config.yaml"]
@@ -186,6 +187,19 @@ services:
     mem_limit: 2048m
     volumes:
       - ./monitoring/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    networks:
+      - apps
+
+  # Metrik Collector'ı: ayrı bir süreç ve ayrı bellek sınırı, izlerin yükünden etkilenmez. İz Collector'ıyla aynı imaj ve
+  # sürüm: güncellenecek tek Collector sürümü kalır.
+  otel-collector-metrics:
+    image: otel/opentelemetry-collector-contrib:0.135.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    # Container'ın bellek sınırı; Collector'ın kendi sınırı (memory_limiter, config.yaml) bunun altında tutulur, biri
+    # değişirse diğeri de değişmelidir.
+    mem_limit: 256m
+    volumes:
+      - ./monitoring/otel-collector-metrics/config.yaml:/etc/otelcol/config.yaml:ro
     networks:
       - apps
 
