@@ -8,7 +8,7 @@ webhook'larla bildiren ERP Simulator, ve sistemi izleyip müdahale etmek için o
 | ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; saniyede sınırlı sayıda isteği kabul eder; her isteğe seed'li rastgele bir hata davranışı uygular; kaydettiği faturalar için Invoice Service'e imzalı webhook gönderir (bilerek sorunlu) |
 | Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir; ERP'den gelen webhook event'lerini doğrulayıp faturaya işler; belirli aralıklarla kendi kayıtlarını ERP'ninkiyle karşılaştırır (mutabakat), düzeltebildiğini düzeltir, düzeltemediğini raporlar |
 | Operasyon Ekranı | `operations-ui/` | Faturaların ve mutabakatın durumunu veritabanına bakmadan gösterir; Başarısız faturaları tek tek ya da toplu yeniden kuyruğa alır, mutabakatı başlatır. Yalnızca Invoice Service'in API'siyle konuşur |
-| İzleme | `monitoring/`, `alert-receiver/` | İki uygulama metriklerini ve izlerini OpenTelemetry Collector'a gönderir; metrikleri Prometheus toplar, Grafana panoda gösterir, alarm kuralları tetiklenince Alertmanager bildirimi alert-receiver'a gönderir; izler Jaeger'da bir faturanın yolculuğunu gösterir ([İzleme](#i̇zleme)) |
+| İzleme | `monitoring/`, `alert-receiver/` | İki uygulama metriklerini ve izlerini ayrı iki OpenTelemetry Collector'a gönderir; metrikleri Prometheus toplar, Grafana panoda gösterir, alarm kuralları tetiklenince Alertmanager bildirimi alert-receiver'a gönderir; izler Jaeger'da bir faturanın yolculuğunu gösterir ([İzleme](#i̇zleme)) |
 
 İki .NET uygulaması Domain / Application / Infrastructure / Api olarak dört katmana ayrılmıştır; katmanlar, port'lar,
 akışlar ve tasarım kararları [ARCHITECTURE.md](ARCHITECTURE.md)'de.
@@ -308,17 +308,20 @@ testler `npm test --prefix operations-ui`.
 ## İzleme
 
 İki uygulama metriklerini (`System.Diagnostics.Metrics`, meter `InvoiceService` ve `ErpSimulator`) ve izlerini OpenTelemetry ile
-üretir ve OTLP ile OpenTelemetry Collector'a gönderir (metrikler 5 saniyede bir, `OTEL_METRIC_EXPORT_INTERVAL`). Collector metrikleri
-Prometheus biçiminde sunar; Prometheus oradan 5 saniyede bir toplar ve alarm kurallarını değerlendirir, tetiklenen alarmı Alertmanager
-webhook ile `alert-receiver`'a gönderir, alıcı her alarmı bir log satırı olarak yazar. Grafana panoyu Prometheus'tan gösterir.
-Collector izleri Jaeger'a iletir ([İzler](#i̇zler)). Hepsi `docker compose up -d --build` ile ayağa kalkar; ayarlar, kurallar ve pano
+üretir ve OTLP ile gönderir: metrikleri metrik Collector'ına (`otel-collector-metrics`, 5 saniyede bir,
+`OTEL_METRIC_EXPORT_INTERVAL`), izleri iz Collector'ına (`otel-collector`). İkisi ayrı süreç ve ayrı bellek sınırıdır: izlerin yükü
+metrikleri etkilemez. Metrik Collector'ı metrikleri Prometheus biçiminde sunar; Prometheus oradan 5 saniyede bir toplar (iz
+Collector'ının kendi metriklerini de) ve alarm kurallarını değerlendirir, tetiklenen alarmı Alertmanager webhook ile `alert-receiver`'a
+gönderir, alıcı her alarmı bir log satırı olarak yazar. Grafana panoyu Prometheus'tan gösterir. İz Collector'ı izleri örnekleyip
+Jaeger'a iletir ([İzler](#i̇zler)). Hepsi `docker compose up -d --build` ile ayağa kalkar; ayarlar, kurallar ve pano
 [`monitoring/`](monitoring/) altında dosyadır.
 
 | Dosya | İçerik |
 |---|---|
-| [`monitoring/otel-collector/config.yaml`](monitoring/otel-collector/config.yaml) | OTLP alımı; metriklerin Prometheus'a sunulması (`metric_expiration` 15 sn: metrik göndermeyen servisin değerleri 15 sn sonra kalkar), izlerin Jaeger'a iletilmesi; Collector'ın bellek sınırı (`memory_limiter`; container sınırı `docker-compose.yml`'da `mem_limit`); değişiklikten sonra `docker compose restart otel-collector` |
-| [`monitoring/prometheus/prometheus.yml`](monitoring/prometheus/prometheus.yml) | Toplama aralığı (5 sn), hedef (Collector; `honor_labels` ile `job` servisin adıdır), Alertmanager adresi |
-| [`monitoring/prometheus/alert-rules.yml`](monitoring/prometheus/alert-rules.yml) | Altı alarmın eşiği, süresi ve açıklaması; değişiklikten sonra `docker compose restart prometheus` |
+| [`monitoring/otel-collector-metrics/config.yaml`](monitoring/otel-collector-metrics/config.yaml) | Metrik Collector'ı: OTLP alımı, metriklerin Prometheus'a sunulması (`metric_expiration` 15 sn: metrik göndermeyen servisin değerleri 15 sn sonra kalkar), bellek sınırı (`memory_limiter`; container sınırı `docker-compose.yml`'da `mem_limit`); değişiklikten sonra `docker compose restart otel-collector-metrics` |
+| [`monitoring/otel-collector/config.yaml`](monitoring/otel-collector/config.yaml) | İz Collector'ı: OTLP alımı, izlerin örneklenip Jaeger'a iletilmesi, bellek sınırı (`memory_limiter`; container sınırı `mem_limit`), kendi metrikleri `:8888`; değişiklikten sonra `docker compose restart otel-collector` |
+| [`monitoring/prometheus/prometheus.yml`](monitoring/prometheus/prometheus.yml) | Toplama aralığı (5 sn), hedefler (metrik Collector'ı, `honor_labels` ile `job` servisin adıdır; iz Collector'ının kendi metrikleri, `job=otel-collector`), Alertmanager adresi |
+| [`monitoring/prometheus/alert-rules.yml`](monitoring/prometheus/alert-rules.yml) | Yedi alarmın eşiği, süresi ve açıklaması; değişiklikten sonra `docker compose restart prometheus` |
 | [`monitoring/alertmanager/alertmanager.yml`](monitoring/alertmanager/alertmanager.yml) | Bütün alarmlar alıcıya; çözülen alarm da bildirilir |
 | [`monitoring/grafana/`](monitoring/grafana/) | Veri kaynağı ve pano provisioning'i, pano (`dashboards/fatura-servisi.json`) |
 
@@ -367,7 +370,8 @@ veritabanından okunan değerler `max()`, sayaçlar `sum()` ile alınır.
 | `ErpyeUlasilamiyor` | Son 5 dakikadaki gönderim denemelerinin yarısından fazlası `timeout` ya da `unreachable` |
 | `BasariliMutabakatYok` | En son `Tamamlandı` çalışma 2 saatten eski |
 | `CokSayida401` | Son 5 dakikada 20'den fazla haber 401 |
-| `MetrikToplanamiyor` | Invoice Service'in ya da ERP Simulator'ın metrikleri Prometheus'ta 1 dakika boyunca yok; servis başına ayrı alarm. Servis durduktan sonra bildirim yaklaşık 1,5-2 dakikada gelir (Collector'ın 15 sn'si, değerlendirme aralığı, `for` ve Alertmanager'ın beklemesi) |
+| `MetrikToplanamiyor` | Invoice Service'in ya da ERP Simulator'ın metrikleri Prometheus'ta 1 dakika boyunca yok; servis başına ayrı alarm. Servis durduktan sonra bildirim yaklaşık 1,5-2 dakikada gelir (metrik Collector'ının 15 sn'si, değerlendirme aralığı, `for` ve Alertmanager'ın beklemesi). İz Collector'ının reddi bunu tetiklemez |
+| `CollectorIzReddediyor` | İz Collector'ı son 5 dakikada gelen span'leri reddetti (bellek sınırı, `otelcol_receiver_refused_spans_total`); yalnız ret sayacına bakar, servisin durmasıyla karışmaz. Son retten yaklaşık 5 dakika sonra çözülür |
 
 Her alarmın açıklamasında sorun ve operasyon ekibinin ilk yapacağı iş yazar. Bildirimler alıcının logunda:
 `docker compose logs -f alert-receiver` (`Alert status=firing alertname=… summary="…" description="…"`; koşul kalkınca
@@ -403,7 +407,7 @@ trace'idir:
   çağrısını (worker'ların kuyruk sorguları, metrik okumaları, zamanlanmış mutabakatın sorguları) kaydetmez; bu izler Collector'a
   gelmez. Elle başlatılan mutabakatın sorguları, başlatan isteğin izinde kaydedilir.
 - **Örnekleme:** uygulamalar kaydettikleri izleri gönderir; hangilerinin saklanacağına Collector karar verir (tail sampling,
-  [`config.yaml`](monitoring/otel-collector/config.yaml)). Karar, trace'in ilk span'i geldikten 30 dakika sonra bütün yolculuğa
+  [`config.yaml`](monitoring/otel-collector/config.yaml)). Karar, trace'in ilk span'i geldikten 2 dakika sonra bütün yolculuğa
   birlikte uygulanır; faturanın trace'inde bu süre kaydın kuyruktan ilk alınmasıyla başlar:
 
   | Trace | Saklanır mı |
@@ -416,13 +420,14 @@ trace'idir:
 
   Karar süresi yetmezse henüz gönderilmemiş fatura saklanır: sorunlu fatura kaybolmaz, sorunsuz oranı %10'un üstüne çıkar. Karar
   verildikten sonra gelen span'ler (geç haberler, sonraki denemeler, mutabakatın düzeltmesi) aynı karara uyar. Kaç trace'in
-  saklanıp atıldığı Collector'ın kendi metriklerinde (`otel-collector:8888/metrics`, compose ağında):
+  saklanıp atıldığı iz Collector'ının kendi metriklerinde (Prometheus'ta `job="otel-collector"`):
   `otelcol_processor_tail_sampling_global_count_traces_sampled_total{sampled="true"|"false"}`.
 - **Saklama:** Jaeger izleri bellekte tutar; varsayılan ayarıyla en fazla 100.000 trace, sınır dolunca en eskileri silinir. Jaeger
   yeniden başlayınca bütün izler gider. Collector kararını bekleyen izleri bellekte tutar; Collector yeniden başlarsa onlar da gider.
-- **Collector'ın belleği:** `memory_limiter` heap'i 1 saniyede bir ölçer; 1.200 MiB'ı (`limit_mib` 1600 − `spike_limit_mib` 400)
+- **İz Collector'ının belleği:** `memory_limiter` heap'i 1 saniyede bir ölçer; 1.200 MiB'ı (`limit_mib` 1600 − `spike_limit_mib` 400)
   geçince gelen veriyi reddeder, altına inince yeniden kabul eder. Container'ın sınırı 2.048 MiB'tır (`mem_limit`); `limit_mib`
-  bunun altında tutulur ki Collector öldürülmeden önce veri reddetsin. Biri değişirse diğeri de değişmelidir.
+  bunun altında tutulur ki Collector öldürülmeden önce veri reddetsin. Biri değişirse diğeri de değişmelidir. Ret
+  `CollectorIzReddediyor` alarmını tetikler; metrikler ayrı Collector'da olduğu için etkilenmez.
 
 ---
 
@@ -503,60 +508,63 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 15 — İzlemeyi Toparlamak
+## Gün 16 — Metrikleri İz Yükünden Ayırmak
 
-Bugünün işi: faturanın izi worker kaydı kuyruktan ilk aldığında başlıyor, worker'ların sorguları hiç kaydedilmiyor ve
-Collector'ın bellek sınırı bilerek düşürülerek denendi.
+Bugünün işi: metrikler izlerden ayrı bir Collector'dan geçiyor, Collector iz reddettiğinde ayrı bir alarm tetikleniyor ve
+Collector'ın karar süresi 2 dakikaya indi.
 
-- **İzin başlangıcı:** ilk span kuyrukta bekleme (`outbox.queue_wait`, faturanın oluşturulma anından geriye tarihli);
-  oluşturma isteği kendi izidir ve fatura numarasıyla bulunur ([İzler](#i̇zler)).
-- **Worker sorguları:** iki uygulamada sampler, hiçbir istek altında olmayan veritabanı / HTTP çağrısını kaydetmez; toplu kayıt
-  almanın span'i ve link'i kalktı.
-- **Uzun yük testi** (saniyede 50 fatura, 10 dakika, simülatörün varsayılan oranları; kuyruk 1 sa 18 dk'da boşaldı): saklanan
-  sorunsuz fatura oranı ilk 30 dakikada %9,9, sonrasında %9,4; 3.010 sorunlu faturanın hiçbirinin izi kaybolmadı. Collector'da
-  bellekte en çok 41.704 trace, en yüksek bellek 1.068 MiB; sistem boştayken bellekte 0 trace.
-- **Başarısız faturalar** (ayrı kısa koşu, simülatör yalnız 500 döndürür): 30 faturanın 30'u Başarısız oldu, hepsinin izi saklandı.
-- **Bellek sınırı denemesi** (`limit_mib` 400, `spike_limit_mib` 100): Collector 857.490 span'i ve 21.734 metrik noktasını
-  reddetti; faturaların hepsi gönderildi, aynı faturanın gönderim süresi normal sınırlı (1600 / 400) koşudakinden ortanca 1,4 sn farklı. Sınır
-  1600 / 400'e döndü.
+- **Metrik Collector'ı** (`otel-collector-metrics`): uygulamalar metriklerini buraya, izlerini `otel-collector`'a gönderir; ayrı
+  süreç, ayrı bellek sınırı. Pano ve mevcut alarmlar değişmedi ([İzleme](#i̇zleme)).
+- **`CollectorIzReddediyor`:** iz Collector'ı son 5 dakikada span reddettiyse tetiklenir; yalnız ret sayacına bakar
+  ([Alarmlar](#alarmlar)).
+- **Karar süresi** 30 dakikadan 2 dakikaya: 2. denemede gönderilen bir faturanın en geç gönderilme süresine göre ([İzler](#i̇zler)).
+- **Bellek sınırı denemesi** (karar süresi 30 dakika, `limit_mib` 400, `spike_limit_mib` 100, saniyede 50 fatura, 10 dakika):
+  iz Collector'ı 855.032 span reddetti (46 aralıkta toplam 43 dk); uygulamaların hiçbir metrik gönderimi başarısız olmadı, iki
+  servisin metrikleri Prometheus'tan kaybolmadı, `MetrikToplanamiyor` tetiklenmedi, `CollectorIzReddediyor` tetiklendi; kuyruk ve
+  takılı fatura alarmları ret sırasında tetiklenip çözüldü. Sınır kuyruk boşaldıktan 60 saniye sonra 1600 / 400'e döndü, ret alarmı
+  3 dk 58 sn sonra çözüldü.
+- **Uzun yük testi** (karar süresi 2 dakika; saniyede 50 fatura, 10 dakika, simülatörün varsayılan oranları; kuyruk yük başından
+  1 sa 18 dk'da boşaldı): saklanan sorunsuz fatura oranı %10,0; 2.959 sorunlu faturanın hiçbirinin izi kaybolmadı; kuyruktan ilk
+  alınmadan gönderilmeye izi saklanan sorunsuzlarda en uzun 0,55 dakika geçti, 2 dakikayı geçen sorunsuz fatura olmadı. İz Collector'ında bellekte en çok 6.911 trace, en yüksek bellek
+  230 MiB (dün 41.704 ve 1.068 MiB). Metrik Collector'ı ortalama 106 MiB bellek ve %0,09 işlemci kullandı.
 
-Kontrol listesi: [`manual-tests/gun15/`](manual-tests/gun15/). `1-uzun-yuk.ps1` yük testini simülatörün ayarına dokunmadan çalıştırır,
-Collector'ın belleğini ve kendi metriklerini kaydeder, sonunda boşta bir mutabakat çalışmasından sonra bellekteki trace'leri okur;
-ardından `2-sayim.ps1` (her fatura Jaeger'da aranır, fatura izi ve oluşturma izi ayrı sayılır) ve `3-ekran.ps1` (Jaeger görüntüleri)
-çalışır. `4-bellek-denemesi.ps1 -LimitMib 400 -SpikeMib 100` sınırı yalnız deneme süresince düşürür, uygulamaların OpenTelemetry
-tanılama logunu açar ve bitince ikisini de geri alır. `5-basarisiz.ps1` simülatörü yalnız 500 döndürecek şekilde açar, Başarısız
-olan faturaların izlerini sayar ve simülatörü varsayılan ayarlarına döndürür.
+Kontrol listesi: [`manual-tests/gun16/`](manual-tests/gun16/). `4-bellek-denemesi.ps1 -LimitMib 400 -SpikeMib 100` iz Collector'ının
+sınırını yalnız deneme süresince düşürür, uygulamaların OpenTelemetry tanılama logunu açar, ret başladıktan 10 dakika sonra panonun
+ekran görüntüsünü alır; bitince sınırı ve uygulamaları geri alır ve ret alarmının çözülmesini bekler. `1-uzun-yuk.ps1 -SkipIdle` yük
+testini simülatörün ayarına dokunmadan çalıştırır, iz Collector'ının belleğini ve kendi metriklerini, metrik Collector'ının bellek ve
+işlemcisini kaydeder; ardından `2-sayim.ps1` her faturayı Jaeger'da arar ve kuyruktan ilk alınmadan gönderilmeye geçen süreyi ölçer.
+`5-durdurma.ps1` açık yığında önce `invoice-service`'i, sonra `invoice-db`'yi kısa süre durdurur ve hangi alarmın geldiğini kaydeder.
+`6-alarm-gecmisi.ps1` iki denemenin aralıklarında bütün alarmların Prometheus'taki geçmişini ve alıcıya gelen bildirimleri yazar.
 
 ### Bilinen sınırlar
 
-- **Collector** kararını bekleyen izleri bellekte tutar; yeniden başlarsa bekleyen izler (sorunlu faturalarınki dahil) kaybolur.
-  Ölçüme göre (simülatörün varsayılan oranlarında işleme hızı saniyede 6,4) ilk dolan sınır `num_traces`'tir (100.000): 30 dakika
-  boyunca saniyede yaklaşık 49 fatura gelirse; dolunca en eski trace'ler karar verilmeden atılır.
-- **Bellek sınırı** aşılınca reddedilen span'ler ve metrik noktaları kaybolur: uygulamalar yeniden göndermez ve bunu konsol loguna
-  yazmaz (yalnız OpenTelemetry'nin tanılama loguna, açıksa). Metrikler de reddedildiği için servisler çalışırken
-  `MetrikToplanamiyor` alarmı tetiklenebilir (denemede servislerin metrikleri 36-38 dakika görünmedi).
-- **Collector'ın belleğini** çoğunlukla fatura izleri doldurur (karar süresi boyunca bütün span'leriyle); sayıları faturaların
-  kuyruktan alınma hızına bağlıdır. Fatura izi başına heap varsayılan oranlarda ölçüldü; buna göre birikmiş bir kuyruk saniyede
-  yaklaşık 10 faturadan hızlı boşalırsa heap bellek sınırına ulaşır.
-- **Karar süresi** (30 dakika) kuyruk beklemesini kapsayacak biçimde seçilmişti; iz artık kuyruktan çıkışta başladığı için bu gerekçe
-  yoktur, değer değiştirilmedi.
-- **Oluşturma isteğinin izi** her fatura için saklanır: uzun testte 30.000 fatura için 35.596 trace saklandı. Jaeger en fazla
-  100.000 trace tutar ve en eskileri siler; bu oranla yaklaşık 84.000 faturada dolar (oluşturma izleri olmadan yaklaşık 536.000).
-  Jaeger yeniden başlayınca bütün izler gider.
+- **İz Collector'ı** kararını bekleyen izleri bellekte tutar; yeniden başlarsa bekleyen izler (sorunlu faturalarınki dahil)
+  kaybolur. Yük testinde (saniyede 50 fatura gelirken) bellekte en çok 6.911 trace ve 188 MiB heap ölçüldü; `num_traces`
+  (100.000) ve bellek sınırı (1.200 MiB heap) bunun çok üstündedir.
+- **Bellek sınırı** aşılınca reddedilen span'ler kaybolur: uygulamalar yeniden göndermez ve bunu konsol loguna yazmaz (yalnız
+  OpenTelemetry'nin tanılama loguna, açıksa). `CollectorIzReddediyor` reddi gösterir; metrikler etkilenmez.
+- **Veritabanı okunamazsa** (`invoice-db` durursa) kuyruk, takılı fatura ve son mutabakat metrikleri sunulmaz; bu alarmlar eşik
+  aşımına baktığı için tetiklenmez, servis çalıştığı için `MetrikToplanamiyor` da tetiklenmez (5 dakikalık denemede hiçbir alarm
+  gelmedi). Tetiklenmiş bir alarm, metrik kaybolunca sorun sürse de "çözüldü" olarak bildirilir.
+- **İz Collector'ı** tamamen durursa ret sayacı da kaybolur: `CollectorIzReddediyor` tetiklenmez, izlerin gelmediğini gösteren bir
+  alarm yoktur.
+- **Karar süresi** ERP'nin Retry-After'ına ve `Erp:TimeoutSeconds`'a bağlıdır: ERP 2 dakikaya yakın Retry-After verirse sorunsuz
+  faturalar karar anında gönderilmemiş olur ve fazladan saklanır (sorunlu fatura kaybolmaz).
+- **Oluşturma isteğinin izi** her fatura için saklanır. Jaeger en fazla 100.000 trace tutar ve en eskileri siler; fatura başına
+  yaklaşık 1,2 trace saklandığı için yaklaşık 84.000 faturada dolar. Jaeger yeniden başlayınca bütün izler gider.
 - **İlk alış yarıda kalırsa:** iz kayda yazılamadan deneme biterse (kayıt bu arada başka bir worker'a geçtiyse ya da iz
   yazılmadan bir hata çıktıysa) kuyruk adımı yine gönderilir ve faturanın ikinci bir izi oluşur. Servis deneme sırasında durursa
   kuyruk adımı hiç gönderilmez: iz kayda yazılmışsa sonraki denemeler kökü olmayan bir izde sürer, yazılmamışsa sonraki alış yeni
   bir iz başlatır ve kuyruk adımı ilk denemeyi ve kilit süresini de içerir.
-- **Gönderim kuyrukları:** uygulamanın ve Collector'ın gönderim kuyrukları dolarsa span'ler düşebilir; bunu gösteren metrik ya da
-  alarm yoktur.
+- **Gönderim kuyrukları:** uygulamanın ve Collector'ların gönderim kuyrukları dolarsa span'ler ya da metrikler düşebilir; bunu
+  gösteren metrik ya da alarm yoktur.
 - **Mutabakat ve operatör işlemleri** bir fatura için yazdıkları log satırlarında faturanın trace_id'sini taşımaz: zamanlanmış
   mutabakatta `trace_id=-`, elle başlatılan mutabakatta ve operatör işlemlerinde isteğin trace_id'si yazar.
 - **Loglar** container'da tutulur; container yeniden oluşturulunca eski satırlar gider.
-- **Eski kayıtlar:** bu sürümden önce kuyruğa girmiş kayıtlar, `trace_parent`'larındaki oluşturma isteğinin izini sürdürür.
 - **Aynı fatura numarası** farklı veritabanlarında yeniden üretildiği için Jaeger'da birden fazla trace'te çıkabilir; arama zaman
   aralığıyla daraltılmalıdır.
-- **MetrikToplanamiyor** servis bazındadır: iki kopyadan yalnız biri durursa tetiklenmez. Collector durursa iki servisin alarmı
-  birlikte tetiklenir.
+- **MetrikToplanamiyor** servis bazındadır: iki kopyadan yalnız biri durursa tetiklenmez. Metrik Collector'ı durursa ya da metrikleri
+  reddederse iki servisin alarmı birlikte tetiklenir; metrik Collector'ının reddi için ayrı alarm yoktur.
 - **Alertmanager** hangi alarmı bildirdiğini 15 dakikada bir diske yazar; düzgün kapanmadan yeniden başlarsa eski kaydı yükler ve aynı
   alarm yeniden tetiklendiğinde bildirimi `repeat_interval` (1 saat) dolana kadar göndermez. Alarm Prometheus'ta ve panoda görünür.
 
@@ -581,3 +589,4 @@ olan faturaların izlerini sayar ve simülatörü varsayılan ayarlarına dönd�
 | `gun-13` | İzlerin Örneklenmesi | [tree/gun-13](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-13) |
 | `gun-14` | Collector'ı Yüke Karşı Korumak | [tree/gun-14](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-14) |
 | `gun-15` | İzlemeyi Toparlamak | [tree/gun-15](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-15) |
+| `gun-16` | Metrikleri İz Yükünden Ayırmak | [tree/gun-16](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-16) |

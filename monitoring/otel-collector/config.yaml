@@ -1,6 +1,6 @@
 # İz Collector'ı: iki uygulama izlerini OTLP ile buraya gönderir; izler örneklenip Jaeger'a iletilir. Metrikler buraya
 # gelmez, ayrı bir Collector'a gider (monitoring/otel-collector-metrics/config.yaml): izlerin yükü bu Collector'ı veri
-# reddetmeye zorlasa ya da öldürse bile metrikler ve alarmlar etkilenmez.
+# reddetmeye zorlasa bile metrikler ve alarmlar etkilenmez.
 # Değiştirdikten sonra `docker compose restart otel-collector`.
 receivers:
   otlp:

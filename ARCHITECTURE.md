@@ -202,10 +202,13 @@ sonraki yenileme başarılı olunca kendiliğinden kalkar. Reddedilen müdahaled
 
 ```mermaid
 flowchart LR
-    I["Invoice Service"] -- "OTLP: metrik + iz" --> C[OpenTelemetry Collector]
-    E["ERP Simulator"] -- "OTLP: metrik + iz" --> C
-    C -- "metrikler (:8889)" --> P[Prometheus]
-    C -- "örneklenmiş izler" --> J[Jaeger]
+    I["Invoice Service"] -- "OTLP: metrik" --> CM["Metrik Collector'ı<br/>otel-collector-metrics"]
+    E["ERP Simulator"] -- "OTLP: metrik" --> CM
+    I -- "OTLP: iz" --> CT["İz Collector'ı<br/>otel-collector"]
+    E -- "OTLP: iz" --> CT
+    CM -- "metrikler (:8889)" --> P[Prometheus]
+    CT -- "kendi metrikleri (:8888)" --> P
+    CT -- "örneklenmiş izler" --> J[Jaeger]
     P -- "alarm kuralları" --> A[Alertmanager]
     A -- webhook --> R["alert-receiver<br/>log"]
     G[Grafana] --> P
@@ -213,9 +216,11 @@ flowchart LR
 
 ```
 monitoring/
-  otel-collector/ config.yaml (OTLP alımı; bellek sınırı (memory_limiter); metrikler Prometheus'a, izler örneklenip
-                  (tail_sampling) Jaeger'a; kendi metrikleri :8888)
-  prometheus/    prometheus.yml (toplama 5 sn, hedef Collector), alert-rules.yml (altı alarm)
+  otel-collector-metrics/ config.yaml (metrikler: OTLP alımı, bellek sınırı, Prometheus'a :8889)
+  otel-collector/ config.yaml (izler: OTLP alımı; bellek sınırı (memory_limiter); örneklenip (tail_sampling) Jaeger'a; kendi
+                  metrikleri :8888)
+  prometheus/    prometheus.yml (toplama 5 sn; hedefler metrik Collector'ı ve iz Collector'ının kendi metrikleri),
+                 alert-rules.yml (yedi alarm)
   alertmanager/  alertmanager.yml (her alarm alert-receiver'a, çözülme dahil)
   grafana/       provisioning/ (veri kaynağı, pano sağlayıcısı), dashboards/fatura-servisi.json
 alert-receiver/  Program.cs (POST /alerts: her alarm bir log satırı), Dockerfile
@@ -363,10 +368,27 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   5 dakikada karşılaştırılacak eski değer yoktur. Oran alarmında (ErpyeUlasilamiyor) iki tarafa aynı tahmin uygulandığı için
   `increase()` kalır.
 - **İki kopya.** Veritabanından okunan değerler iki kopyada aynıdır, `max()` ile alınır; sayaçlar kopya başınadır, `sum()` ile toplanır.
-  İki kopya da aynı Collector'a gönderir; Collector serileri `service.instance.id` ile (Prometheus'ta `instance`) ayırır, ikinci kopya
+  İki kopya da aynı metrik Collector'ına gönderir; Collector serileri `service.instance.id` ile (Prometheus'ta `instance`) ayırır, ikinci kopya
   için ayrı hedef gerekmez.
 - **Metrikler Collector üzerinden.** Uygulamalar OTLP ile gönderir, Prometheus Collector'ı toplar (`honor_labels`: `job` servisin
   adıdır). Collector metrik adlarını birim ve `_total` ekleriyle üretir; pano ve kurallar bu adlarla yazılıdır.
+- **Metrikler ve izler ayrı Collector'larda.** İkisi aynı Collector'dan ve aynı bellek sınırından geçince izlerin yükü sınırı
+  aşınca metrikler de reddediliyordu: servisler çalışırken Prometheus'ta görünmüyor, `MetrikToplanamiyor` yanlış tetikleniyor, kuyruk
+  ve takılı fatura alarmları sistemin en çok zorlandığı anda çalışmayabiliyordu. Metrik Collector'ı ayrı bir süreç ve ayrı bir bellek
+  sınırıdır; izler ne kadar yük getirirse getirsin (iz Collector'ı veri reddetse de) ona dokunmaz. Pano ve alarmlar
+  aynı metrik adlarıyla değişmeden çalışır. Bedeli bir container (iz Collector'ıyla aynı imaj ve sürüm). Düşünülen diğer yollar:
+  Prometheus'un uygulamaları doğrudan toplaması (yeni bileşen yok, ama .NET'in Prometheus exporter'ının kararlı sürümü yok,
+  metriklerin Collector üzerinden gönderildiği yapı geri alınır ve her servis kopyası Prometheus'ta ayrı hedef ister); aynı Collector'da metrik pipeline'ını bellek sınırı olmadan bırakmak
+  (tek süreçtir: container sınırında ikisi birlikte öldürülür); izlerin belleğini sınırın altında tutmak (yüke bağlıdır, garanti
+  vermez); uygulamalarda yeniden gönderim (kısa retleri kapatır, uzun retlerde boşluk kalır).
+  OTLP exporter'ı `AddOtlpExporter` ile eklendiğinde yalnız genel adresi (`OTEL_EXPORTER_OTLP_ENDPOINT`, iz Collector'ı) okur;
+  metrik adresi (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`) `Program.cs`'te verilir. Sinyal adreslerini kendisi okuyan
+  `UseOtlpExporter` logları da OTLP ile göndermeye başlardı.
+- **Ret alarmı yalnız ret sayacına bakar.** `CollectorIzReddediyor` iz Collector'ının reddettiği span sayacının
+  (`otelcol_receiver_refused_spans_total`) son 5 dakikadaki artışına bakar; servislerin metriklerine bakmadığı için servis durunca
+  tetiklenmez, ret sırasında da servisin durduğu sanılmaz. Ret aralıklıdır (bellek çöp toplamayla iner, yeniden çıkar); 5 dakikalık
+  aralık arada kısa kabul dönemleri olsa da alarmı açık tutar, son retten yaklaşık 5 dakika sonra çözülür. Prometheus bu sayacı iz
+  Collector'ının kendi metrik adresinden toplar; bu adres Collector veri reddederken de cevap verir.
 - **Metrik toplanamıyor alarmı `up` değil `absent(target_info{job=…})` kullanır.** Prometheus artık Collector'ı topladığı için `up`
   uygulamanın durduğunu göstermez. Collector'ın varsayılan `metric_expiration`'ı (5 dk) durmuş servisin son değerlerini sunmaya devam
   ettireceği için 15 sn'ye indirildi. `absent()` sonucu `job` etiketini taşır; tek kural iki servis için ayrı alarm verir.
@@ -395,15 +417,21 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   yüzden uygulamalar kaydettikleri her şeyi gönderir. Tek trace kararı bunun için korunur: karar bütün yolculuğa birlikte uygulanır.
   Oluşturma isteğinin trace'i gönderim içermediği için "gönderildi görülmemiş fatura saklanır" kuralıyla her fatura için saklanır:
   oluşturma anında faturanın sorunlu olup olmayacağı bilinmez, yüzdeyle saklansa sorunlu faturaların oluşturma isteği kaybolabilirdi.
-  Bedeli: Collector her trace'i karar süresi (30 dk) boyunca bellekte tutar.
+  Bedeli: Collector her trace'i karar süresi (2 dk) boyunca bellekte tutar.
   Kural "gönderildi görülmemiş fatura saklanır" diye yazıldı: süre yetmezse hata sorunsuz faturayı fazladan saklama yönünde olur,
   sorunlu faturayı kaybetme yönünde değil. Karar önbelleği açık: karardan sonra gelen span'ler (geç haberler) aynı karara uyar, atılmış
   faturanın yarım izi kalmaz. Jaeger varsayılan ayarıyla bellekte en fazla 100.000 trace tutar.
-- **Collector'ın belleği container sınırının altında sınırlı.** `memory_limiter` her iki pipeline'da ilk processor'dür; heap
+- **Karar süresi 2 dakika, faturanın en kötü 2. denemesine göre.** Süre yalnız sorunsuz bir faturanın gönderildiğinin karardan önce
+  görülmesi için gerekir; sorunlu fatura süreden bağımsız saklanır (karar anında gönderilmemişse ihtiyat kuralı, sonrası karar
+  önbelleği). Kayıtlar kuyruğa giriş sırasıyla alındığı için zamanı gelen 2. deneme kuyruk ne kadar dolu olursa olsun yeni faturaların
+  önüne geçer; bir deneme en çok 3 x `Erp:TimeoutSeconds`, aradaki bekleme en çok ERP'nin Retry-After'ı (simülatörde 30 sn) sürer:
+  2. denemede gönderilen fatura yaklaşık 1,5 dakikada gönderilmiş olur. Önceki 30 dakika, iz oluşturmada başlarken kuyruk beklemesini
+  kapsamak içindi; iz kuyruktan çıkışta başlayınca gerekçesi kalmadı.
+- **İz Collector'ının belleği container sınırının altında sınırlı.** `memory_limiter` iz pipeline'ında ilk processor'dür; heap
   1.200 MiB'ı (`limit_mib` 1600 − `spike_limit_mib` 400) geçince gelen veriyi reddeder. Container sınırı (`mem_limit: 2048m`)
   `limit_mib`'in üstünde tutulur: Collector öldürülürse bekleyen bütün izler kaybolur, veri reddetmek ise yalnız o anda gelen span'leri
   kaybettirir (uygulamalar reddedilen span'i yeniden göndermez). Aradaki pay heap dışındaki bellek içindir; yükte bu fark 40-170 MiB
-  ölçüldü.
+  ölçüldü. Metrik Collector'ının kendi sınırı aynı oranlarladır (`limit_mib` 200, `spike_limit_mib` 50, container 256m).
 - **Veritabanı izleme Npgsql'den.** EF Core'un instrumentation paketi beta olduğu için kullanılmadı; `Npgsql.OpenTelemetry` stabildir ve
   EF'in gönderdiği bütün komutları görür.
 - **Log satırında trace_id küçük bir formatter'la.** Hazır `ActivityTrackingOptions` satırlara ASP.NET'in istek scope'larını da ekler

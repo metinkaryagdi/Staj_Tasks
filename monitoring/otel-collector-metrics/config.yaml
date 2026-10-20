@@ -1,8 +1,8 @@
 # Metrik Collector'ı: iki uygulama metriklerini OTLP ile buraya gönderir (5 saniyede bir); metrikler Prometheus biçiminde
 # :8889/metrics adresinde sunulur ve Prometheus oradan toplar. İzler buraya gelmez, otel-collector'a gider
 # (monitoring/otel-collector/config.yaml).
-# Metrikler iz Collector'ından ayrı bir süreçtedir: izlerin yükü o Collector'ın belleğini doldurup veri reddettirse ya da
-# Collector'ı öldürse bile metrikler Prometheus'a ulaşmaya, alarmlar çalışmaya devam eder.
+# Metrikler iz Collector'ından ayrı bir süreçte ve ayrı bir bellek sınırındadır: izlerin yükü o Collector'ın belleğini
+# doldurup veri reddettirse bile metrikler Prometheus'a ulaşmaya, alarmlar çalışmaya devam eder.
 # Değiştirdikten sonra `docker compose restart otel-collector-metrics`.
 receivers:
   otlp:
