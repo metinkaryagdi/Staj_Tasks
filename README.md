@@ -440,7 +440,7 @@ trace'idir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
-| Gün 16 kontrol listesi (bellek sınırı denemesinde metriklerin sürekliliği ve alarmlar; 2 dakikalık karar süresiyle 10 dakikalık yük testi ve metrik Collector'ının maliyeti; servis ve veritabanı durdurma; alarm geçmişi; iz Collector'ını durdurma ve iki kopya) | [`manual-tests/gun16/`](manual-tests/gun16/) |
+| Gün 16 kontrol listesi (bellek sınırı denemesinde metriklerin sürekliliği ve alarmlar; 2 dakikalık karar süresiyle 10 dakikalık yük testi ve metrik Collector'ının maliyeti; servis ve veritabanı durdurma; alarm geçmişi; iz Collector'ını durdurma ve iki kopya; metrik Collector'ını durdurma) | [`manual-tests/gun16/`](manual-tests/gun16/) |
 | Gün 15 kontrol listesi (10 dakikalık yük testinde saklanan sorunsuz oranı, sorunlu ve oluşturma izleri, Collector belleği; boşta bekleyen trace; kuyrukta 30 dakikadan uzun beklemiş faturanın izi; bellek sınırı denemesi) | [`manual-tests/gun15/`](manual-tests/gun15/) |
 | Gün 14 kontrol listesi (Collector'ın bellek sınırı; 10 dakikalık yük testinde Collector belleği, reddedilen span'ler, zaman içinde saklanan sorunsuz oranı, sorunlu faturaların izleri) | [`manual-tests/gun14/`](manual-tests/gun14/) |
 | Gün 13 kontrol listesi (yük altında örnekleme ve Collector belleği, boşta worker izleri, uzun süren faturanın izi, mutabakat ve yeniden gönderim izde, repeat_interval) | [`manual-tests/gun13/`](manual-tests/gun13/) |
@@ -542,7 +542,8 @@ işlemcisini kaydeder; ardından `2-sayim.ps1` her faturayı Jaeger'da arar ve k
 `5-durdurma.ps1` açık yığında önce `invoice-service`'i, sonra `invoice-db`'yi kısa süre durdurur ve hangi alarmın geldiğini kaydeder.
 `6-alarm-gecmisi.ps1` iki denemenin aralıklarında bütün alarmların Prometheus'taki geçmişini ve alıcıya gelen bildirimleri yazar.
 `7-iz-collector-ve-iki-kopya.ps1` iz Collector'ını kısa süre durdurup metrikleri ve alarmları kaydeder, ardından ikinci servis
-kopyasını derleyip açar ve iki kopyanın metriklerine bakar.
+kopyasını derleyip açar ve iki kopyanın metriklerine bakar. `8-metrik-collector-durdurma.ps1` metrik Collector'ını durdurup iki
+servisin `MetrikToplanamiyor` alarmının gelmesini ve çözülmesini bekler.
 
 ### Bilinen sınırlar
 
@@ -558,7 +559,7 @@ kopyasını derleyip açar ve iki kopyanın metriklerine bakar.
 - **İz Collector'ı** tamamen durursa ret sayacı da kaybolur: `CollectorIzReddediyor` tetiklenmez, izlerin gelmediğini gösteren bir
   alarm yoktur (2 dakikalık denemede hiçbir alarm gelmedi).
 - **Karar süresi** ERP'nin Retry-After'ına ve `Erp:TimeoutSeconds`'a bağlıdır: ERP 2 dakikaya yakın Retry-After verirse sorunsuz
-  faturalar karar anında gönderilmemiş olur ve fazladan saklanır (sorunlu fatura kaybolmaz).
+  faturalar karar anında gönderilmemiş olur ve fazladan saklanması beklenir (sorunlu fatura kaybolmaz).
 - **Oluşturma isteğinin izi** her fatura için saklanır. Jaeger en fazla 100.000 trace tutar ve en eskileri siler; fatura başına
   yaklaşık 1,2 trace saklandığı için yaklaşık 84.000 faturada dolar. Jaeger yeniden başlayınca bütün izler gider.
 - **İlk alış yarıda kalırsa:** iz kayda yazılamadan deneme biterse (kayıt bu arada başka bir worker'a geçtiyse ya da iz
@@ -572,8 +573,8 @@ kopyasını derleyip açar ve iki kopyanın metriklerine bakar.
 - **Loglar** container'da tutulur; container yeniden oluşturulunca eski satırlar gider.
 - **Aynı fatura numarası** farklı veritabanlarında yeniden üretildiği için Jaeger'da birden fazla trace'te çıkabilir; arama zaman
   aralığıyla daraltılmalıdır.
-- **MetrikToplanamiyor** servis bazındadır: iki kopyadan yalnız biri durursa tetiklenmez. Metrik Collector'ı durursa ya da metrikleri
-  reddederse iki servisin alarmının birlikte tetiklenmesi beklenir (sınanmadı); metrik Collector'ının reddi için ayrı alarm yoktur.
+- **MetrikToplanamiyor** servis bazındadır: iki kopyadan yalnız biri durursa tetiklenmez. Metrik Collector'ı durursa iki servisin alarmı
+  birlikte tetiklenir (denemede 1 dk 29 sn sonra); metrikleri reddederse de aynısı beklenir, bu ret için ayrı alarm yoktur.
 - **Alertmanager** hangi alarmı bildirdiğini 15 dakikada bir diske yazar; düzgün kapanmadan yeniden başlarsa eski kaydı yükler ve aynı
   alarm yeniden tetiklendiğinde bildirimi `repeat_interval` (1 saat) dolana kadar göndermez. Alarm Prometheus'ta ve panoda görünür.
 

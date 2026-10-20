@@ -424,7 +424,7 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Karar süresi 2 dakika, faturanın en kötü 2. denemesine göre.** Süre yalnız sorunsuz bir faturanın gönderildiğinin karardan önce
   görülmesi için gerekir; sorunlu fatura süreden bağımsız saklanır (karar anında gönderilmemişse ihtiyat kuralı, sonrası karar
   önbelleği). Kayıtlar kuyruğa giriş sırasıyla alındığı için zamanı gelen 2. deneme kuyruk ne kadar dolu olursa olsun yeni faturaların
-  önüne geçer; bir deneme en çok 3 x `Erp:TimeoutSeconds`, aradaki bekleme en çok ERP'nin Retry-After'ı (simülatörde 30 sn) sürer:
+  önüne geçer; bir denemenin ERP çağrıları en çok 3 x `Erp:TimeoutSeconds`, aradaki bekleme en çok ERP'nin Retry-After'ı (simülatörde 30 sn) sürer:
   2. denemede gönderilen fatura yaklaşık 1,5 dakikada gönderilmiş olur. Önceki 30 dakika, iz oluşturmada başlarken kuyruk beklemesini
   kapsamak içindi; iz kuyruktan çıkışta başlayınca gerekçesi kalmadı.
 - **İz Collector'ının belleği container sınırının altında sınırlı.** `memory_limiter` iz pipeline'ında ilk processor'dür; heap
