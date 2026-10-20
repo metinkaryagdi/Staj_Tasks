@@ -274,8 +274,11 @@ Testler bunları `Reconciliation__…` ortam değişkenleriyle değiştirir (ör
 `iki-kopya`); düz `docker compose up` onu başlatmaz:
 
 ```bash
-docker compose --profile iki-kopya up -d invoice-service-2
+docker compose --profile iki-kopya up -d --build invoice-service-2
 ```
+
+`--build` gerekir: `docker compose up -d --build` profildeki bu servisi derlemez; eski imajla açılan kopya güncel kodu ve ayarları
+taşımaz.
 
 ---
 
@@ -437,7 +440,7 @@ trace'idir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
-| Gün 16 kontrol listesi (bellek sınırı denemesinde metriklerin sürekliliği ve alarmlar; 2 dakikalık karar süresiyle 10 dakikalık yük testi ve metrik Collector'ının maliyeti; servis ve veritabanı durdurma; alarm geçmişi) | [`manual-tests/gun16/`](manual-tests/gun16/) |
+| Gün 16 kontrol listesi (bellek sınırı denemesinde metriklerin sürekliliği ve alarmlar; 2 dakikalık karar süresiyle 10 dakikalık yük testi ve metrik Collector'ının maliyeti; servis ve veritabanı durdurma; alarm geçmişi; iz Collector'ını durdurma ve iki kopya) | [`manual-tests/gun16/`](manual-tests/gun16/) |
 | Gün 15 kontrol listesi (10 dakikalık yük testinde saklanan sorunsuz oranı, sorunlu ve oluşturma izleri, Collector belleği; boşta bekleyen trace; kuyrukta 30 dakikadan uzun beklemiş faturanın izi; bellek sınırı denemesi) | [`manual-tests/gun15/`](manual-tests/gun15/) |
 | Gün 14 kontrol listesi (Collector'ın bellek sınırı; 10 dakikalık yük testinde Collector belleği, reddedilen span'ler, zaman içinde saklanan sorunsuz oranı, sorunlu faturaların izleri) | [`manual-tests/gun14/`](manual-tests/gun14/) |
 | Gün 13 kontrol listesi (yük altında örnekleme ve Collector belleği, boşta worker izleri, uzun süren faturanın izi, mutabakat ve yeniden gönderim izde, repeat_interval) | [`manual-tests/gun13/`](manual-tests/gun13/) |
@@ -528,6 +531,8 @@ Collector'ın karar süresi 2 dakikaya indi.
   1 sa 18 dk'da boşaldı): saklanan sorunsuz fatura oranı %10,0; 2.959 sorunlu faturanın hiçbirinin izi kaybolmadı; kuyruktan ilk
   alınmadan gönderilmeye izi saklanan sorunsuzlarda en uzun 0,55 dakika geçti, 2 dakikayı geçen sorunsuz fatura olmadı. İz Collector'ında bellekte en çok 6.911 trace, en yüksek bellek
   230 MiB (dün 41.704 ve 1.068 MiB). Metrik Collector'ı ortalama 106 MiB bellek ve %0,09 işlemci kullandı.
+- **İz Collector'ı durdurulunca** (2 dakika) metrikler kesintisiz sürdü, hiçbir alarm tetiklenmedi; Collector başlatılınca izler
+  yeniden alındı. İkinci servis kopyası açıkken iki kopyanın metrikleri metrik Collector'ından ayrı ayrı geldi.
 
 Kontrol listesi: [`manual-tests/gun16/`](manual-tests/gun16/). `4-bellek-denemesi.ps1 -LimitMib 400 -SpikeMib 100` iz Collector'ının
 sınırını yalnız deneme süresince düşürür, uygulamaların OpenTelemetry tanılama logunu açar, ret başladıktan 10 dakika sonra panonun
@@ -536,6 +541,8 @@ testini simülatörün ayarına dokunmadan çalıştırır, iz Collector'ının 
 işlemcisini kaydeder; ardından `2-sayim.ps1` her faturayı Jaeger'da arar ve kuyruktan ilk alınmadan gönderilmeye geçen süreyi ölçer.
 `5-durdurma.ps1` açık yığında önce `invoice-service`'i, sonra `invoice-db`'yi kısa süre durdurur ve hangi alarmın geldiğini kaydeder.
 `6-alarm-gecmisi.ps1` iki denemenin aralıklarında bütün alarmların Prometheus'taki geçmişini ve alıcıya gelen bildirimleri yazar.
+`7-iz-collector-ve-iki-kopya.ps1` iz Collector'ını kısa süre durdurup metrikleri ve alarmları kaydeder, ardından ikinci servis
+kopyasını derleyip açar ve iki kopyanın metriklerine bakar.
 
 ### Bilinen sınırlar
 
@@ -549,7 +556,7 @@ işlemcisini kaydeder; ardından `2-sayim.ps1` her faturayı Jaeger'da arar ve k
   gelmedi). `invoice-service` durdurulduğunda tetiklenmiş olan `TakiliFaturaCok`, metrik kaybolunca sorun sürdüğü hâlde "çözüldü"
   olarak bildirildi; veritabanı durduğunda da tetiklenmiş alarmların aynı biçimde çözülmüş görünmesi beklenir.
 - **İz Collector'ı** tamamen durursa ret sayacı da kaybolur: `CollectorIzReddediyor` tetiklenmez, izlerin gelmediğini gösteren bir
-  alarm yoktur.
+  alarm yoktur (2 dakikalık denemede hiçbir alarm gelmedi).
 - **Karar süresi** ERP'nin Retry-After'ına ve `Erp:TimeoutSeconds`'a bağlıdır: ERP 2 dakikaya yakın Retry-After verirse sorunsuz
   faturalar karar anında gönderilmemiş olur ve fazladan saklanır (sorunlu fatura kaybolmaz).
 - **Oluşturma isteğinin izi** her fatura için saklanır. Jaeger en fazla 100.000 trace tutar ve en eskileri siler; fatura başına

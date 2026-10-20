@@ -129,7 +129,8 @@ services:
 
   # A second copy of the invoice service on the same database, only for the two-copies tests (manual-tests).
   # It is in a profile, so a plain `docker compose up` does not start it:
-  #   docker compose --profile iki-kopya up -d invoice-service-2
+  #   docker compose --profile iki-kopya up -d --build invoice-service-2
+  # --build gerekir: düz `docker compose up --build` profildeki bu servisi derlemez.
   invoice-service-2:
     build: ./invoice-service
     profiles: ["iki-kopya"]

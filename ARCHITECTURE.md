@@ -375,7 +375,7 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Metrikler ve izler ayrı Collector'larda.** İkisi aynı Collector'dan ve aynı bellek sınırından geçince izlerin yükü sınırı
   aşınca metrikler de reddediliyordu: servisler çalışırken Prometheus'ta görünmüyor, `MetrikToplanamiyor` yanlış tetikleniyor, kuyruk
   ve takılı fatura alarmları sistemin en çok zorlandığı anda çalışmayabiliyordu. Metrik Collector'ı ayrı bir süreç ve ayrı bir bellek
-  sınırıdır; izler ne kadar yük getirirse getirsin (iz Collector'ı veri reddetse de) ona dokunmaz. Pano ve alarmlar
+  sınırıdır; izler ne kadar yük getirirse getirsin (iz Collector'ı veri reddetse ya da dursa da) ona dokunmaz. Pano ve alarmlar
   aynı metrik adlarıyla değişmeden çalışır. Bedeli bir container (iz Collector'ıyla aynı imaj ve sürüm). Düşünülen diğer yollar:
   Prometheus'un uygulamaları doğrudan toplaması (yeni bileşen yok, ama .NET'in Prometheus exporter'ının kararlı sürümü yok,
   metriklerin Collector üzerinden gönderildiği yapı geri alınır ve her servis kopyası Prometheus'ta ayrı hedef ister); aynı Collector'da metrik pipeline'ını bellek sınırı olmadan bırakmak
