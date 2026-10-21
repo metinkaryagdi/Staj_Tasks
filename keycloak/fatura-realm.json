@@ -1,0 +1,91 @@
+{
+  "realm": "fatura",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "fatura-izleyici", "description": "Faturaları ve mutabakatı okur" },
+      { "name": "fatura-operatoru", "description": "Okur ve müdahale eder: yeniden gönderme, toplu yeniden gönderme, mutabakat başlatma, elle takip" },
+      { "name": "fatura-olusturucu", "description": "Fatura oluşturur (POST /api/v1/invoices); yalnızca sipariş sistemi" }
+    ]
+  },
+  "users": [
+    {
+      "username": "izleyici",
+      "enabled": true,
+      "firstName": "Test",
+      "lastName": "Izleyici",
+      "email": "izleyici@fatura.test",
+      "emailVerified": true,
+      "credentials": [ { "type": "password", "value": "izleyici123", "temporary": false } ],
+      "realmRoles": [ "fatura-izleyici" ]
+    },
+    {
+      "username": "operator",
+      "enabled": true,
+      "firstName": "Test",
+      "lastName": "Operator",
+      "email": "operator@fatura.test",
+      "emailVerified": true,
+      "credentials": [ { "type": "password", "value": "operator123", "temporary": false } ],
+      "realmRoles": [ "fatura-operatoru" ]
+    },
+    {
+      "username": "rolsuz",
+      "enabled": true,
+      "firstName": "Test",
+      "lastName": "Rolsuz",
+      "email": "rolsuz@fatura.test",
+      "emailVerified": true,
+      "credentials": [ { "type": "password", "value": "rolsuz123", "temporary": false } ],
+      "realmRoles": []
+    },
+    {
+      "username": "service-account-siparis-sistemi",
+      "enabled": true,
+      "serviceAccountClientId": "siparis-sistemi",
+      "realmRoles": [ "fatura-olusturucu" ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "fatura-test",
+      "description": "Yalnızca test script'leri için: kullanıcı adı ve şifreyle token alır (password grant)",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "fatura-servisi-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "fatura-servisi",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "siparis-sistemi",
+      "description": "Faturaları oluşturan sipariş sistemi: kullanıcı değil, servis (client credentials)",
+      "publicClient": false,
+      "secret": "dev-only-siparis-sistemi-secret-do-not-use-in-production",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "fatura-servisi-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "fatura-servisi",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+using InvoiceService.Api.Auth;
 using InvoiceService.Application.Metrics;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Reconciliation;
@@ -89,5 +90,17 @@ public class ShippedSettingsTests
 
         Assert.True(new MetricsOptionsValidator(configuration).Validate(null, options).Succeeded);
         Assert.Equal(15, options.DatabaseReadSeconds);
+    }
+
+    [Fact]
+    public void Shipped_keycloak_settings_are_valid_and_point_to_the_fatura_realm()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
+        var settings = configuration.GetSection(KeycloakSettings.SectionName).Get<KeycloakSettings>()!;
+
+        Assert.Empty(settings.Validate());
+        Assert.Equal("http://localhost:8080/realms/fatura", settings.Authority);
+        Assert.Equal("fatura-servisi", settings.Audience);
     }
 }

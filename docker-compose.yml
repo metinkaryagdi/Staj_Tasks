@@ -127,6 +127,28 @@ services:
     ports:
       - "5100:80"
 
+  # Kimlik doğrulama: kullanıcılar ve servisler token'ı buradan alır; Fatura Servisi token'ı buranın yayımladığı anahtarlarla
+  # (JWKS) doğrular. Realm (roller, client'lar, test kullanıcıları) açılışta keycloak/ klasöründeki dosyadan kurulur. Realm
+  # zaten varsa dosya okunmaz: dosyadaki bir değişiklik için container yeniden yaratılır
+  # (docker compose up -d --force-recreate keycloak). Yönetim konsolu http://localhost:8080 (admin / admin).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Token'lara yazılan issuer, isteğin hangi adresten geldiğine bakılmaksızın hep bu. Bilgisayardaki script'ler
+      # localhost:8080'den, servisler ağın içinden keycloak:8080'den ulaşır; iki adres iki farklı issuer üretmesin.
+      KC_HOSTNAME: http://localhost:8080
+      # JWKS ve token adresleri isteğin geldiği adrese göre verilir: Fatura Servisi anahtarları keycloak:8080'den alır.
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    networks:
+      - apps
+
   # A second copy of the invoice service on the same database, only for the two-copies tests (manual-tests).
   # It is in a profile, so a plain `docker compose up` does not start it:
   #   docker compose --profile iki-kopya up -d --build invoice-service-2

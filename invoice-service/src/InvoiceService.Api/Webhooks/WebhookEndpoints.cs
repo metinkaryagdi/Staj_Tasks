@@ -28,7 +28,9 @@ public static class WebhookEndpoints
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
-            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            // Not a JWT: the ERP signs every event with HMAC, checked in ReceiveEvent.
+            .AllowAnonymous();
     }
 
     /// <summary>

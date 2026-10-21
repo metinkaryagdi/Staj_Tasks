@@ -1,3 +1,4 @@
+using InvoiceService.Api.Auth;
 using InvoiceService.Api.Invoices;
 using InvoiceService.Api.Reconciliation;
 using InvoiceService.Api.Startup;
@@ -43,6 +44,7 @@ builder.Services.AddOpenTelemetry()
     .AddOtlpExporter());
 
 builder.Services.AddOperationsUiCors(builder.Configuration);
+builder.Services.AddKeycloakAuth(builder.Configuration);
 builder.Services.AddProblemDetails();
 builder.Services.AddInvoiceOpenApi();
 
@@ -57,6 +59,8 @@ app.Lifetime.ApplicationStarted.Register(() => app.Services.GetRequiredService<I
 app.UseCors(CorsExtensions.PolicyName);
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapOpenApi();
 app.UseSwaggerUI(o =>

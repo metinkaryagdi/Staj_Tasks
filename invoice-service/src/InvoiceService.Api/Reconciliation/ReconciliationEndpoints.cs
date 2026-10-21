@@ -1,3 +1,4 @@
+using InvoiceService.Api.Auth;
 using InvoiceService.Api.Invoices;
 using InvoiceService.Api.Operators;
 using InvoiceService.Application.Reconciliation;
@@ -20,7 +21,8 @@ public static class ReconciliationEndpoints
                 "of the service. " + InvoiceEndpoints.OperatorDescription + " The run keeps the name as startedBy.")
             .Produces<ReconciliationRunResponse>(StatusCodes.Status202Accepted)
             .ProducesValidationProblem()
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization(Policies.Intervene);
 
         group.MapGet("/", ListRuns)
             .WithName("ListReconciliationRuns")
@@ -30,13 +32,15 @@ public static class ReconciliationEndpoints
                 "the page and the total number of runs. startedBy is the operator or Zamanlayıcı (the schedule); null for runs " +
                 "made before it was recorded.")
             .Produces<ReconciliationRunListResponse>()
-            .ProducesValidationProblem();
+            .ProducesValidationProblem()
+            .RequireAuthorization(Policies.Read);
 
         group.MapGet("/{id:long}", GetRun)
             .WithName("GetReconciliationRun")
             .WithSummary("A reconciliation run with its findings")
             .Produces<ReconciliationRunDetailResponse>()
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization(Policies.Read);
 
         return app;
     }

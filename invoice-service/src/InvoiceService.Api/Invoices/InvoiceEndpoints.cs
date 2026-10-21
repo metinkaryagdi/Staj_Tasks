@@ -1,3 +1,4 @@
+using InvoiceService.Api.Auth;
 using InvoiceService.Api.Operators;
 using InvoiceService.Application.Invoices;
 using InvoiceService.Domain.Invoices;
@@ -18,7 +19,8 @@ public static class InvoiceEndpoints
                 "erp_outbox entry in the same transaction, and returns 202. The ERP is not called in this request; " +
                 "the send happens in the background.")
             .Produces<InvoiceResponse>(StatusCodes.Status202Accepted)
-            .ProducesValidationProblem();
+            .ProducesValidationProblem()
+            .RequireAuthorization(Policies.CreateInvoice);
 
         group.MapPost("/{invoiceNumber}/resend", ResendInvoice)
             .WithName("ResendInvoice")
@@ -31,7 +33,8 @@ public static class InvoiceEndpoints
             .Produces<InvoiceResponse>(StatusCodes.Status202Accepted)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization(Policies.Intervene);
 
         group.MapPost("/{invoiceNumber}/follow-up", OpenFollowUp)
             .WithName("OpenInvoiceFollowUp")
@@ -43,7 +46,8 @@ public static class InvoiceEndpoints
             .Produces<InvoiceFollowUpResponse>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization(Policies.Intervene);
 
         group.MapPost("/{invoiceNumber}/follow-up/close", CloseFollowUp)
             .WithName("CloseInvoiceFollowUp")
@@ -51,7 +55,8 @@ public static class InvoiceEndpoints
             .WithDescription("Anyone can close it; 409 follow_up_not_open when there is none. " + OperatorDescription)
             .ProducesValidationProblem()
             .Produces(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization(Policies.Intervene);
 
         group.MapPost("/resend", ResendInvoices)
             .WithName("ResendInvoices")
@@ -63,7 +68,8 @@ public static class InvoiceEndpoints
                 "200 whatever the results are; one invoice that is refused does not stop the others. " + OperatorDescription +
                 " Each invoice gets its own record.")
             .Produces<BulkResendResponse>()
-            .ProducesValidationProblem();
+            .ProducesValidationProblem()
+            .RequireAuthorization(Policies.Intervene);
 
         group.MapGet("/", ListInvoices)
             .WithName("ListInvoices")
@@ -75,7 +81,8 @@ public static class InvoiceEndpoints
                 "page starts at 1 (default 1), pageSize is 1 to 100 (default 20). The response " +
                 "carries the page and the total number of invoices the filters match.")
             .Produces<InvoiceListResponse>()
-            .ProducesValidationProblem();
+            .ProducesValidationProblem()
+            .RequireAuthorization(Policies.Read);
 
         group.MapGet("/summary", Summary)
             .WithName("InvoiceSummary")
@@ -86,7 +93,8 @@ public static class InvoiceEndpoints
                 "queuedCount: erp_outbox entries in Bekliyor; oldestQueuedSeconds: how long the oldest of them has waited since " +
                 "its entry was created (null when the queue is empty); sentLastMinute: entries that became Tamamlandı in the " +
                 "last 60 seconds.")
-            .Produces<InvoiceSummaryResponse>();
+            .Produces<InvoiceSummaryResponse>()
+            .RequireAuthorization(Policies.Read);
 
         group.MapGet("/{invoiceNumber}/details", GetDetails)
             .WithName("GetInvoiceDetails")
@@ -96,13 +104,15 @@ public static class InvoiceEndpoints
                 "outbox is null for an invoice without an entry. Of the ERP Karar Vermedi findings, which every run writes again " +
                 "while the ERP stays silent, only the newest is listed. 404 if the invoice does not exist.")
             .Produces<InvoiceDetailsResponse>()
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization(Policies.Read);
 
         group.MapGet("/{invoiceNumber}", GetInvoice)
             .WithName("GetInvoice")
             .WithSummary("The invoice as stored by the service")
             .Produces<InvoiceResponse>()
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization(Policies.Read);
 
         return app;
     }
