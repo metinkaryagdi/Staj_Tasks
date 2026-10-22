@@ -12,7 +12,7 @@ public sealed class InvoiceFollowUp
     public long Id { get; set; }
     public required string InvoiceNumber { get; set; }
 
-    /// <summary>The name from X-Operator-Name, at most <see cref="Operators.OperatorAction.MaxNameLength"/>.</summary>
+    /// <summary>The operator's user name from the token, at most <see cref="Operators.OperatorAction.MaxNameLength"/>.</summary>
     public required string OperatorName { get; set; }
 
     public required string Note { get; set; }

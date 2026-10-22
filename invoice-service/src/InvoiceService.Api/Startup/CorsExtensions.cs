@@ -1,5 +1,3 @@
-using InvoiceService.Api.Operators;
-
 namespace InvoiceService.Api.Startup;
 
 /// <summary>
@@ -22,7 +20,8 @@ public static class CorsExtensions
         services.AddCors(o => o.AddPolicy(PolicyName, policy => policy
             .WithOrigins(origins)
             .WithMethods("GET", "POST")
-            .WithHeaders("Content-Type", OperatorHeader.Name)));
+            // Authorization carries the token (Bearer).
+            .WithHeaders("Content-Type", "Authorization")));
         return services;
     }
 

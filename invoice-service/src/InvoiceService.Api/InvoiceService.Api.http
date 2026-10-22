@@ -1,18 +1,35 @@
 ### Invoice Service — manual test requests
-# Works in Visual Studio, Rider and VS Code (REST Client extension): click "Send Request" above each block.
+# Works in VS Code (REST Client extension) and Visual Studio: click "Send Request" above each block.
 # Start the stack first: docker compose up -d --build
+#
+# Every endpoint except the ERP webhook needs a token from Keycloak: 401 without one, 403 with the wrong role. Send 0a and
+# 0b first; the requests below use their access_token. A token is valid for 5 minutes, then send 0a/0b again.
 #
 # Create saves the invoice as Bekliyor and queues it in erp_outbox (202); the ERP is not called in that request.
 # Watch the sends live: docker compose logs -f invoice-service
 
 @baseUrl = http://localhost:5090
+@tokenUrl = http://localhost:8080/realms/fatura/protocol/openid-connect/token
 @invoiceNumber = FTR-000001
-# Who makes the change: required on resend and on starting a run (400 without it). Percent-encoded UTF-8; ASCII as is.
-@operator = test-http
+
+### 0a) Token of the operator test user: reads and interventions, recorded under the name "operator"
+# @name operatorLogin
+POST {{tokenUrl}}
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=fatura-test&username=operator&password=operator123
+
+### 0b) Token of the order system (client credentials, no user): only it creates invoices
+# @name orderSystemLogin
+POST {{tokenUrl}}
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=siparis-sistemi&client_secret=dev-only-siparis-sistemi-secret-do-not-use-in-production
 
 ### 1) Create an invoice (202, status Bekliyor)
 POST {{baseUrl}}/api/v1/invoices
 Content-Type: application/json
+Authorization: Bearer {{orderSystemLogin.response.body.$.access_token}}
 
 {
   "customerCode": "C-001",
@@ -23,38 +40,44 @@ Content-Type: application/json
 
 ### 2) The invoice as stored by the service
 GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}
 
 ### 3) Queue a failed invoice again (202; 409 if it is not Başarısız)
 POST {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}/resend
-X-Operator-Name: {{operator}}
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}
 
 ### 4) One page of invoices, newest first (status, search = part of the number, page, pageSize 1-100)
 GET {{baseUrl}}/api/v1/invoices?status=Bekliyor&search=FTR-0001&page=1&pageSize=20
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}
 
 ### 4c) Only the stuck invoices (the ones the summary counts)
 GET {{baseUrl}}/api/v1/invoices?stuck=true
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}
 
 ### 4a) How many invoices are in each status, and how many are stuck
 GET {{baseUrl}}/api/v1/invoices/summary
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}
 
 ### 4b) The invoice with its erp_outbox entry, its events, its findings and the interventions made on it
 GET {{baseUrl}}/api/v1/invoices/{{invoiceNumber}}/details
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}
 
 ### 3a) Queue several failed invoices again (1-100 numbers; one result per invoice: queued, not_found, not_failed, error)
 POST {{baseUrl}}/api/v1/invoices/resend
 Content-Type: application/json
-X-Operator-Name: {{operator}}
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}
 
 {
   "invoiceNumbers": ["FTR-000001", "FTR-000002"]
 }
 
-### 5) The same invoice on the ERP side
+### 5) The same invoice on the ERP side (the ERP simulator has no token check)
 GET http://localhost:5080/api/v1/invoices/{{invoiceNumber}}
 
 ### 6) Invalid body (400, nothing is saved or sent)
 POST {{baseUrl}}/api/v1/invoices
 Content-Type: application/json
+Authorization: Bearer {{orderSystemLogin.response.body.$.access_token}}
 
 {
   "customerCode": "",
@@ -65,13 +88,15 @@ Content-Type: application/json
 
 ### 7) Start a reconciliation run now (202 with the run; 409 while another run is going)
 POST {{baseUrl}}/api/v1/reconciliation-runs
-X-Operator-Name: {{operator}}
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}
 
 ### 8) One page of runs, newest first (without findings; pageSize 1-50)
 GET {{baseUrl}}/api/v1/reconciliation-runs?page=1&pageSize=20
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}
 
-### 7a) Without the name: 400 (operator_name_required)
+### 7a) Without a token: 401
 POST {{baseUrl}}/api/v1/reconciliation-runs
 
 ### 9) One run with its findings (replace 1 with a run id from 7 or 8)
 GET {{baseUrl}}/api/v1/reconciliation-runs/1
+Authorization: Bearer {{operatorLogin.response.body.$.access_token}}

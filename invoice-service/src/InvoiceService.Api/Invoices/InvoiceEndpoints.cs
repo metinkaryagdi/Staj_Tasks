@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using InvoiceService.Api.Auth;
 using InvoiceService.Api.Operators;
 using InvoiceService.Application.Invoices;
@@ -129,12 +130,12 @@ public static class InvoiceEndpoints
 
     /// <summary>For the endpoints that change something on an operator's request.</summary>
     public const string OperatorDescription =
-        "Header X-Operator-Name (required, percent-encoded UTF-8, at most 100 characters; 400 if missing or empty): who " +
-        "asks for it; the request and its result are recorded in operator_actions under that name.";
+        "The operator is the user name in the token (preferred_username): the request and its result are recorded in " +
+        "operator_actions under that name, and a name sent in the request is not used. 403 if the token carries no usable name.";
 
-    private static async Task<IResult> ResendInvoice(string invoiceNumber, HttpRequest request, ResendInvoiceHandler handler)
+    private static async Task<IResult> ResendInvoice(string invoiceNumber, ClaimsPrincipal user, ResendInvoiceHandler handler)
     {
-        var (operatorName, invalid) = OperatorHeader.Read(request);
+        var (operatorName, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 
@@ -157,9 +158,9 @@ public static class InvoiceEndpoints
     }
 
     private static async Task<IResult> ResendInvoices(
-        ResendInvoicesRequest request, HttpRequest http, ResendInvoicesHandler handler)
+        ResendInvoicesRequest request, ClaimsPrincipal user, ResendInvoicesHandler handler)
     {
-        var (operatorName, invalid) = OperatorHeader.Read(http);
+        var (operatorName, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 
@@ -207,9 +208,9 @@ public static class InvoiceEndpoints
     }
 
     private static async Task<IResult> OpenFollowUp(
-        string invoiceNumber, FollowUpRequest? body, HttpRequest request, InvoiceFollowUpHandler handler, CancellationToken ct)
+        string invoiceNumber, FollowUpRequest? body, ClaimsPrincipal user, InvoiceFollowUpHandler handler, CancellationToken ct)
     {
-        var (operatorName, invalid) = OperatorHeader.Read(request);
+        var (operatorName, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 
@@ -246,9 +247,9 @@ public static class InvoiceEndpoints
     }
 
     private static async Task<IResult> CloseFollowUp(
-        string invoiceNumber, HttpRequest request, InvoiceFollowUpHandler handler, CancellationToken ct)
+        string invoiceNumber, ClaimsPrincipal user, InvoiceFollowUpHandler handler, CancellationToken ct)
     {
-        var (operatorName, invalid) = OperatorHeader.Read(request);
+        var (operatorName, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 

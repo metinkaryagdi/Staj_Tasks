@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using InvoiceService.Api.Auth;
 using InvoiceService.Api.Invoices;
 using InvoiceService.Api.Operators;
@@ -46,9 +47,9 @@ public static class ReconciliationEndpoints
     }
 
     private static async Task<IResult> StartRun(
-        HttpRequest request, ReconciliationService service, IHostApplicationLifetime lifetime, CancellationToken ct)
+        ClaimsPrincipal user, ReconciliationService service, IHostApplicationLifetime lifetime, CancellationToken ct)
     {
-        var (operatorName, invalid) = OperatorHeader.Read(request);
+        var (operatorName, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 
