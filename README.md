@@ -6,8 +6,9 @@ webhook'larla bildiren ERP Simulator, ve sistemi izleyip müdahale etmek için o
 | Uygulama | Klasör | Ne yapar |
 |---|---|---|
 | ERP Simulator | `erp-simulator/` | Faturaları kabul eden ERP'yi taklit eder; saniyede sınırlı sayıda isteği kabul eder; her isteğe seed'li rastgele bir hata davranışı uygular; kaydettiği faturalar için Invoice Service'e imzalı webhook gönderir (bilerek sorunlu) |
-| Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir; ERP'den gelen webhook event'lerini doğrulayıp faturaya işler; belirli aralıklarla kendi kayıtlarını ERP'ninkiyle karşılaştırır (mutabakat), düzeltebildiğini düzeltir, düzeltemediğini raporlar |
-| Operasyon Ekranı | `operations-ui/` | Faturaların ve mutabakatın durumunu veritabanına bakmadan gösterir; Başarısız faturaları tek tek ya da toplu yeniden kuyruğa alır, mutabakatı başlatır. Yalnızca Invoice Service'in API'siyle konuşur |
+| Invoice Service | `invoice-service/` | Faturayı ve Outbox kaydını birlikte kaydeder; arka planda ERP'ye gönderir; ERP'den gelen webhook event'lerini doğrulayıp faturaya işler; belirli aralıklarla kendi kayıtlarını ERP'ninkiyle karşılaştırır (mutabakat), düzeltebildiğini düzeltir, düzeltemediğini raporlar. API'si webhook dışında Keycloak'ın verdiği JWT ile korunur |
+| Keycloak | `keycloak/` | Kimlik doğrulama: kullanıcılar ve sipariş sistemi token'ı buradan alır; realm (roller, client'lar, test kullanıcıları) açılışta dosyadan kurulur ([Kimlik doğrulama](#kimlik-doğrulama)) |
+| Operasyon Ekranı | `operations-ui/` | Faturaların ve mutabakatın durumunu veritabanına bakmadan gösterir; Başarısız faturaları tek tek ya da toplu yeniden kuyruğa alır, mutabakatı başlatır. Yalnızca Invoice Service'in API'siyle konuşur. Girişi henüz yok: token göndermediği için API'ye bağlanamaz |
 | İzleme | `monitoring/`, `alert-receiver/` | İki uygulama metriklerini ve izlerini ayrı iki OpenTelemetry Collector'a gönderir; metrikleri Prometheus toplar, Grafana panoda gösterir, alarm kuralları tetiklenince Alertmanager bildirimi alert-receiver'a gönderir; izler Jaeger'da bir faturanın yolculuğunu gösterir ([İzleme](#i̇zleme)) |
 
 İki .NET uygulaması Domain / Application / Infrastructure / Api olarak dört katmana ayrılmıştır; katmanlar, port'lar,
@@ -28,6 +29,7 @@ docker compose up -d --build
 | ERP veritabanı | `localhost:5433` — db `erp_simulator`, kullanıcı `erp`, şifre `erp` |
 | Invoice Service | http://localhost:5090 (Swagger: http://localhost:5090/swagger) |
 | Fatura veritabanı | `localhost:5434` — db `invoice_service`, kullanıcı `invoice`, şifre `invoice` |
+| Keycloak | http://localhost:8080 (yönetim konsolu `admin` / `admin`; realm `fatura`) |
 | Operasyon Ekranı | http://localhost:5100 |
 | Grafana (pano) | http://localhost:3000 (giriş gerekmez; değiştirmek için `admin` / `admin`) |
 | Prometheus | http://localhost:9090 (alarmlar: http://localhost:9090/alerts) |
@@ -136,7 +138,8 @@ Fatura isteğin içinde ERP'ye gönderilmez: fatura ve Outbox kaydı (`erp_outbo
 hemen `202` döner. Arka plandaki `OutboxWorker` kayıtları ERP Simulator'a gönderir, hataya göre bekleyip tekrar dener
 ve sonucu yazar. ERP'nin gönderdiği webhook event'leri imza doğrulandıktan sonra faturaya işlenir. Haberi hiç gelmeyen ya
 da başka nedenle ERP'den ayrışan faturalar için mutabakat işi servisin içinde belirli aralıklarla çalışır
-([Mutabakat](#mutabakat)).
+([Mutabakat](#mutabakat)). Webhook dışındaki bütün endpoint'ler Keycloak'ın verdiği JWT'yi ister
+([Kimlik doğrulama](#kimlik-doğrulama)).
 
 ### Veri
 
@@ -145,9 +148,9 @@ da başka nedenle ERP'den ayrışan faturalar için mutabakat işi servisin içi
 | `invoices` | Fatura ve durumu. Numarayı servis üretir (sequence → `FTR-000001`; body'deki `invoiceNumber` yok sayılır). `send_attempt_count` ömür boyu sayaçtır, resend'de sıfırlanmaz. `reject_reason` yalnızca `Reddedildi`'de dolu. `erp_checked_at` / `erp_check_result`: mutabakatın ERP'ye bu faturayı en son ne zaman sorduğu ve cevabı (`Kayıt yok`, `Kayıtlı, karar: …`); yazılması `updated_at`'i değiştirmez |
 | `erp_outbox` | Faturanın Outbox kaydı (fatura başına bir satır). `locked_until` / `locked_by` / `claim_token` sahipliği ve eski alımın sonucunun yenisini ezmesini önler. `trace_parent`: faturanın trace'inin W3C traceparent'ı; worker kaydı ilk aldığında yazılır, sonraki denemeler bu trace'i sürdürür, resend değiştirmez ([İzler](#i̇zler)) |
 | `erp_webhook_events` | Gelen her geçerli event bir satır (`event_id` birincil anahtar). `delivery_count` tekrar gelişi sayar, `ignore_reason` `Yok Sayıldı`'nın nedenidir (`Geri Götürüyor`, `Kesin Durumda`, `İlerletmiyor`, `Referans Farklı`, `Fatura Yok`) |
-| `reconciliation_runs` | Bir mutabakat çalışması: durum (`Çalışıyor` / `Tamamlandı` / `Başarısız`), karşılaştırılan, düzeltilen ve raporlanan sayısı, hata, `started_by` (başlatan kişi ya da `Zamanlayıcı`; başlatanın kaydedilmesinden önceki çalışmalarda boş) |
+| `reconciliation_runs` | Bir mutabakat çalışması: durum (`Çalışıyor` / `Tamamlandı` / `Başarısız`), karşılaştırılan, düzeltilen ve raporlanan sayısı, hata, `started_by` (başlatan operatörün token'daki kullanıcı adı ya da `Zamanlayıcı`; başlatanın kaydedilmesinden önceki çalışmalarda boş) |
 | `reconciliation_findings` | Çalışmanın bulduğu fark: tür, eylem (`Düzeltildi` / `Raporlandı`), ayrıntı. `Düzeltildi` yalnızca düzeltilen üç türde olabilir (check constraint). Fatura tablosuna foreign key yoktur: ERP'de olup serviste olmayan fatura da raporlanır |
-| `operator_actions` | Ekrandan yapılan her müdahale: `operator_name`, `action` (`Yeniden Gönderme`, `Toplu Yeniden Gönderme`, `Mutabakat Başlatma`, `Takibe Alma`, `Takibi Kapatma`), `invoice_number` (mutabakat başlatmada boş), `result` (`Kuyruğa alındı`, `Reddedildi: fatura Bekliyor`, `Başlatıldı: çalışma 12` …), `created_at`. Reddedilen istekler de yazılır; toplu gönderimde fatura başına bir satır |
+| `operator_actions` | Her müdahale: `operator_name` (token'daki kullanıcı adı), `action` (`Yeniden Gönderme`, `Toplu Yeniden Gönderme`, `Mutabakat Başlatma`, `Takibe Alma`, `Takibi Kapatma`), `invoice_number` (mutabakat başlatmada boş), `result` (`Kuyruğa alındı`, `Reddedildi: fatura Bekliyor`, `Başlatıldı: çalışma 12` …), `created_at`. Reddedilen istekler de yazılır; toplu gönderimde fatura başına bir satır |
 | `erp_send_pace` | Tek satır: bütün servis kopyalarının paylaştığı bir sonraki boş gönderim sırası (`next_turn_at`). Yalnızca gönderim hızı için kullanılır ([Outbox Worker](#outbox-worker)); EF modelinde yoktur, migration'da SQL ile oluşturulur |
 | `invoice_follow_ups` | Takılı bir faturanın elle takibi: `operator_name`, `note`, `opened_at`, `closed_at` / `closed_by` (açıkken boş). Fatura başına en fazla bir açık takip (kısmi benzersiz indeks); kapatılanlar geçmiş olarak kalır. Faturanın durumunu değiştirmez |
 
@@ -158,26 +161,66 @@ yeniden kuyruğa alır. Durum değerleri ve alanlar veritabanında check constra
 
 ### Endpoint'ler
 
+Webhook dışındaki her endpoint `Authorization: Bearer <token>` ister: okuma izleyici ve operatöre, müdahale yalnızca operatöre,
+fatura oluşturma yalnızca sipariş sistemine açıktır ([Kimlik doğrulama](#kimlik-doğrulama)).
+
 | Endpoint | Davranış |
 |---|---|
-| `POST /api/v1/invoices` | Body: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura `Bekliyor` durumunda ve `erp_outbox` kaydıyla aynı transaction'da yazılır, `202`. ERP Simulator bu istekte çağrılmaz. Geçersiz body `400` (tutar 0'dan büyük, en fazla 999.999.999.999,99, virgülden sonra en fazla iki basamak), hiçbir şey kaydedilmez. |
-| `POST /api/v1/invoices/{invoiceNumber}/resend` | `X-Operator-Name` gerekir (aşağıya bakın). Yalnızca `Başarısız` fatura için: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen), faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409` (`code: invoice_not_failed`, `currentStatus`), yoksa `404` (`code: invoice_not_found`). Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
-| `POST /api/v1/invoices/resend` | `X-Operator-Name` gerekir. Body `{"invoiceNumbers": [...]}`, 1-100 numara (aksi `400`). Her fatura tekli resend'in kurallarıyla, kendi transaction'ında; tekrarlanan numara bir kez. Her zaman `200` + fatura başına sonuç: `queued`, `not_found`, `not_failed` (+ `currentStatus`), `error`. |
+| `POST /api/v1/invoices` | Yalnızca sipariş sistemi. Body: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura `Bekliyor` durumunda ve `erp_outbox` kaydıyla aynı transaction'da yazılır, `202`. ERP Simulator bu istekte çağrılmaz. Geçersiz body `400` (tutar 0'dan büyük, en fazla 999.999.999.999,99, virgülden sonra en fazla iki basamak), hiçbir şey kaydedilmez. |
+| `POST /api/v1/invoices/{invoiceNumber}/resend` | Operatör. Yalnızca `Başarısız` fatura için: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen), faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409` (`code: invoice_not_failed`, `currentStatus`), yoksa `404` (`code: invoice_not_found`). Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
+| `POST /api/v1/invoices/resend` | Operatör. Body `{"invoiceNumbers": [...]}`, 1-100 numara (aksi `400`). Her fatura tekli resend'in kurallarıyla, kendi transaction'ında; tekrarlanan numara bir kez. Her zaman `200` + fatura başına sonuç: `queued`, `not_found`, `not_failed` (+ `currentStatus`), `error`. |
 | `GET /api/v1/invoices` | Sayfalı liste, en yeni üstte: `status` (geçersizse `400`), `stuck=true` (yalnızca özetin takılı saydığı faturalar; aynı koşul; her faturada `stuck` alanı da bu koşulla gelir), `search` (numaranın bir parçası, büyük/küçük harf fark etmez), `page` (1'den), `pageSize` (1-100, varsayılan 20). Cevap `{items, page, pageSize, totalCount, totalPages}`. |
 | `GET /api/v1/invoices/summary` | Her durumdaki fatura sayısı (0 olanlar dahil), toplam, takılı sayısı (`Gönderildi` / `İşleme Alındı`'da `StuckAfterMinutes`'tan uzun kalan) ve ERP'ye gönderim kuyruğu: `queuedCount` (`erp_outbox`'ta `Bekliyor`), `oldestQueuedSeconds` (en eski `Bekliyor` kaydın oluşturulmasından bu yana; kuyruk boşsa `null`), `sentLastMinute` (son 60 sn'de `Tamamlandı` olan). Bütün sayılar tek snapshot'tan okunur. |
 | `GET /api/v1/invoices/{invoiceNumber}` | Faturanın servisteki hali (`200`, `rejectReason` dahil) ya da `404`. |
 | `GET /api/v1/invoices/{invoiceNumber}/details` | Fatura, `erp_outbox` kaydı, haberleri (geliş sırasıyla), mutabakat bulguları (en yeni üstte; `ERP Karar Vermedi`'den yalnızca en sonuncusu) ve müdahaleler (`operatorActions`, en yeni üstte) tek cevapta; yoksa `404`. |
-| `POST /api/v1/reconciliation-runs` | `X-Operator-Name` gerekir. Mutabakatı elle başlatır: `202` + `Location` + çalışma (`Çalışıyor`); çalışma arka planda sürer. Başka bir çalışma sürüyorsa (zamanlanmış, elle ya da servisin diğer kopyasında) `409` (`code: reconciliation_running`). |
-| `POST /api/v1/invoices/{invoiceNumber}/follow-up` | `X-Operator-Name` gerekir. Body `{"note": "..."}` (1-500 karakter, aksi `400`). Yalnızca takılı fatura (aksi `409`, `code: invoice_not_stuck`); açık takip varsa `409` (`code: follow_up_open`, açan ve zamanı); yoksa `404`. `201` + takip. Fatura takılı kalır |
-| `POST /api/v1/invoices/{invoiceNumber}/follow-up/close` | `X-Operator-Name` gerekir. Açık takibi kapatır (`200`); yoksa `409` (`code: follow_up_not_open`) |
+| `POST /api/v1/reconciliation-runs` | Operatör. Mutabakatı elle başlatır: `202` + `Location` + çalışma (`Çalışıyor`); çalışma arka planda sürer. Başka bir çalışma sürüyorsa (zamanlanmış, elle ya da servisin diğer kopyasında) `409` (`code: reconciliation_running`). |
+| `POST /api/v1/invoices/{invoiceNumber}/follow-up` | Operatör. Body `{"note": "..."}` (1-500 karakter, aksi `400`). Yalnızca takılı fatura (aksi `409`, `code: invoice_not_stuck`); açık takip varsa `409` (`code: follow_up_open`, açan ve zamanı); yoksa `404`. `201` + takip. Fatura takılı kalır |
+| `POST /api/v1/invoices/{invoiceNumber}/follow-up/close` | Operatör. Açık takibi kapatır (`200`); yoksa `409` (`code: follow_up_not_open`) |
 | `GET /api/v1/reconciliation-runs` | Sayfalı çalışma listesi, en yeni üstte (bulgusuz): `page` (1'den), `pageSize` (1-50, varsayılan 20). Cevap `{items, page, pageSize, totalCount, totalPages}`. |
 | `GET /api/v1/reconciliation-runs/{id}` | `{ run, findings[] }` ya da `404`. |
-| `POST /api/v1/erp-webhooks` | ERP webhook event'i. İmza header'ları yok/yanlış ya da timestamp 5 dk'dan eski veya ileri: `401`, kaydedilmez. İmza doğru ama body geçersiz: `400`; 64 KB'tan büyük body: `413`. Event 4 sn içinde işlenemezse `503` (ERP tekrar gönderir). Aksi halde `200` + `{eventId, status, repeat}`. |
+| `POST /api/v1/erp-webhooks` | ERP webhook event'i; JWT istemez, HMAC ile doğrulanır. İmza header'ları yok/yanlış ya da timestamp 5 dk'dan eski veya ileri: `401`, kaydedilmez. İmza doğru ama body geçersiz: `400`; 64 KB'tan büyük body: `413`. Event 4 sn içinde işlenemezse `503` (ERP tekrar gönderir). Aksi halde `200` + `{eventId, status, repeat}`. |
 
-`X-Operator-Name`: müdahaleyi yapanın adı (kimlik doğrulama değildir, yalnızca kayıt için). Üç müdahale isteğinde zorunludur;
-yoksa ya da boşsa `400` (`code: operator_name_required`), 100 karakterden uzunsa `400` (`code: operator_name_invalid`) ve hiçbir
-şey değişmez. Tarayıcı header'da Latin-1 dışı karakter gönderemediği için ad yüzde kodlu (`encodeURIComponent`) gönderilir, servis
-çözer; düz ASCII ad olduğu gibi de gönderilebilir. Kayıt, müdahalenin yaptığı değişiklikle aynı transaction'da yazılır.
+Müdahaleyi yapan, token'daki kullanıcı adıdır (`preferred_username`): `operator_actions`, `invoice_follow_ups` ve
+`reconciliation_runs.started_by` bu adla yazılır. İstekte gönderilen bir ad (header, query ya da body) okunmaz. Token'da kullanılabilir
+ad yoksa (boş ya da 100 karakterden uzun) `403` (`code: operator_name_required` / `operator_name_invalid`) ve hiçbir şey değişmez.
+Kayıt, müdahalenin yaptığı değişiklikle aynı transaction'da yazılır.
+
+### Kimlik doğrulama
+
+Keycloak (`docker-compose.yml`, 26.8.1) açılışta realm'i [`keycloak/fatura-realm.json`](keycloak/fatura-realm.json)'dan kurar;
+konsolda elle ayar yapılmaz. Realm zaten varsa dosya okunmaz: dosya değişince `docker compose up -d --force-recreate keycloak`.
+
+| Rol | Kimde | Ne yapabilir |
+|---|---|---|
+| `fatura-izleyici` | kullanıcı `izleyici` | Okuma endpoint'leri |
+| `fatura-operatoru` | kullanıcı `operator` | Okuma ve müdahale: yeniden gönderme, toplu yeniden gönderme, mutabakat başlatma, takibe alma ve kapatma |
+| `fatura-olusturucu` | client `siparis-sistemi` (service account) | `POST /api/v1/invoices` |
+| — | kullanıcı `rolsuz` | Rol isteyen hiçbir endpoint (yalnızca `/health` ve Swagger gibi geçerli token'ın yettiği adresler) |
+
+Client'lar: `siparis-sistemi` (secret'lı, yalnızca client credentials) ve `fatura-test` (secret'sız, kullanıcı adı ve şifreyle token
+alır; yalnızca test script'leri ve `.http` dosyası için). İkisinin token'ında da `aud` `fatura-servisi`'dir (audience mapper). Token
+ömrü 5 dakikadır. Test kullanıcılarının şifreleri ve `siparis-sistemi`'nin secret'ı realm dosyasında düz yazılıdır, yalnızca yerel
+deneme içindir.
+
+- **Doğrulama** ([`Api/Auth/AuthExtensions.cs`](invoice-service/src/InvoiceService.Api/Auth/AuthExtensions.cs)): servis token'ı kendisi
+  doğrular: imza (realm'in yayımladığı anahtarlar, JWKS), issuer (`http://localhost:8080/realms/fatura`), audience (`fatura-servisi`)
+  ve süre. Süre dolduktan sonra 30 sn tolerans vardır (`ClockSkew`; varsayılanı 5 dakika). Anahtarlar ilk istekte discovery belgesinden
+  alınır ve bellekte tutulur; her istekte Keycloak'a sorulmaz.
+- **401 / 403:** token yoksa, imzası bozuksa, süresi dolmuşsa, issuer ya da audience tutmuyorsa `401`; nedeni `WWW-Authenticate`
+  header'ındadır. Token geçerli ama rol yetmiyorsa `403`. Roller token'da `realm_access.roles` içindedir; servis her birini ayrı bir
+  role claim'ine çevirir (`RealmRoles`).
+- **Token istemeyen tek endpoint** `POST /api/v1/erp-webhooks`'tur. `/health`, Swagger (`/swagger`, `/openapi/v1.json`) ve `/` geçerli
+  bir token ister, rol istemez. Kuralı yazılmamış yeni bir endpoint de token ister (varsayılan kural).
+- **Issuer:** Keycloak'a bilgisayardan `localhost:8080`, container'lardan `keycloak:8080` ile ulaşılır. `KC_HOSTNAME` sayesinde iki
+  durumda da token'daki issuer `http://localhost:8080/realms/fatura`'dır; servis anahtarları `keycloak:8080` üzerinden alır
+  (`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`).
+- **Token almak** (PowerShell; sipariş sistemi için `grant_type = 'client_credentials'`, `client_id = 'siparis-sistemi'` ve realm
+  dosyasındaki `client_secret`):
+
+  ```powershell
+  $token = (Invoke-RestMethod -Method Post -Uri http://localhost:8080/realms/fatura/protocol/openid-connect/token -Body @{ grant_type = 'password'; client_id = 'fatura-test'; username = 'operator'; password = 'operator123' }).access_token
+  curl.exe http://localhost:5090/api/v1/invoices/summary -H "Authorization: Bearer $token"
+  ```
 
 ### Outbox Worker
 
@@ -261,7 +304,8 @@ hiçbir fatura değişmemiştir.
 neden o değerde olduğu yazılı. Hepsi zorunludur; eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar.
 Değişiklikten sonra `docker compose up -d --build invoice-service`. Docker'da ERP adresi `appsettings.Docker.json`'dadır.
 `ErpWebhooks:Secret`, ERP Simulator'daki `Webhooks:Secret` ile aynı olmalıdır. `Cors:AllowedOrigins` operasyon ekranının
-adresidir (`http://localhost:5100`); ekran başka bir adresten açılacaksa buraya eklenir.
+adresidir (`http://localhost:5100`); ekran başka bir adresten açılacaksa buraya eklenir. `Keycloak:BaseUrl`, `Keycloak:Realm` ve
+`Keycloak:Audience`: token'ları veren Keycloak ve token'ın taşıması gereken `aud`; Docker'da adres `http://keycloak:8080`'dir.
 
 Mutabakat ayarları: `IntervalMinutes` 60, `LookbackHours` 24, `StuckAfterMinutes` 2, `UnknownEventAfterMinutes` 60,
 `NoDecisionAfterMinutes` 30 (`StuckAfterMinutes`'tan küçük olamaz), `NotFoundRecheckHours` 24. Metrik ayarı:
@@ -296,7 +340,10 @@ React + TypeScript (Vite), nginx ile sunulur. Tarayıcı doğrudan Invoice Servi
 | Mutabakat | Sayfalı çalışma listesi (20'şer, başlatan dahil), seçili çalışmanın bulguları (Raporlanan ve Düzeltilen ayrı), "Mutabakatı Şimdi Çalıştır" |
 
 - İlk açılışta kullanıcının adı sorulur ve tarayıcıda (`localStorage`) saklanır; sayfa yenilenince yeniden sorulmaz. Ad üst
-  çubukta görünür, "Değiştir" ile yeniden sorulur. Ekranın her müdahalesi bu adı `X-Operator-Name` ile gönderir.
+  çubukta görünür, "Değiştir" ile yeniden sorulur. Ekranın her müdahalesi bu adı `X-Operator-Name` ile gönderir; servis bu
+  başlığı artık okumaz.
+- **Girişi henüz yok:** ekran token göndermediği için API'den veri alamaz (servis `401` döner; müdahale isteklerinin
+  `X-Operator-Name` başlığına CORS da izin vermez).
 - Her sayfa 10 saniyede bir kendiliğinden yenilenir ve son yenileme zamanını yazar.
 - Invoice Service'e ulaşılamazsa sayfa çökmez: "Fatura Servisi'ne ulaşılamıyor" mesajı gösterilir; daha önce veri geldiyse son
   bilinen veri uyarıyla kalır. Servis açılınca bir sonraki yenilemede kendiliğinden toparlanır.
@@ -440,6 +487,7 @@ trace'idir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Gün 17 kontrol listesi (compose sonrası realm; endpoint × durum tablosu; operator_actions'ta token'daki ad; token ömründen uzun yük testi; webhook HMAC; Keycloak durdurma) | [`manual-tests/gun17/`](manual-tests/gun17/) |
 | Gün 16 kontrol listesi (bellek sınırı denemesinde metriklerin sürekliliği ve alarmlar; 2 dakikalık karar süresiyle 10 dakikalık yük testi ve metrik Collector'ının maliyeti; servis ve veritabanı durdurma; alarm geçmişi; iz Collector'ını durdurma ve iki kopya; metrik Collector'ını durdurma) | [`manual-tests/gun16/`](manual-tests/gun16/) |
 | Gün 15 kontrol listesi (10 dakikalık yük testinde saklanan sorunsuz oranı, sorunlu ve oluşturma izleri, Collector belleği; boşta bekleyen trace; kuyrukta 30 dakikadan uzun beklemiş faturanın izi; bellek sınırı denemesi) | [`manual-tests/gun15/`](manual-tests/gun15/) |
 | Gün 14 kontrol listesi (Collector'ın bellek sınırı; 10 dakikalık yük testinde Collector belleği, reddedilen span'ler, zaman içinde saklanan sorunsuz oranı, sorunlu faturaların izleri) | [`manual-tests/gun14/`](manual-tests/gun14/) |
@@ -459,7 +507,7 @@ trace'idir:
 | ERP Simulator bash script'leri | `./scripts/erp-simulator-checklist.sh`, `./scripts/erp-simulator-distribution.sh <adet>` |
 
 `manual-tests/gun2/` script'leri Gün 2'deki eşzamanlı gönderimi test eder ve [gun-2](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-2)
-tag'inde çalıştırılmalıdır.
+tag'inde çalıştırılmalıdır. Gün 1-16 script'leri token göndermez: API'ye istek atanlar o günlerin tag'lerinde çalıştırılmalıdır.
 
 ### Entegrasyon testleri
 
@@ -500,84 +548,94 @@ toplam 15.000. k6 kurulmaz: compose'daki `k6` servisi (profil `yuk-testi`, sabit
 docker compose run --rm k6
 ```
 
+İstekler sipariş sisteminin token'ıyla gider (client credentials); her VU kendi token'ını bitmeden 30 sn önce yeniler. Token ömrü
+5 dakika olduğu için yenilemeyi görmek için süre uzatılır (`DURATION=7m`).
+
 Ortam değişkenleri: `BASE_URLS` (virgülle birden fazla adres; istekler sırayla dağıtılır), `RATE`, `DURATION`, `RUN_ID` (faturaların
 müşteri kodu; verilmezse `LOAD-<zaman>`). Sonuç ekrana ve `load-test/results/<RUN_ID>.json`'a yazılır (istek sayısı,
-`POST /api/v1/invoices` p50 / p95 / p99); p95 200 ms'yi geçerse k6 hata koduyla biter. Kuyruk boşaldıktan sonraki sonuç tablosu:
+`POST /api/v1/invoices` p50 / p95 / p99, VU, alınan token ve 401 alan istek sayısı; token istekleri süreye ve istek sayısına
+girmez); p95 200 ms'yi geçerse ya da tek bir istek 401 alırsa k6 hata koduyla biter. Kuyruk boşaldıktan sonraki sonuç tablosu:
 `.\manual-tests\gun8\6-yuk-olcum.ps1 -RunId <RUN_ID>`.
 
 Manuel deneme: Swagger UI veya `.http` dosyaları
-([ERP Simulator](erp-simulator/src/ErpSimulator.Api/ErpSimulator.Api.http), [Invoice Service](invoice-service/src/InvoiceService.Api/InvoiceService.Api.http));
+([ERP Simulator](erp-simulator/src/ErpSimulator.Api/ErpSimulator.Api.http), [Invoice Service](invoice-service/src/InvoiceService.Api/InvoiceService.Api.http);
+Invoice Service'inki önce operatörün ve sipariş sisteminin token'ını alır, Swagger UI token istediği için tarayıcıda açılmaz);
 loglar için `docker compose logs -f erp-simulator` / `docker compose logs -f invoice-service`.
 Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 16 — Metrikleri İz Yükünden Ayırmak
+## Gün 17 — Kimlik Doğrulama, Keycloak ve API
 
-Bugünün işi: metrikler izlerden ayrı bir Collector'dan geçiyor, Collector iz reddettiğinde ayrı bir alarm tetikleniyor ve
-Collector'ın karar süresi 2 dakikaya indi.
+Bugünün işi: Keycloak compose'da ve realm dosyadan kuruluyor; Invoice Service'in API'si webhook dışında JWT ile korunuyor;
+müdahaleyi yapanın adı token'dan yazılıyor.
 
-- **Metrik Collector'ı** (`otel-collector-metrics`): uygulamalar metriklerini buraya, izlerini `otel-collector`'a gönderir; ayrı
-  süreç, ayrı bellek sınırı. Pano ve mevcut alarmlar değişmedi ([İzleme](#i̇zleme)).
-- **`CollectorIzReddediyor`:** iz Collector'ı son 5 dakikada span reddettiyse tetiklenir; yalnız ret sayacına bakar
-  ([Alarmlar](#alarmlar)).
-- **Karar süresi** 30 dakikadan 2 dakikaya: 2. denemede gönderilen bir faturanın en geç gönderilme süresine göre ([İzler](#i̇zler)).
-- **Bellek sınırı denemesi** (karar süresi 30 dakika, `limit_mib` 400, `spike_limit_mib` 100, saniyede 50 fatura, 10 dakika):
-  iz Collector'ı 855.032 span reddetti (46 aralıkta toplam 43 dk); uygulamaların hiçbir metrik gönderimi başarısız olmadı, iki
-  servisin metrikleri Prometheus'tan kaybolmadı, `MetrikToplanamiyor` tetiklenmedi, `CollectorIzReddediyor` tetiklendi; kuyruk ve
-  takılı fatura alarmları ret sırasında tetiklenip çözüldü. Kuyruk boşaldıktan sonra 60 saniye beklendi, sınır kuyruğun boşalmasından
-  1 dk 19 sn sonra, aralıklı ret sürerken 1600 / 400'e döndü; ret alarmının çözüldüğü bildirim 3 dk 58 sn sonra geldi.
-- **Uzun yük testi** (karar süresi 2 dakika; saniyede 50 fatura, 10 dakika, simülatörün varsayılan oranları; kuyruk yük başından
-  1 sa 18 dk'da boşaldı): saklanan sorunsuz fatura oranı %10,0; 2.959 sorunlu faturanın hiçbirinin izi kaybolmadı; kuyruktan ilk
-  alınmadan gönderilmeye izi saklanan sorunsuzlarda en uzun 0,55 dakika geçti, 2 dakikayı geçen sorunsuz fatura olmadı. İz Collector'ında bellekte en çok 6.911 trace, en yüksek bellek
-  230 MiB (dün 41.704 ve 1.068 MiB). Metrik Collector'ı ortalama 106,0 MiB bellek ve %0,09 işlemci kullandı.
-- **İz Collector'ı durdurulunca** (yük yokken, 2 dakika) metrikler kesintisiz sürdü, hiçbir alarm tetiklenmedi; Collector başlatılınca izler
-  yeniden alındı. İkinci servis kopyası açıkken iki kopyanın metrikleri metrik Collector'ından ayrı ayrı geldi.
+- **Keycloak** (`keycloak/fatura-realm.json`): iki kullanıcı rolü (`fatura-izleyici`, `fatura-operatoru`), sipariş sistemi için
+  ayrı client ve rol (`siparis-sistemi`, `fatura-olusturucu`), üç test kullanıcısı (`izleyici`, `operator`, `rolsuz`)
+  ([Kimlik doğrulama](#kimlik-doğrulama)).
+- **JWT:** servis imzayı (JWKS), issuer'ı, audience'ı ve süreyi kendisi doğrular; token yok ya da geçersizse `401`, rol yetmiyorsa
+  `403`. Webhook JWT'siz, HMAC aynen.
+- **`X-Operator-Name` kaldırıldı:** müdahale kayıtları token'daki kullanıcı adıyla yazılır; istekte gönderilen ad okunmaz.
+- **Ayarlar:** `Keycloak:BaseUrl`, `Keycloak:Realm`, `Keycloak:Audience`.
+- **Yük testi** sipariş sisteminin token'ıyla çalışır, token'ı bitmeden yeniler.
 
-Kontrol listesi: [`manual-tests/gun16/`](manual-tests/gun16/). `4-bellek-denemesi.ps1 -LimitMib 400 -SpikeMib 100` iz Collector'ının
-sınırını yalnız deneme süresince düşürür, uygulamaların OpenTelemetry tanılama logunu açar, ret başladıktan 10 dakika sonra panonun
-ekran görüntüsünü alır; bitince sınırı ve uygulamaları geri alır ve ret alarmının çözülmesini bekler. `1-uzun-yuk.ps1 -SkipIdle` yük
-testini simülatörün ayarına dokunmadan çalıştırır, iz Collector'ının belleğini ve kendi metriklerini, metrik Collector'ının bellek ve
-işlemcisini kaydeder; ardından `2-sayim.ps1` her faturayı Jaeger'da arar ve kuyruktan ilk alınmadan gönderilmeye geçen süreyi ölçer.
-`5-durdurma.ps1` açık yığında önce `invoice-service`'i, sonra `invoice-db`'yi kısa süre durdurur ve hangi alarmın geldiğini kaydeder.
-`6-alarm-gecmisi.ps1` iki denemenin aralıklarında bütün alarmların Prometheus'taki geçmişini ve alıcıya gelen bildirimleri yazar.
-`7-iz-collector-ve-iki-kopya.ps1` iz Collector'ını kısa süre durdurup metrikleri ve alarmları kaydeder, ardından ikinci servis
-kopyasını derleyip açar ve iki kopyanın metriklerine bakar. `8-metrik-collector-durdurma.ps1` metrik Collector'ını durdurup iki
-servisin `MetrikToplanamiyor` alarmının gelmesini ve çözülmesini bekler.
+Kontrol listesi ([`manual-tests/gun17/`](manual-tests/gun17/); `1-hazir.ps1` bütün yığını bu güne özel boş volume'lerle yeniden oluşturur,
+diğerleri o yığında çalışır):
+
+| # | Madde | Sonuç |
+|---|---|---|
+| 1 | Compose sonrası realm, roller, client'lar ve üç kullanıcı | `Realm 'fatura' imported`; 3 rol, 2 client, 3 kullanıcı (`rolsuz`'un rolü yok); konsolda hiçbir işlem yapılmadı |
+| 2 | Korunan her endpoint × 7 durum | 105 hücrenin hepsi beklenen cevap (tablo aşağıda) |
+| 3 | Yeniden gönderimde `operator_actions` | `X-Operator-Name: sahte` ile yeniden gönderme `202`; tek satır, `operator_name` = `operator` |
+| 4 | Token ömründen uzun yük testi | 7 dk, saniyede 50: 21.000 isteğin 21.000'i `202`, p95 7,1 ms; 50 VU 100 token aldı (her VU bir kez yeniledi); 401 alan istek 0 |
+| 5 | ERP haberleri HMAC ile | Doğru imzalı haber token'sız `200`, yanlış imza `401`, token olup HMAC'sız istek `401`; simülatörün doğru imzalı 7.978 haberinden hiçbiri 401 almadı, eski zaman damgalı ya da yanlış anahtarlı 362 haberin hepsi `401`; 6.695 haber İşlendi |
+| 6 | Keycloak durdurulunca önceden alınmış geçerli token | `200`; yeni token alınamadı. Keycloak kapalıyken servis yeniden başlayınca aynı token `401`; Keycloak açılınca yine `200` |
+
+Hücrelerde gelen HTTP kodu; rol yetiyorsa `401`/`403` dışındaki kod işin kendi cevabıdır (fatura `Bekliyor` olduğu için yeniden
+gönderme ve takip `409`; izleyici sorduğunda 1 numaralı mutabakat çalışması henüz başlatılmamıştı, `404`):
+
+| Endpoint | Token yok | İmzası bozuk | Süresi dolmuş | Rolsüz | İzleyici | Operatör | Sipariş sistemi |
+|---|---|---|---|---|---|---|---|
+| `POST /api/v1/invoices` | 401 | 401 | 401 | 403 | 403 | 403 | 202 |
+| `GET /api/v1/invoices` | 401 | 401 | 401 | 403 | 200 | 200 | 403 |
+| `GET /api/v1/invoices/summary` | 401 | 401 | 401 | 403 | 200 | 200 | 403 |
+| `GET /api/v1/invoices/{n}/details` | 401 | 401 | 401 | 403 | 200 | 200 | 403 |
+| `GET /api/v1/invoices/{n}` | 401 | 401 | 401 | 403 | 200 | 200 | 403 |
+| `POST /api/v1/invoices/{n}/resend` | 401 | 401 | 401 | 403 | 403 | 409 | 403 |
+| `POST /api/v1/invoices/resend` | 401 | 401 | 401 | 403 | 403 | 200 | 403 |
+| `POST /api/v1/invoices/{n}/follow-up` | 401 | 401 | 401 | 403 | 403 | 409 | 403 |
+| `POST /api/v1/invoices/{n}/follow-up/close` | 401 | 401 | 401 | 403 | 403 | 409 | 403 |
+| `POST /api/v1/reconciliation-runs` | 401 | 401 | 401 | 403 | 403 | 202 | 403 |
+| `GET /api/v1/reconciliation-runs` | 401 | 401 | 401 | 403 | 200 | 200 | 403 |
+| `GET /api/v1/reconciliation-runs/{id}` | 401 | 401 | 401 | 403 | 404 | 200 | 403 |
+| `GET /health` | 401 | 401 | 401 | 200 | 200 | 200 | 200 |
+| `GET /openapi/v1.json` | 401 | 401 | 401 | 200 | 200 | 200 | 200 |
+| `GET /swagger/index.html` | 401 | 401 | 401 | 200 | 200 | 200 | 200 |
+
+`2-tablo.ps1` süresi dolmuş token sütunu için token'ın ömrü ve 30 sn tolerans dolana kadar bekler; imzası bozuk token, operatör
+token'ının içeriğinde rol değiştirilip imzası bırakılarak üretilir. `3-operator-adi.ps1` yeniden gönderilecek Başarısız faturayı
+simülatörü kısa süre yalnızca 500 döndürecek şekilde açıp hazırlar, sonra varsayılan ayarlarına döndürür. `4-k6.ps1` yük testini
+7 dakika çalıştırır. `6-keycloak-durdur.ps1` hiçbir container'ı yeniden oluşturmaz, yalnızca durdurup başlatır.
 
 ### Bilinen sınırlar
 
-- **İz Collector'ı** kararını bekleyen izleri bellekte tutar; yeniden başlarsa bekleyen izler (sorunlu faturalarınki dahil)
-  kaybolur. Yük testinde (saniyede 50 fatura gelirken) bellekte en çok 6.911 trace ve 188 MiB heap ölçüldü; `num_traces`
-  (100.000) ve bellek sınırı (1.200 MiB heap) bunun çok üstündedir.
-- **Bellek sınırı** aşılınca reddedilen span'ler kaybolur: uygulamalar yeniden göndermez ve bunu konsol loguna yazmaz (yalnız
-  OpenTelemetry'nin tanılama loguna, açıksa). `CollectorIzReddediyor` reddi gösterir; metrikler etkilenmez.
-- **Veritabanı okunamazsa** (`invoice-db` durursa) kuyruk, takılı fatura ve son mutabakat metrikleri sunulmaz; bu alarmlar eşik
-  aşımına baktığı için tetiklenmez, servis çalıştığı için `MetrikToplanamiyor` da tetiklenmez (5 dakikalık denemede hiçbir alarm
-  gelmedi). `invoice-service` durdurulduğunda tetiklenmiş olan `TakiliFaturaCok`, metrik kaybolunca sorun sürdüğü hâlde "çözüldü"
-  olarak bildirildi; veritabanı durduğunda da tetiklenmiş alarmların aynı biçimde çözülmüş görünmesi beklenir.
-- **İz Collector'ı** tamamen durursa ret sayacı da kaybolur: `CollectorIzReddediyor` tetiklenmez, izlerin gelmediğini gösteren bir
-  alarm yoktur (2 dakikalık denemede hiçbir alarm gelmedi).
-- **Karar süresi** ERP'nin Retry-After'ına ve `Erp:TimeoutSeconds`'a bağlıdır: ERP 2 dakikaya yakın Retry-After verirse sorunsuz
-  faturalar karar anında gönderilmemiş olur ve fazladan saklanması beklenir (sorunlu fatura kaybolmaz).
-- **Oluşturma isteğinin izi** her fatura için saklanır. Jaeger en fazla 100.000 trace tutar ve en eskileri siler; fatura başına
-  yaklaşık 1,2 trace saklandığı için yaklaşık 84.000 faturada dolar. Jaeger yeniden başlayınca bütün izler gider.
-- **İlk alış yarıda kalırsa:** iz kayda yazılamadan deneme biterse (kayıt bu arada başka bir worker'a geçtiyse ya da iz
-  yazılmadan bir hata çıktıysa) kuyruk adımı yine gönderilir ve faturanın ikinci bir izi oluşur. Servis deneme sırasında durursa
-  kuyruk adımı hiç gönderilmez: iz kayda yazılmışsa sonraki denemeler kökü olmayan bir izde sürer, yazılmamışsa sonraki alış yeni
-  bir iz başlatır ve kuyruk adımı ilk denemeyi ve kilit süresini de içerir.
-- **Gönderim kuyrukları:** uygulamanın ve Collector'ların gönderim kuyrukları dolarsa span'ler ya da metrikler düşebilir. İz
-  Collector'ının Jaeger'a gönderim kuyruğu Prometheus'ta görünür (`otelcol_exporter_queue_size`), diğerleri için metrik yoktur;
-  hiçbiri için alarm yoktur.
-- **Mutabakat ve operatör işlemleri** bir fatura için yazdıkları log satırlarında faturanın trace_id'sini taşımaz: zamanlanmış
-  mutabakatta `trace_id=-`, elle başlatılan mutabakatta ve operatör işlemlerinde isteğin trace_id'si yazar.
-- **Loglar** container'da tutulur; container yeniden oluşturulunca eski satırlar gider.
-- **Aynı fatura numarası** farklı veritabanlarında yeniden üretildiği için Jaeger'da birden fazla trace'te çıkabilir; arama zaman
-  aralığıyla daraltılmalıdır.
-- **MetrikToplanamiyor** servis bazındadır: iki kopyadan yalnız biri durursa tetiklenmez. Metrik Collector'ı durursa iki servisin alarmı
-  birlikte tetiklenir (denemede 1 dk 29 sn sonra); metrikleri uzun süre reddederse de aynısı beklenir, bu ret için ayrı alarm yoktur.
-- **Alertmanager** hangi alarmı bildirdiğini 15 dakikada bir diske yazar; düzgün kapanmadan yeniden başlarsa eski kaydı yükler ve aynı
-  alarm yeniden tetiklendiğinde bildirimi `repeat_interval` (1 saat) dolana kadar göndermez. Alarm Prometheus'ta ve panoda görünür.
+- **Operasyon ekranı** API'ye bağlanamaz: girişi yok, token göndermez.
+- **Keycloak durursa** çalışan servis anahtarları bellekte tuttuğu için eldeki geçerli token'ları kabul etmeye devam eder; yeni token
+  alınamaz, token'lar bittikçe istemciler dışarıda kalır. Keycloak kapalıyken yeniden başlayan servis anahtarları alamaz ve geçerli
+  token'ı da reddeder; `401`'in açıklaması "issuer is invalid" der, asıl neden Keycloak'a ulaşılamamasıdır. Keycloak açılınca servis
+  yeniden başlatılmadan toparlandı.
+- **Verilmiş token** süresi (5 dakika ve 30 sn tolerans) bitene kadar geçerlidir: Keycloak'ta kullanıcı kapatılsa ya da rolü alınsa
+  da o süre içinde çalışması beklenir (denenmedi).
+- **Keycloak** geliştirme modundadır (`start-dev`, HTTP, container içinde H2); servis Keycloak'ın HTTP adresini kabul eder
+  (`RequireHttpsMetadata` kapalı). Container yeniden oluşturulunca realm dosyadan yeniden kurulur, Keycloak'ta elle yapılan değişiklik
+  kalmaz.
+- **Realm dosyası** test kullanıcılarının şifrelerini ve `siparis-sistemi`'nin secret'ını düz tutar.
+- **Swagger UI** token istediği için tarayıcıda açılmaz; Swagger'da token girilecek yer yoktur.
+- **Otomatik test:** JWT doğrulaması ve rol kuralları birim testleriyle (ayarlar, rol çevirme, token'daki ad) ve `manual-tests/gun17`
+  ile sınanır; CI'da Keycloak olmadığı için uçtan uca bir otomatik test yoktur.
+- **Servis Keycloak'ı beklemez:** compose'da Keycloak açılmadan gelen isteklere servis `401` döner (anahtarlar alınamaz); kontrol
+  listesi script'leri önce ikisinin hazır olmasını bekler.
+- **Gün 1-16 script'leri** token göndermez; ikinci servis kopyası (`invoice-service-2`) JWT ile denenmedi.
 
 ---
 
@@ -601,3 +659,4 @@ servisin `MetrikToplanamiyor` alarmının gelmesini ve çözülmesini bekler.
 | `gun-14` | Collector'ı Yüke Karşı Korumak | [tree/gun-14](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-14) |
 | `gun-15` | İzlemeyi Toparlamak | [tree/gun-15](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-15) |
 | `gun-16` | Metrikleri İz Yükünden Ayırmak | [tree/gun-16](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-16) |
+| `gun-17` | Kimlik Doğrulama, Keycloak ve API | [tree/gun-17](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-17) |

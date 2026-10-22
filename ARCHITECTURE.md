@@ -4,7 +4,8 @@
 projeler arasındaki referanslar tek yönlüdür. Üçüncü uygulama olan operasyon ekranı (`operations-ui`) tarayıcıda çalışan
 küçük bir React uygulamasıdır; katmanlara bölünmemiştir ve yalnızca Invoice Service'in HTTP API'sini kullanır
 (bkz. [Operasyon Ekranı](#operasyon-ekranı)). İzleme için Prometheus, Alertmanager, Grafana ve tek dosyalık bir alarm alıcısı
-(`alert-receiver`) vardır (bkz. [İzleme](#i̇zleme)).
+(`alert-receiver`) vardır (bkz. [İzleme](#i̇zleme)). Token'ları Keycloak verir; Invoice Service onları kendisi doğrular
+(bkz. [Kimlik doğrulama](#kimlik-doğrulama-invoice-service)).
 
 ## Katmanlar ve bağımlılık kuralı
 
@@ -56,10 +57,12 @@ invoice-service/
       Erp/             ErpClient (IErpGateway), ErpOptions
       DependencyInjection.cs
     InvoiceService.Api/
+      Auth/            AuthExtensions (JWT doğrulaması ve rol kuralları), KeycloakSettings, RealmRoles (realm_access →
+                       role claim'leri), Roles ve Policies (rol ve kural adları)
       Invoices/        InvoiceEndpoints, InvoiceResponse, InvoiceReadResponses, BulkResendResponses
       Webhooks/        WebhookEndpoints, WebhookRequestReader
       Reconciliation/  ReconciliationEndpoints, ReconciliationResponses
-      Operators/       OperatorHeader (X-Operator-Name okuma ve doğrulama)
+      Operators/       OperatorName (müdahaleyi yapanın adı token'dan)
       Workers/         OutboxWorker, ReconciliationWorker, DatabaseMetricsWorker
       Paging.cs        sayfalı listelerin page / pageSize doğrulaması
       Startup/         LoggingExtensions (TraceIdConsoleFormatter), OpenApiExtensions, DatabaseMigrator, SettingsLogger,
@@ -85,6 +88,21 @@ invoice-service/
 | `IDatabaseFailureClassifier` | Veritabanı hatası `lock_timeout` / `statement_timeout` mu (webhook'ta 503 için) | `PostgresFailureClassifier` |
 
 ### Akışlar
+
+**İsteğin kimliği** — webhook dışındaki her istek endpoint'e varmadan iki kontrolden geçer:
+
+```mermaid
+flowchart LR
+    Q["istek<br/>Authorization: Bearer"] --> A["JwtBearer<br/>imza (JWKS), issuer,<br/>audience, süre"]
+    A -- "geçersiz / yok" --> U[401]
+    A --> R["RealmRoles<br/>realm_access.roles →<br/>role claim'leri"]
+    R --> P["kural<br/>Read / Intervene / CreateInvoice<br/>(yoksa: geçerli token yeter)"]
+    P -- "rol yetmiyor" --> F[403]
+    P --> E[endpoint]
+```
+
+Anahtarlar ilk istekte `Keycloak:BaseUrl`'deki realm'in discovery belgesinden ve JWKS'inden alınır ve bellekte tutulur. Webhook
+endpoint'i `AllowAnonymous`'tur; isteği kendi HMAC kontrolü doğrular.
 
 **Fatura oluşturma** — `POST /api/v1/invoices` → `CreateInvoiceHandler`: doğrula, numara al, faturayı ve outbox
 kaydını tek kayıtta yaz (`IInvoiceStore.QueueAsync`) → `202`. ERP bu istekte çağrılmaz. İstek kendi trace'idir; faturanın
@@ -121,8 +139,8 @@ flowchart LR
 
 ERP'ye ulaşılamazsa çalışma Başarısız olur ve hiçbir fatura değişmemiştir (yazma henüz başlamamıştır).
 
-**Yeniden gönderme** — `POST /api/v1/invoices/{n}/resend` → endpoint `X-Operator-Name`'i okur (`OperatorHeader`; yoksa
-`400`) → `ResendInvoiceHandler`: yalnızca Başarısız fatura Bekliyor'a döner ve outbox kaydı sıfırlanır; `operator_actions`
+**Yeniden gönderme** — `POST /api/v1/invoices/{n}/resend` → endpoint operatörün adını token'dan okur (`OperatorName`,
+`preferred_username`; kullanılabilir ad yoksa `403`) → `ResendInvoiceHandler`: yalnızca Başarısız fatura Bekliyor'a döner ve outbox kaydı sıfırlanır; `operator_actions`
 kaydı aynı transaction'da yazılır (reddedilen istekte yalnızca kayıt); sonuç `Queued` / `NotFound` / `NotFailed` → `202` /
 `404` / `409`.
 
@@ -196,7 +214,8 @@ operations-ui/
 Sayfalar tarayıcıdan doğrudan Invoice Service'e gider (`VITE_API_URL`, derlemede gömülür). Her sorgu
 TanStack Query ile 10 saniyede bir yenilenir; bir hata, varsa son bilinen veriyle birlikte uyarı olarak gösterilir ve bir
 sonraki yenileme başarılı olunca kendiliğinden kalkar. Reddedilen müdahalede servis cevabındaki `code` alanı
-(`invoice_not_failed`, `invoice_not_found`, `reconciliation_running`) Türkçe mesaja çevrilir.
+(`invoice_not_failed`, `invoice_not_found`, `reconciliation_running`) Türkçe mesaja çevrilir. Ekranın girişi henüz yoktur:
+token göndermediği için servis isteklerine `401` döner; `operator.ts`'in gönderdiği `X-Operator-Name` servis tarafından okunmaz.
 
 ## İzleme
 
@@ -439,10 +458,41 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Alıcı katmanlara bölünmedi.** Tek iş yapar (bildirimi loglar); dört katman getirisinden çok yük olurdu.
 - **Grafana anonim görüntüleyiciye açık.** Pano compose ayağa kalkınca giriş ekranı olmadan açılır; değiştirmek için yönetici girişi gerekir.
 
+### Kimlik doğrulama (Invoice Service)
+
+```
+keycloak/
+  fatura-realm.json   realm, roller, client'lar (audience mapper'larıyla), test kullanıcıları; Keycloak açılışta import eder
+```
+
+- **Token servisin içinde doğrulanır.** İmza realm'in JWKS'teki açık anahtarıyla, issuer discovery belgesindeki adla, audience
+  `Keycloak:Audience` ile, süre token'ın `exp`'iyle karşılaştırılır; Keycloak'a her istekte sorulmaz (introspection yok). Bedeli: Keycloak'ta
+  kapatılan kullanıcının ya da alınan rolün elindeki token, süresi bitene kadar geçerli kalır (token ömrü Keycloak'ın varsayılanı, 5 dakika).
+- **`ClockSkew` 30 saniye.** Varsayılan 5 dakika, süresi dolan token'ın 5 dakika daha kabul edilmesi demekti. Keycloak ve servis aynı
+  makinenin saatini kullanır; 30 saniye küçük kaymaları karşılar.
+- **Roller serviste claim'e çevrilir.** Keycloak realm rollerini tek bir `realm_access` claim'inin içinde (JSON) verir, ASP.NET Core'un rol
+  kontrolü ayrı role claim'leri arar. `RealmRoles` token doğrulandıktan sonra her rolü ayrı claim olarak ekler; Keycloak'ta token'ın
+  biçimini değiştiren bir mapper eklenmedi.
+- **Varsayılan kural geçerli token ister** (`FallbackPolicy`). Kuralı olmayan her adres (`/health`, Swagger, ileride eklenecek bir endpoint)
+  token ister; kural unutulsa da endpoint açık kalmaz. Token istemeyen tek endpoint webhook'tur (`AllowAnonymous`, HMAC).
+- **Issuer Keycloak'ta sabitlenir, serviste değil.** Bilgisayardan `localhost:8080`, container'lardan `keycloak:8080` ile gelinir;
+  Keycloak varsayılan olarak token'a isteğin geldiği adresi yazar ve iki farklı issuer çıkar. `KC_HOSTNAME` issuer'ı tek adrese sabitler,
+  `KC_HOSTNAME_BACKCHANNEL_DYNAMIC` anahtar adresini isteğin adresine göre verir. Serviste `ValidIssuer` yazılmadı: container'ın içinden
+  alınan token'lar (yük testi gibi) o zaman reddedilirdi.
+- **Müdahaleyi yapan `preferred_username`'dir.** Ad imzalı token'dan gelir; istekteki hiçbir ad okunmaz. Token'da ad yoksa ya da
+  `operator_name` sütununa (100 karakter) sığmıyorsa `403`: kayıt adsız ya da kesilmiş yazılmaz.
+- **Ayarlar API katmanında.** `Keycloak` bölümü (`KeycloakSettings`) HTTP'ye ait olduğu için CORS gibi Api'de okunur ve doğrulanır;
+  eksik ya da geçersizse servis açılmaz.
+- **Realm dosyası elle yazılmıştır, export değildir.** Yalnızca tanımlananlar durur; Keycloak gerisini (varsayılan ayarlar, imza anahtarı)
+  import sırasında kendisi üretir. İmza anahtarının gizli yarısı dosyada olmaz. Realm varsa import atlanır (`IGNORE_EXISTING`).
+- **Yük testinde her VU kendi token'ını tutar.** k6'da VU'lar değişken paylaşmaz; her VU token'ını bitmeden 30 saniye önce yeniler.
+  Client credentials'ta refresh token olmadığı için yenileme yeni bir token isteğidir.
+
 ### Operasyon ekranı
 
 - **Tarayıcı servise doğrudan gider, CORS açılır.** Ekranın adresi (`Cors:AllowedOrigins`, varsayılan `http://localhost:5100`) dışında bir
-  sayfanın isteğine izin verilmez; yalnızca GET, POST, `Content-Type` ve `X-Operator-Name`. Boş ya da geçersiz origin servisin açılmasını engeller.
+  sayfanın isteğine izin verilmez; yalnızca GET, POST, `Content-Type` ve token'ı taşıyan `Authorization`. Boş ya da geçersiz origin
+  servisin açılmasını engeller.
 - **Yenileme yeniden denemenin yerini tutar.** Kütüphanenin kendi yeniden denemesi kapalıdır: gizli bir sekmede beklemeye alındığı için hata
   hiç görünmeyip sayfa "Yükleniyor"da kalabiliyordu. Sekme arka planda da yenilenir.
 - **Hata türü üçe ayrılır:** ulaşılamadı (cevap yok, zaman aşımı ya da tarayıcının engellemesi), sunucu hatası (5xx), reddedildi (4xx,
@@ -450,8 +500,8 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Süzgeç, arama ve sayfa adreste tutulur** (`?durum=&ara=&sayfa=&boyut=`); yenileyince ya da geri dönünce aynı liste açılır.
 - **`index.html` önbelleğe alınmaz**, dosya adı içerik özeti taşıyan `assets/` uzun süre saklanır; yeni sürüm kurulunca tarayıcı eski
   sayfanın aradığı dosyayı istemez.
-- **Müdahaleyi yapanın adı bir kayıttır, kimlik değildir.** Ad tarayıcıda saklanır ve her POST'ta gönderilir; servis yalnızca boş
-  olmadığını ve uzunluğunu denetler. Tarayıcılar header'da Latin-1 dışı karakter göndermediği için ad yüzde kodlanır.
+- **Müdahaleyi yapanın adı token'dan gelir** ([Kimlik doğrulama](#kimlik-doğrulama-invoice-service)). Ekranın sorup tarayıcıda
+  sakladığı ad ve gönderdiği `X-Operator-Name` servis tarafından okunmaz.
   `operator_actions` kaydı müdahalenin değişikliğiyle aynı transaction'dadır ve tracker'a eklenmeden doğrudan `INSERT` ile yazılır:
   toplu gönderimde hata veren faturanın kaydı bir sonraki faturanın kaydıyla birlikte yanlışlıkla yazılamaz. Zamanlayıcının
   başlattığı çalışmada `started_by` = `Zamanlayıcı`; boş değer yalnızca başlatanın kaydedilmesinden önceki çalışmalardır.
@@ -469,7 +519,7 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 | `*.Domain.Tests` | Saf kurallar: durum geçişleri, fatura numarası biçimi |
 | `*.Application.Tests` | Politikalar ve doğrulamalar (`RetryPolicy`, imza, ayarlar, istek doğrulama, `BehaviorSelector`, `WebhookPlanner`) ve **use case'ler port'ların bellek içi sahteleriyle** (`Fakes/`): veritabanı ve HTTP olmadan gönderim akışı, yeniden gönderme, webhook işleme, simülatörün davranışları ve webhook gönderimi; span'lere yazılanlar ve saklanan traceparent (`ActivityListener` ile) |
 | `*.Infrastructure.Tests` | `ErpClient` (sahte `HttpMessageHandler` ile), ERP ayarları, migration'ların modeli hâlâ tarif ettiği (veritabanı gerekmez) |
-| `InvoiceService.Api.Tests` | Projeyle gelen `appsettings.json` değerleri, CORS origin doğrulaması, log satırının biçimi ve trace_id'si |
+| `InvoiceService.Api.Tests` | Projeyle gelen `appsettings.json` değerleri (Keycloak dahil), CORS origin doğrulaması, Keycloak ayarlarının doğrulaması, realm rollerinin role claim'lerine çevrilmesi, token'dan operatör adı, log satırının biçimi ve trace_id'si. JWT doğrulamasının ve rol kurallarının uçtan uca denemesi Keycloak gerektirdiği için `manual-tests/gun17`'dedir |
 | `InvoiceService.IntegrationTests` | Bellek içi sahtelerle sınanamayan mekanizmalar **gerçek PostgreSQL'e** karşı (Testcontainers; her test kendi veritabanında, ERP yerine testin içinde açılan HTTP sunucusuyla): kayıt alma ve sahiplik (alınan kaydın trace'i dahil), haberlerin bekleyip işlenmesi, mutabakat kilidi ve düzeltmeleri, ortak gönderim sırası. Docker gerekir |
 | `operations-ui` (vitest) | Toplu seçim sınırı, API istemcisinin hata türleri, Türkçe hata mesajları, kullanıcı adının doğrulanması ve kodlanması |
 
