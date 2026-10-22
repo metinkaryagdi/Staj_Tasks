@@ -639,7 +639,8 @@ olmayan `admin-cli` client'ıyla alınan token `401` ("The audience 'empty' is i
   ile sınanır; CI'da Keycloak olmadığı için uçtan uca bir otomatik test yoktur.
 - **Servis Keycloak'ı beklemez:** compose'da Keycloak açılmadan gelen isteklere servis `401` döner (anahtarlar alınamaz); kontrol
   listesi script'leri önce ikisinin hazır olmasını bekler.
-- **Gün 1-16 script'leri** token göndermez; ikinci servis kopyası (`invoice-service-2`) JWT ile denenmedi.
+- **Gün 1-16 script'leri** token göndermez; takip kaydına adın token'dan yazılması ve ikinci servis kopyası (`invoice-service-2`)
+  JWT ile denenmedi.
 
 ---
 
