@@ -15,7 +15,6 @@
       "firstName": "Test",
       "lastName": "Izleyici",
       "email": "izleyici@fatura.test",
-      "emailVerified": true,
       "credentials": [ { "type": "password", "value": "izleyici123", "temporary": false } ],
       "realmRoles": [ "fatura-izleyici" ]
     },
@@ -25,7 +24,6 @@
       "firstName": "Test",
       "lastName": "Operator",
       "email": "operator@fatura.test",
-      "emailVerified": true,
       "credentials": [ { "type": "password", "value": "operator123", "temporary": false } ],
       "realmRoles": [ "fatura-operatoru" ]
     },
@@ -35,7 +33,6 @@
       "firstName": "Test",
       "lastName": "Rolsuz",
       "email": "rolsuz@fatura.test",
-      "emailVerified": true,
       "credentials": [ { "type": "password", "value": "rolsuz123", "temporary": false } ],
       "realmRoles": []
     },

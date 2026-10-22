@@ -21,7 +21,6 @@ public static class ReconciliationEndpoints
                 "409 while another run is going, whether it was started by the schedule, by this endpoint or by another copy " +
                 "of the service. " + InvoiceEndpoints.OperatorDescription + " The run keeps the name as startedBy.")
             .Produces<ReconciliationRunResponse>(StatusCodes.Status202Accepted)
-            .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict)
             .RequireAuthorization(Policies.Intervene);
 

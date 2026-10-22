@@ -1,5 +1,7 @@
 ﻿# Kontrol listesi 1: compose ayağa kalktıktan sonra realm, roller, client'lar ve üç kullanıcı elle hiçbir işlem
-# yapılmadan hazır. Bütün yığın bu güne özel boş volume'lerle yeniden oluşturulur (Keycloak realm'i keycloak/'tan kurar).
+# yapılmadan hazır. Bütün yığın bu güne özel volume'lerle yeniden oluşturulur (Keycloak realm'i keycloak/'tan kurar).
+# Volume'ler ilk oluşturulduklarında boştur; boş veritabanıyla yeniden koşmak için önce staj-tasks_erp-db-data-gun17 ve
+# staj-tasks_invoice-db-data-gun17 silinir.
 #   .\manual-tests\gun17\1-hazir.ps1
 . "$PSScriptRoot\_common.ps1"
 

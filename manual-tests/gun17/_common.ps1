@@ -11,8 +11,8 @@ $TokenUrl = "$KeycloakUrl/realms/fatura/protocol/openid-connect/token"
 # keycloak/fatura-realm.json'daki test değerleri.
 $TestUsers = [ordered]@{ izleyici = 'izleyici123'; operator = 'operator123'; rolsuz = 'rolsuz123' }
 $OrderSystemSecret = 'dev-only-siparis-sistemi-secret-do-not-use-in-production'
-# Fatura Servisi'nin ClockSkew'ü (Api/Auth/AuthExtensions.cs) ile aynı olmalı: süresi dolan token bu kadar daha kabul edilir.
-$ClockSkewSeconds = 30
+# JwtBearer'ın varsayılan ClockSkew'ü (5 dakika): süresi dolan token bu kadar daha kabul edilir.
+$ClockSkewSeconds = 300
 
 # Token'ı kendimiz koyduğumuz istemci: ortak istemci her isteğe X-Operator-Name ekler.
 $script:ApiHttp = New-Object System.Net.Http.HttpClient

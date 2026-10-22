@@ -32,7 +32,6 @@ public static class InvoiceEndpoints
                 "again by the usual rules, asking the ERP first so an invoice the ERP already shows is not posted again. " +
                 "409 if the invoice is not Başarısız, 404 if it does not exist. " + OperatorDescription)
             .Produces<InvoiceResponse>(StatusCodes.Status202Accepted)
-            .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .RequireAuthorization(Policies.Intervene);
@@ -55,7 +54,6 @@ public static class InvoiceEndpoints
             .WithSummary("Close the invoice's open follow-up")
             .WithDescription("Any operator can close it, not only the one who opened it; 409 follow_up_not_open when there is none. " +
                 OperatorDescription)
-            .ProducesValidationProblem()
             .Produces(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .RequireAuthorization(Policies.Intervene);

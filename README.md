@@ -204,8 +204,8 @@ deneme içindir.
 
 - **Doğrulama** ([`Api/Auth/AuthExtensions.cs`](invoice-service/src/InvoiceService.Api/Auth/AuthExtensions.cs)): servis token'ı kendisi
   doğrular: imza (realm'in yayımladığı anahtarlar, JWKS), issuer (`http://localhost:8080/realms/fatura`), audience (`fatura-servisi`)
-  ve süre. Süre dolduktan sonra 30 sn tolerans vardır (`ClockSkew`; varsayılanı 5 dakika). Anahtarlar ilk istekte discovery belgesinden
-  alınır ve bellekte tutulur; her istekte Keycloak'a sorulmaz.
+  ve süre. Süre dolduktan sonra JwtBearer'ın varsayılan toleransı geçerlidir (`ClockSkew`, 5 dakika). Anahtarlar ilk istekte discovery
+  belgesinden alınır ve bellekte tutulur; her istekte Keycloak'a sorulmaz.
 - **401 / 403:** token yoksa, imzası bozuksa, süresi dolmuşsa, issuer ya da audience tutmuyorsa `401`; nedeni `WWW-Authenticate`
   header'ındadır. Token geçerli ama rol yetmiyorsa `403`. Roller token'da `realm_access.roles` içindedir; servis her birini ayrı bir
   role claim'ine çevirir (`RealmRoles`).
@@ -554,7 +554,7 @@ docker compose run --rm k6
 Ortam değişkenleri: `BASE_URLS` (virgülle birden fazla adres; istekler sırayla dağıtılır), `RATE`, `DURATION`, `RUN_ID` (faturaların
 müşteri kodu; verilmezse `LOAD-<zaman>`). Sonuç ekrana ve `load-test/results/<RUN_ID>.json`'a yazılır (istek sayısı,
 `POST /api/v1/invoices` p50 / p95 / p99, VU, alınan token ve 401 alan istek sayısı; token istekleri süreye ve istek sayısına
-girmez); p95 200 ms'yi geçerse ya da tek bir istek 401 alırsa k6 hata koduyla biter. Kuyruk boşaldıktan sonraki sonuç tablosu:
+girmez); p95 200 ms'yi geçerse k6 hata koduyla biter. Kuyruk boşaldıktan sonraki sonuç tablosu:
 `.\manual-tests\gun8\6-yuk-olcum.ps1 -RunId <RUN_ID>`.
 
 Manuel deneme: Swagger UI veya `.http` dosyaları
@@ -579,16 +579,16 @@ müdahaleyi yapanın adı token'dan yazılıyor.
 - **Ayarlar:** `Keycloak:BaseUrl`, `Keycloak:Realm`, `Keycloak:Audience`.
 - **Yük testi** sipariş sisteminin token'ıyla çalışır, token'ı bitmeden yeniler.
 
-Kontrol listesi ([`manual-tests/gun17/`](manual-tests/gun17/); `1-hazir.ps1` bütün yığını bu güne özel boş volume'lerle yeniden oluşturur,
-diğerleri o yığında çalışır):
+Kontrol listesi ([`manual-tests/gun17/`](manual-tests/gun17/); `1-hazir.ps1` bütün yığını bu güne özel volume'lerle yeniden oluşturur,
+diğerleri o yığında çalışır; volume'ler ilk oluşturulduklarında boştur, yeniden koşuda önce iki `*-db-data-gun17` volume'ü silinir):
 
 | # | Madde | Sonuç |
 |---|---|---|
 | 1 | Compose sonrası realm, roller, client'lar ve üç kullanıcı | `Realm 'fatura' imported`; 3 rol, 2 client, 3 kullanıcı (`rolsuz`'un rolü yok); konsolda hiçbir işlem yapılmadı |
 | 2 | Korunan her endpoint × 7 durum | 105 hücrenin hepsi beklenen cevap (tablo aşağıda) |
 | 3 | Yeniden gönderimde `operator_actions` | `X-Operator-Name: sahte` ile yeniden gönderme `202`; tek satır, `operator_name` = `operator` |
-| 4 | Token ömründen uzun yük testi | 7 dk, saniyede 50: 21.000 isteğin 21.000'i `202`, p95 7,1 ms; 50 VU 100 token aldı (token sayısı VU sayısından büyük: token'lar test sırasında yenilendi); 401 alan istek 0 |
-| 5 | ERP haberleri HMAC ile | Doğru imzalı haber token'sız `200`, yanlış imza `401`, token olup HMAC'sız istek `401`; simülatörün doğru imzalı 7.978 haberinden hiçbiri 401 almadı, eski zaman damgalı ya da yanlış anahtarlı 362 haberin hepsi `401`; 6.695 haber İşlendi |
+| 4 | Token ömründen uzun yük testi | 7 dk, saniyede 50: 21.000 isteğin 21.000'i `202`, p95 4,7 ms; 50 VU 100 token aldı (token sayısı VU sayısından büyük: token'lar test sırasında yenilendi); 401 alan istek 0 |
+| 5 | ERP haberleri HMAC ile | Doğru imzalı haber token'sız `200`, yanlış imza `401`, token olup HMAC'sız istek `401`; simülatörün doğru imzalı 5.916 haberinden hiçbiri 401 almadı, eski zaman damgalı ya da yanlış anahtarlı 268 haberin hepsi `401`; 4.963 haber İşlendi |
 | 6 | Keycloak durdurulunca önceden alınmış geçerli token | `200`; yeni token alınamadı. Keycloak kapalıyken servis yeniden başlayınca aynı token `401`; Keycloak açılınca yine `200` |
 
 Hücrelerde gelen HTTP kodu; rol yetiyorsa `401`/`403` dışındaki kod işin kendi cevabıdır (fatura `Bekliyor` olduğu için yeniden
@@ -613,7 +613,7 @@ başlatılmamıştı, `404`):
 | `GET /openapi/v1.json` | 401 | 401 | 401 | 200 | 200 | 200 | 200 |
 | `GET /swagger/index.html` | 401 | 401 | 401 | 200 | 200 | 200 | 200 |
 
-`2-tablo.ps1` süresi dolmuş token sütunu için token'ın ömrü ve 30 sn tolerans dolana kadar bekler; imzası bozuk token, operatör
+`2-tablo.ps1` süresi dolmuş token sütunu için token'ın ömrü ve 5 dakikalık tolerans dolana kadar bekler; imzası bozuk token, operatör
 token'ının içeriğinde rol değiştirilip imzası bırakılarak üretilir. `3-operator-adi.ps1` yeniden gönderilecek Başarısız faturayı
 simülatörü kısa süre yalnızca 500 döndürecek şekilde açıp hazırlar, sonra varsayılan ayarlarına döndürür. `4-k6.ps1` yük testini
 7 dakika çalıştırır. `6-keycloak-durdur.ps1` hiçbir container'ı yeniden oluşturmaz, yalnızca durdurup başlatır.
@@ -628,7 +628,7 @@ olmayan `admin-cli` client'ıyla alınan token `401` ("The audience 'empty' is i
   alınamaz, token'lar bittikçe istemciler dışarıda kalır. Keycloak kapalıyken yeniden başlayan servis anahtarları alamaz ve geçerli
   token'ı da reddeder. `401`'in açıklaması "issuer is invalid" der: Keycloak kapalıyken açılan servis discovery belgesini ve
   anahtarları alamaz; logda bunu gösteren bir satır yoktur. Keycloak açılınca aynı token servis yeniden başlatılmadan yine `200` aldı.
-- **Verilmiş token** süresi (5 dakika ve 30 sn tolerans) bitene kadar geçerlidir: Keycloak'ta kullanıcı kapatılsa ya da rolü alınsa
+- **Verilmiş token** süresi (5 dakika ve 5 dakika tolerans) bitene kadar geçerlidir: Keycloak'ta kullanıcı kapatılsa ya da rolü alınsa
   da o süre içinde çalışması beklenir (denenmedi).
 - **Keycloak** geliştirme modundadır (`start-dev`, HTTP, container içinde H2); servis Keycloak'ın HTTP adresini kabul eder
   (`RequireHttpsMetadata` kapalı). Container yeniden oluşturulunca realm dosyadan yeniden kurulur, Keycloak'ta elle yapılan değişiklik

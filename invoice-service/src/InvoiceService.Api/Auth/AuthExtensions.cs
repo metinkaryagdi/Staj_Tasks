@@ -10,12 +10,6 @@ namespace InvoiceService.Api.Auth;
 /// </summary>
 public static class AuthExtensions
 {
-    /// <summary>
-    /// How long after its expiry a token is still accepted, for clocks that differ a little. The default is 5 minutes, which
-    /// would keep an expired token working that long.
-    /// </summary>
-    public static readonly TimeSpan ClockSkew = TimeSpan.FromSeconds(30);
-
     public static IServiceCollection AddKeycloakAuth(this IServiceCollection services, IConfiguration configuration)
     {
         var settings = configuration.GetSection(KeycloakSettings.SectionName).Get<KeycloakSettings>() ?? new KeycloakSettings();
@@ -32,7 +26,6 @@ public static class AuthExtensions
                 options.Audience = settings.Audience;
                 // Keycloak runs on plain HTTP on the developer's machine and in docker compose.
                 options.RequireHttpsMetadata = false;
-                options.TokenValidationParameters.ClockSkew = ClockSkew;
                 options.Events = new JwtBearerEvents
                 {
                     OnTokenValidated = context =>

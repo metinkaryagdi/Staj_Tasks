@@ -467,9 +467,8 @@ keycloak/
 
 - **Token servisin içinde doğrulanır.** İmza realm'in JWKS'teki açık anahtarıyla, issuer discovery belgesindeki adla, audience
   `Keycloak:Audience` ile, süre token'ın `exp`'iyle karşılaştırılır; Keycloak'a her istekte sorulmaz (introspection yok). Bedeli: Keycloak'ta
-  kapatılan kullanıcının ya da alınan rolün elindeki token, süresi bitene kadar geçerli kalır (token ömrü Keycloak'ın varsayılanı, 5 dakika).
-- **`ClockSkew` 30 saniye.** Varsayılan 5 dakika, süresi dolan token'ın 5 dakika daha kabul edilmesi demekti. Keycloak ve servis aynı
-  makinenin saatini kullanır; 30 saniye küçük kaymaları karşılar.
+  kapatılan kullanıcının ya da alınan rolün elindeki token, süresi bitene kadar geçerli kalır (token ömrü Keycloak'ın varsayılanı, 5 dakika;
+  JwtBearer süre dolduktan sonra varsayılan olarak 5 dakika daha kabul eder, `ClockSkew`).
 - **Roller serviste claim'e çevrilir.** Keycloak realm rollerini tek bir `realm_access` claim'inin içinde (JSON) verir, ASP.NET Core'un rol
   kontrolü ayrı role claim'leri arar. `RealmRoles` token doğrulandıktan sonra her rolü ayrı claim olarak ekler; Keycloak'ta token'ın
   biçimini değiştiren bir mapper eklenmedi.
@@ -486,13 +485,15 @@ keycloak/
   eksik ya da geçersizse servis açılmaz.
 - **Realm dosyası elle yazılmıştır, export değildir.** Yalnızca tanımlananlar durur; Keycloak gerisini (varsayılan ayarlar, imza anahtarı)
   import sırasında kendisi üretir. İmza anahtarının gizli yarısı dosyada olmaz. Realm varsa import atlanır (`IGNORE_EXISTING`).
+  Test kullanıcılarında ad, soyad ve e-posta vardır: Keycloak'ın varsayılan kullanıcı profili bunları zorunlu tutar, eksikse
+  kullanıcı adı ve şifreyle token alınamaz.
 - **Yük testinde her VU kendi token'ını tutar.** k6'da VU'lar değişken paylaşmaz; her VU token'ını bitmeden 30 saniye önce yeniler.
   Client credentials'ta refresh token olmadığı için yenileme yeni bir token isteğidir.
 
 ### Operasyon ekranı
 
 - **Tarayıcı servise doğrudan gider, CORS açılır.** Ekranın adresi (`Cors:AllowedOrigins`, varsayılan `http://localhost:5100`) dışında bir
-  sayfanın isteğine izin verilmez; yalnızca GET, POST, `Content-Type` ve token'ı taşıyan `Authorization`. Boş ya da geçersiz origin
+  sayfanın isteğine izin verilmez; yalnızca GET, POST ve `Content-Type`. Boş ya da geçersiz origin
   servisin açılmasını engeller.
 - **Yenileme yeniden denemenin yerini tutar.** Kütüphanenin kendi yeniden denemesi kapalıdır: gizli bir sekmede beklemeye alındığı için hata
   hiç görünmeyip sayfa "Yükleniyor"da kalabiliyordu. Sekme arka planda da yenilenir.

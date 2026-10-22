@@ -20,8 +20,7 @@ public static class CorsExtensions
         services.AddCors(o => o.AddPolicy(PolicyName, policy => policy
             .WithOrigins(origins)
             .WithMethods("GET", "POST")
-            // Authorization carries the token (Bearer).
-            .WithHeaders("Content-Type", "Authorization")));
+            .WithHeaders("Content-Type")));
         return services;
     }
 
