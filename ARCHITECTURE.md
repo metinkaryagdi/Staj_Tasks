@@ -477,8 +477,9 @@ keycloak/
   token ister; kural unutulsa da endpoint açık kalmaz. Token istemeyen tek endpoint webhook'tur (`AllowAnonymous`, HMAC).
 - **Issuer Keycloak'ta sabitlenir, serviste değil.** Bilgisayardan `localhost:8080`, container'lardan `keycloak:8080` ile gelinir;
   Keycloak varsayılan olarak token'a isteğin geldiği adresi yazar ve iki farklı issuer çıkar. `KC_HOSTNAME` issuer'ı tek adrese sabitler,
-  `KC_HOSTNAME_BACKCHANNEL_DYNAMIC` anahtar adresini isteğin adresine göre verir. Serviste `ValidIssuer` yazılmadı: container'ın içinden
-  alınan token'lar (yük testi gibi) o zaman reddedilirdi.
+  `KC_HOSTNAME_BACKCHANNEL_DYNAMIC` anahtar adresini isteğin adresine göre verir. Bunun yerine `KC_HOSTNAME` olmadan serviste issuer'ı
+  elle yazmak yetmezdi: container'ın içinden `keycloak:8080` ile alınan token'ların (yük testi gibi) issuer'ı farklı olur ve
+  reddedilirdi. Servis geçerli issuer'ı discovery belgesinden alır.
 - **Müdahaleyi yapan `preferred_username`'dir.** Ad imzalı token'dan gelir; istekteki hiçbir ad okunmaz. Token'da ad yoksa ya da
   `operator_name` sütununa (100 karakter) sığmıyorsa `403`: kayıt adsız ya da kesilmiş yazılmaz.
 - **Ayarlar API katmanında.** `Keycloak` bölümü (`KeycloakSettings`) HTTP'ye ait olduğu için CORS gibi Api'de okunur ve doğrulanır;

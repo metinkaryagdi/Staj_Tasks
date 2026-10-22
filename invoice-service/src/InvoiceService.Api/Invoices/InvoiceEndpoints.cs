@@ -53,7 +53,8 @@ public static class InvoiceEndpoints
         group.MapPost("/{invoiceNumber}/follow-up/close", CloseFollowUp)
             .WithName("CloseInvoiceFollowUp")
             .WithSummary("Close the invoice's open follow-up")
-            .WithDescription("Anyone can close it; 409 follow_up_not_open when there is none. " + OperatorDescription)
+            .WithDescription("Any operator can close it, not only the one who opened it; 409 follow_up_not_open when there is none. " +
+                OperatorDescription)
             .ProducesValidationProblem()
             .Produces(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status409Conflict)

@@ -487,7 +487,7 @@ trace'idir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
-| Gün 17 kontrol listesi (compose sonrası realm; endpoint × durum tablosu; operator_actions'ta token'daki ad; token ömründen uzun yük testi; webhook HMAC; Keycloak durdurma) | [`manual-tests/gun17/`](manual-tests/gun17/) |
+| Gün 17 kontrol listesi (compose sonrası realm; endpoint × durum tablosu; operator_actions'ta token'daki ad; token ömründen uzun yük testi; webhook HMAC; Keycloak durdurma) ve audience / issuer kontrolü | [`manual-tests/gun17/`](manual-tests/gun17/) |
 | Gün 16 kontrol listesi (bellek sınırı denemesinde metriklerin sürekliliği ve alarmlar; 2 dakikalık karar süresiyle 10 dakikalık yük testi ve metrik Collector'ının maliyeti; servis ve veritabanı durdurma; alarm geçmişi; iz Collector'ını durdurma ve iki kopya; metrik Collector'ını durdurma) | [`manual-tests/gun16/`](manual-tests/gun16/) |
 | Gün 15 kontrol listesi (10 dakikalık yük testinde saklanan sorunsuz oranı, sorunlu ve oluşturma izleri, Collector belleği; boşta bekleyen trace; kuyrukta 30 dakikadan uzun beklemiş faturanın izi; bellek sınırı denemesi) | [`manual-tests/gun15/`](manual-tests/gun15/) |
 | Gün 14 kontrol listesi (Collector'ın bellek sınırı; 10 dakikalık yük testinde Collector belleği, reddedilen span'ler, zaman içinde saklanan sorunsuz oranı, sorunlu faturaların izleri) | [`manual-tests/gun14/`](manual-tests/gun14/) |
@@ -587,12 +587,13 @@ diğerleri o yığında çalışır):
 | 1 | Compose sonrası realm, roller, client'lar ve üç kullanıcı | `Realm 'fatura' imported`; 3 rol, 2 client, 3 kullanıcı (`rolsuz`'un rolü yok); konsolda hiçbir işlem yapılmadı |
 | 2 | Korunan her endpoint × 7 durum | 105 hücrenin hepsi beklenen cevap (tablo aşağıda) |
 | 3 | Yeniden gönderimde `operator_actions` | `X-Operator-Name: sahte` ile yeniden gönderme `202`; tek satır, `operator_name` = `operator` |
-| 4 | Token ömründen uzun yük testi | 7 dk, saniyede 50: 21.000 isteğin 21.000'i `202`, p95 7,1 ms; 50 VU 100 token aldı (her VU bir kez yeniledi); 401 alan istek 0 |
+| 4 | Token ömründen uzun yük testi | 7 dk, saniyede 50: 21.000 isteğin 21.000'i `202`, p95 7,1 ms; 50 VU 100 token aldı (token sayısı VU sayısından büyük: token'lar test sırasında yenilendi); 401 alan istek 0 |
 | 5 | ERP haberleri HMAC ile | Doğru imzalı haber token'sız `200`, yanlış imza `401`, token olup HMAC'sız istek `401`; simülatörün doğru imzalı 7.978 haberinden hiçbiri 401 almadı, eski zaman damgalı ya da yanlış anahtarlı 362 haberin hepsi `401`; 6.695 haber İşlendi |
 | 6 | Keycloak durdurulunca önceden alınmış geçerli token | `200`; yeni token alınamadı. Keycloak kapalıyken servis yeniden başlayınca aynı token `401`; Keycloak açılınca yine `200` |
 
 Hücrelerde gelen HTTP kodu; rol yetiyorsa `401`/`403` dışındaki kod işin kendi cevabıdır (fatura `Bekliyor` olduğu için yeniden
-gönderme ve takip `409`; izleyici sorduğunda 1 numaralı mutabakat çalışması henüz başlatılmamıştı, `404`):
+gönderme ve takibe alma `409`, açık takip olmadığı için kapatma `409`; izleyici sorduğunda 1 numaralı mutabakat çalışması henüz
+başlatılmamıştı, `404`):
 
 | Endpoint | Token yok | İmzası bozuk | Süresi dolmuş | Rolsüz | İzleyici | Operatör | Sipariş sistemi |
 |---|---|---|---|---|---|---|---|
@@ -616,14 +617,17 @@ gönderme ve takip `409`; izleyici sorduğunda 1 numaralı mutabakat çalışmas
 token'ının içeriğinde rol değiştirilip imzası bırakılarak üretilir. `3-operator-adi.ps1` yeniden gönderilecek Başarısız faturayı
 simülatörü kısa süre yalnızca 500 döndürecek şekilde açıp hazırlar, sonra varsayılan ayarlarına döndürür. `4-k6.ps1` yük testini
 7 dakika çalıştırır. `6-keycloak-durdur.ps1` hiçbir container'ı yeniden oluşturmaz, yalnızca durdurup başlatır.
+`7-audience-issuer.ps1` tablodaki imza ve süre kontrollerinin yanına audience ve issuer'ı sınar: aynı realm'in audience mapper'ı
+olmayan `admin-cli` client'ıyla alınan token `401` ("The audience 'empty' is invalid"), başka bir realm'in (`master`) token'ı `401`
+("The issuer 'http://localhost:8080/realms/master' is invalid"); `/` token'sız `401`, rolsüz kullanıcının token'ıyla `302`.
 
 ### Bilinen sınırlar
 
 - **Operasyon ekranı** API'ye bağlanamaz: girişi yok, token göndermez.
 - **Keycloak durursa** çalışan servis anahtarları bellekte tuttuğu için eldeki geçerli token'ları kabul etmeye devam eder; yeni token
   alınamaz, token'lar bittikçe istemciler dışarıda kalır. Keycloak kapalıyken yeniden başlayan servis anahtarları alamaz ve geçerli
-  token'ı da reddeder; `401`'in açıklaması "issuer is invalid" der, asıl neden Keycloak'a ulaşılamamasıdır. Keycloak açılınca servis
-  yeniden başlatılmadan toparlandı.
+  token'ı da reddeder. `401`'in açıklaması "issuer is invalid" der: Keycloak kapalıyken açılan servis discovery belgesini ve
+  anahtarları alamaz; logda bunu gösteren bir satır yoktur. Keycloak açılınca aynı token servis yeniden başlatılmadan yine `200` aldı.
 - **Verilmiş token** süresi (5 dakika ve 30 sn tolerans) bitene kadar geçerlidir: Keycloak'ta kullanıcı kapatılsa ya da rolü alınsa
   da o süre içinde çalışması beklenir (denenmedi).
 - **Keycloak** geliştirme modundadır (`start-dev`, HTTP, container içinde H2); servis Keycloak'ın HTTP adresini kabul eder
