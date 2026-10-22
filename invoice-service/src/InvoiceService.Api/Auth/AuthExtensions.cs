@@ -26,6 +26,8 @@ public static class AuthExtensions
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
+                // JwtBearer's defaults check the signature against the keys at the Authority's JWKS, the issuer named in its
+                // discovery document, the audience and the lifetime; none of them is turned off here.
                 options.Authority = settings.Authority;
                 options.Audience = settings.Audience;
                 // Keycloak runs on plain HTTP on the developer's machine and in docker compose.
