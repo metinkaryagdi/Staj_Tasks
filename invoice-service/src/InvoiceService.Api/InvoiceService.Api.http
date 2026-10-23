@@ -2,7 +2,7 @@
 # Works in VS Code (REST Client extension) and Visual Studio: click "Send Request" above each block.
 # Start the stack first: docker compose up -d --build
 #
-# Every endpoint except the ERP webhook needs a token from Keycloak: 401 without one, 403 with the wrong role. Send 0a and
+# Every endpoint except the ERP webhook and /health needs a token from Keycloak: 401 without one, 403 with the wrong role. Send 0a and
 # 0b first; the requests below use their access_token. A token is valid for 5 minutes, then send 0a/0b again.
 #
 # Create saves the invoice as Bekliyor and queues it in erp_outbox (202); the ERP is not called in that request.

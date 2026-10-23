@@ -89,7 +89,7 @@ invoice-service/
 
 ### Akışlar
 
-**İsteğin kimliği** — webhook dışındaki her istek endpoint'e varmadan iki kontrolden geçer:
+**İsteğin kimliği** — webhook ve `/health` dışındaki her istek endpoint'e varmadan iki kontrolden geçer:
 
 ```mermaid
 flowchart LR
@@ -102,7 +102,7 @@ flowchart LR
 ```
 
 Anahtarlar ilk istekte `Keycloak:BaseUrl`'deki realm'in discovery belgesinden ve JWKS'inden alınır ve bellekte tutulur. Webhook
-endpoint'i `AllowAnonymous`'tur; isteği kendi HMAC kontrolü doğrular.
+(isteği kendi HMAC kontrolü doğrular) ve `/health` `AllowAnonymous`'tur.
 
 **Fatura oluşturma** — `POST /api/v1/invoices` → `CreateInvoiceHandler`: doğrula, numara al, faturayı ve outbox
 kaydını tek kayıtta yaz (`IInvoiceStore.QueueAsync`) → `202`. ERP bu istekte çağrılmaz. İstek kendi trace'idir; faturanın
