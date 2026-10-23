@@ -66,8 +66,8 @@ function Send-Api([string]$Method, [string]$Path, $Token = $null, $Json = $null,
         WwwAuthenticate = "$($response.Headers.WwwAuthenticate)" }
 }
 
-# Keycloak'ın realm'i yayımlaması ve Fatura Servisi'nin cevap vermesi beklenir. /health de token ister: token'sız 401
-# servisin açık olduğunu gösterir.
+# Keycloak'ın realm'i yayımlaması ve Fatura Servisi'nin cevap vermesi beklenir. /health token istemez; cevap vermesi servisin
+# açık olduğunu gösterir.
 function Wait-KeycloakAndService([int]$TimeoutSeconds = 180) {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     while ($true) {
