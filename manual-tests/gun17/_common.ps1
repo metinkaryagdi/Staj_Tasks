@@ -11,14 +11,21 @@ $TokenUrl = "$KeycloakUrl/realms/fatura/protocol/openid-connect/token"
 # keycloak/fatura-realm.json'daki test değerleri.
 $TestUsers = [ordered]@{ izleyici = 'izleyici123'; operator = 'operator123'; rolsuz = 'rolsuz123' }
 $OrderSystemSecret = 'dev-only-siparis-sistemi-secret-do-not-use-in-production'
-# JwtBearer'ın varsayılan ClockSkew'ü (5 dakika): süresi dolan token bu kadar daha kabul edilir.
-$ClockSkewSeconds = 300
+# Fatura Servisi'nin Keycloak:ClockSkewSeconds ayarı (appsettings.json): süresi dolan token bu kadar daha kabul edilir.
+$ClockSkewSeconds = 30
 
 # Token'ı kendimiz koyduğumuz istemci: ortak istemci her isteğe X-Operator-Name ekler.
 $script:ApiHttp = New-Object System.Net.Http.HttpClient
 $script:ApiHttp.Timeout = [TimeSpan]::FromMinutes(2)
 
+# Kullanıcı token'ı fatura-test client'ından şifreyle alınır. Bu client varsayılan kurulumda yoktur: ilk token'dan önce
+# yalnızca bu yerel Keycloak'a eklenir (manual-tests\keycloak\test-client-ekle.ps1).
+$script:TestClientReady = $false
 function Get-UserToken([string]$User) {
+    if (-not $script:TestClientReady) {
+        & "$PSScriptRoot\..\keycloak\test-client-ekle.ps1" -KeycloakUrl $KeycloakUrl
+        $script:TestClientReady = $true
+    }
     (Invoke-RestMethod -Method Post -Uri $TokenUrl -Body @{
         grant_type = 'password'; client_id = 'fatura-test'; username = $User; password = $TestUsers[$User] }).access_token
 }

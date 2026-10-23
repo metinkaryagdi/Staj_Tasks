@@ -41,7 +41,7 @@ foreach ($role in 'fatura-izleyici', 'fatura-operatoru', 'fatura-olusturucu') { 
 $clients = @(Get-Admin '/clients')
 $test = $clients | Where-Object { $_.clientId -eq 'fatura-test' }
 $order = $clients | Where-Object { $_.clientId -eq 'siparis-sistemi' }
-Check ($test -and $test.publicClient -and $test.directAccessGrantsEnabled) 'client fatura-test (secret yok, yalnızca kullanıcı adı ve şifreyle token)'
+Check (-not $test) 'client fatura-test yok (şifreyle token veren test client''ı varsayılan kurulumda değil, test script''leri ekler)'
 Check ($order -and -not $order.publicClient -and $order.serviceAccountsEnabled -and -not $order.directAccessGrantsEnabled) `
     'client siparis-sistemi (secret ile, yalnızca client credentials)'
 $users = @(Get-Admin '/users?max=100')

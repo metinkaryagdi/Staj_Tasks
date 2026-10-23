@@ -1,0 +1,19 @@
+{
+  "clientId": "fatura-test",
+  "description": "Yalnızca yerel test script'leri için: kullanıcı adı ve şifreyle token alır (password grant). Varsayılan kurulumda yoktur; manual-tests/keycloak/test-client-ekle.ps1 ekler.",
+  "publicClient": true,
+  "standardFlowEnabled": false,
+  "directAccessGrantsEnabled": true,
+  "protocolMappers": [
+    {
+      "name": "fatura-servisi-audience",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-audience-mapper",
+      "config": {
+        "included.custom.audience": "fatura-servisi",
+        "access.token.claim": "true",
+        "id.token.claim": "false"
+      }
+    }
+  ]
+}

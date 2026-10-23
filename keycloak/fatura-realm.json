@@ -45,25 +45,6 @@
   ],
   "clients": [
     {
-      "clientId": "fatura-test",
-      "description": "Yalnızca test script'leri için: kullanıcı adı ve şifreyle token alır (password grant)",
-      "publicClient": true,
-      "standardFlowEnabled": false,
-      "directAccessGrantsEnabled": true,
-      "protocolMappers": [
-        {
-          "name": "fatura-servisi-audience",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-audience-mapper",
-          "config": {
-            "included.custom.audience": "fatura-servisi",
-            "access.token.claim": "true",
-            "id.token.claim": "false"
-          }
-        }
-      ]
-    },
-    {
       "clientId": "siparis-sistemi",
       "description": "Faturaları oluşturan sipariş sistemi: kullanıcı değil, servis (client credentials)",
       "publicClient": false,

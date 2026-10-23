@@ -1,6 +1,6 @@
 ﻿# Kontrol listesi 2: korunan her endpoint için token yok, imzası bozulmuş token, süresi dolmuş token, rolü olmayan kullanıcı,
-# izleyici, operatör ve sipariş sistemi durumlarında dönen cevap. Açık yığında çalışır (1-hazir.ps1'den sonra). ~11 dk:
-# süresi dolmuş token sütunu için token'ın ömrü (5 dk) ve servisin toleransı (5 dk, JwtBearer'ın varsayılanı) beklenir.
+# izleyici, operatör ve sipariş sistemi durumlarında dönen cevap. Açık yığında çalışır (1-hazir.ps1'den sonra). ~6 dk:
+# süresi dolmuş token sütunu için token'ın ömrü (5 dk) ve servisin toleransı (30 sn, Keycloak:ClockSkewSeconds) beklenir.
 #   .\manual-tests\gun17\2-tablo.ps1
 # Beklenen: token yok / bozuk / süresi dolmuş -> 401; rol yetmiyorsa 403; rol yetiyorsa 401 ve 403 dışında bir cevap
 # (200, 202, 404, 409 ...: istek kimlik ve rol kontrolünden geçmiş, cevap işin kendisinden).
