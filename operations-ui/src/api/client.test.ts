@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { accessToken } from '../auth'
 import { ApiError, request } from './client'
+
+// Keycloak yerine: her istek bu token'la gider.
+vi.mock('../auth', () => ({ accessToken: vi.fn(() => Promise.resolve('test-token')) }))
 
 function respond(status: number, body: unknown) {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status })))
@@ -20,6 +24,21 @@ describe('API istemcisi', () => {
   it('başarılı cevabı çözümler', async () => {
     respond(200, { total: 3 })
     expect(await request('/x')).toEqual({ total: 3 })
+  })
+
+  it("isteği kullanıcının token'ıyla gönderir", async () => {
+    respond(200, {})
+    await request('/x')
+    const init = vi.mocked(fetch).mock.calls[0][1]!
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer test-token')
+  })
+
+  it('token yenilenemezse istek gönderilmez, keycloak hatası verir', async () => {
+    respond(200, {})
+    vi.mocked(accessToken).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const error = await failure()
+    expect(error.kind).toBe('keycloak')
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('servise ulaşılamazsa unreachable hatası verir', async () => {

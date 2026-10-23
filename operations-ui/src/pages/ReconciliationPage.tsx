@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { startRun } from '../api/endpoints'
 import { runDetailQuery, runsQuery } from '../api/queries'
+import { currentUser } from '../auth'
 import type { Finding, ReconciliationRun } from '../api/types'
 import { Notice } from '../components/Notice'
 import { QueryState } from '../components/QueryState'
@@ -39,11 +40,14 @@ export function ReconciliationPage() {
   return (
     <>
       <h1>{tr.reconciliation.title}</h1>
-      <div className="toolbar">
-        <button type="button" className="primary" disabled={start.isPending} onClick={() => start.mutate()}>
-          {start.isPending ? tr.reconciliation.starting : tr.reconciliation.runNow}
-        </button>
-      </div>
+      {/* İzleyici mutabakat başlatamaz; servis de bu isteği 403 ile reddeder. */}
+      {currentUser().canIntervene && (
+        <div className="toolbar">
+          <button type="button" className="primary" disabled={start.isPending} onClick={() => start.mutate()}>
+            {start.isPending ? tr.reconciliation.starting : tr.reconciliation.runNow}
+          </button>
+        </div>
+      )}
       {start.isSuccess && <Notice kind="success">{tr.reconciliation.started(start.data.id)}</Notice>}
       {start.isError && <Notice kind="error">{describeStartRunError(start.error)}</Notice>}
       <RefreshStamp query={runs} />

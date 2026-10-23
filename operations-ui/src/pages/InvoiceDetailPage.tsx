@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { closeInvoiceFollowUp, openInvoiceFollowUp, resendInvoice } from '../api/endpoints'
+import { currentUser } from '../auth'
 import { detailsQuery } from '../api/queries'
 import { failedStatus, maxFollowUpNoteLength, type InvoiceDetails } from '../api/types'
 import { Notice } from '../components/Notice'
@@ -30,6 +31,8 @@ export function InvoiceDetailPage() {
 
 function Details({ data }: { data: InvoiceDetails }) {
   const { invoice, outbox, events, findings, operatorActions } = data
+  // İzleyici müdahale butonlarını görmez; servis de onun müdahale isteklerini 403 ile reddeder.
+  const { canIntervene } = currentUser()
   const queryClient = useQueryClient()
   const [editingFollowUp, setEditingFollowUp] = useState(false)
   const [note, setNote] = useState('')
@@ -54,11 +57,11 @@ function Details({ data }: { data: InvoiceDetails }) {
         <StatusBadge status={invoice.status} />
         {invoice.stuck && <StuckBadge since={invoice.updatedAt} />}
         {data.followUp && <span className="badge badge-follow-up">{tr.details.followUpOpen(data.followUp.operatorName)}</span>}
-        {invoice.stuck && data.followUp === null && !editingFollowUp && (
+        {canIntervene && invoice.stuck && data.followUp === null && !editingFollowUp && (
           <button type="button" onClick={() => setEditingFollowUp(true)}>{tr.details.takeFollowUp}</button>
         )}
-        {data.followUp && <button type="button" disabled={closeFollowUp.isPending} onClick={() => closeFollowUp.mutate()}>{tr.details.closeFollowUp}</button>}
-        {invoice.status === failedStatus && (
+        {canIntervene && data.followUp && <button type="button" disabled={closeFollowUp.isPending} onClick={() => closeFollowUp.mutate()}>{tr.details.closeFollowUp}</button>}
+        {canIntervene && invoice.status === failedStatus && (
           <button type="button" className="primary" disabled={resend.isPending} onClick={() => resend.mutate()}>
             {resend.isPending ? tr.details.resending : tr.details.resend}
           </button>

@@ -45,6 +45,33 @@
   ],
   "clients": [
     {
+      "clientId": "operasyon-ekrani",
+      "description": "Operasyon ekranı: tarayıcıda çalışır, secret saklayamaz (public client); yalnızca Authorization Code + PKCE (S256), şifreyle token yok",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [ "http://localhost:5100/*" ],
+      "webOrigins": [ "http://localhost:5100" ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5100/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "fatura-servisi-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "fatura-servisi",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "siparis-sistemi",
       "description": "Faturaları oluşturan sipariş sistemi: kullanıcı değil, servis (client credentials)",
       "publicClient": false,

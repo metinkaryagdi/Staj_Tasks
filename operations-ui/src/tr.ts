@@ -1,7 +1,7 @@
 // Ekrandaki bütün metinler burada toplanır (API'den gelen durum adları zaten Türkçedir).
 import { ApiError } from './api/client'
 import type { ResendItem } from './api/types'
-import { apiUrl } from './config'
+import { apiUrl, keycloakUrl } from './config'
 
 export const tr = {
   appTitle: 'Fatura Operasyon Ekranı',
@@ -13,16 +13,20 @@ export const tr = {
     hours: (n: number) => `${n} sa`,
     days: (n: number) => `${n} gün`,
   },
-  operator: {
-    title: 'Adınız',
-    hint:
-      'Yeniden gönderme ve mutabakat başlatma işlemleri bu adla kaydedilir. Bu bir giriş değildir; ad yalnızca kayıt içindir ' +
-      've bu tarayıcıda hatırlanır.',
-    label: 'Ad soyad',
-    submit: 'Devam et',
-    invalid: (max: number) => `Bir ad yazın (en fazla ${max} karakter).`,
-    current: (name: string) => `Kullanıcı: ${name}`,
-    change: 'Değiştir',
+  auth: {
+    signingIn: 'Giriş yapılıyor…',
+    keycloakUnreachable:
+      `Giriş servisine (Keycloak, ${keycloakUrl}) ulaşılamıyor. Ekran giriş yapılmadan açılmaz; Keycloak çalışınca sayfayı ` +
+      'yenileyin.',
+    refreshFailed:
+      `Giriş servisine (Keycloak, ${keycloakUrl}) ulaşılamıyor; oturum yenilenemediği için veriler alınamıyor. ` +
+      'Keycloak dönünce kendiliğinden yeniden denenecek.',
+    user: (name: string) => `Kullanıcı: ${name}`,
+    signOut: 'Çıkış',
+    noAccessTitle: 'Yetkiniz yok',
+    noAccess: (name: string) =>
+      `${name} kullanıcısının bu ekranı kullanma yetkisi yok: verileri görmek için fatura-izleyici, müdahale için ` +
+      'fatura-operatoru rolü gerekir. Yetki için sistem yöneticisine başvurun.',
   },
   common: {
     loading: 'Yükleniyor…',
@@ -235,11 +239,10 @@ export function describeError(error: unknown): string {
       )
     case 'server':
       return `Fatura Servisi bir hata verdi (HTTP ${error.status}). Bir süre sonra kendiliğinden yeniden denenecek.`
+    case 'keycloak':
+      return tr.auth.refreshFailed
     default:
       if (error.code === 'invoice_not_found') return 'Bu numaralı bir fatura bulunamadı.'
-      if (error.code === 'operator_name_required' || error.code === 'operator_name_invalid') {
-        return 'İşlem yapılmadı: Fatura Servisi işlemi yapanın adını kabul etmedi. Sayfayı yenileyip adınızı yeniden girin.'
-      }
       if (error.status === 404) return 'Aranan kayıt bulunamadı.'
       return `Fatura Servisi isteği kabul etmedi (HTTP ${error.status}).`
   }

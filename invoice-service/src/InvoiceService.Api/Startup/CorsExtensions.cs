@@ -20,7 +20,8 @@ public static class CorsExtensions
         services.AddCors(o => o.AddPolicy(PolicyName, policy => policy
             .WithOrigins(origins)
             .WithMethods("GET", "POST")
-            .WithHeaders("Content-Type")));
+            // The screen sends the user's token in Authorization.
+            .WithHeaders("Content-Type", "Authorization")));
         return services;
     }
 

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { resendInvoices } from '../api/endpoints'
 import { invoicesQuery } from '../api/queries'
+import { currentUser } from '../auth'
 import {
   failedStatus,
   invoiceStatuses,
@@ -40,6 +41,7 @@ export function InvoiceListPage() {
   const query = readQuery(params)
   const list = useQuery(invoicesQuery(query))
   const queryClient = useQueryClient()
+  const { canIntervene } = currentUser()
 
   const [searchText, setSearchText] = useState(query.search)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -129,36 +131,39 @@ export function InvoiceListPage() {
       {report && <BulkReport results={report} onDismiss={() => setReport(null)} />}
       {resend.isError && <Notice kind="error">{describeResendError(resend.error)}</Notice>}
 
-      {/* Çubuk hep yerinde durur: ilk seçimde ortaya çıkıp tabloyu aşağı kaydırırsa hızlı tıklayan yanlış satırı seçer. */}
-      <div className="bulkbar">
-        {selected.size === 0 ? (
-          <span className="muted">{tr.invoices.nothingSelected}</span>
-        ) : (
-          <>
-            <span>{tr.invoices.selectedCount(selected.size, maxSelection)}</span>
-            {confirming ? (
-              <>
-                <strong>{tr.invoices.bulkConfirm(selected.size)}</strong>
-                <button type="button" className="primary" disabled={resend.isPending} onClick={() => resend.mutate([...selected])}>
-                  {resend.isPending ? tr.invoices.bulkSending : tr.common.yes}
-                </button>
-                <button type="button" disabled={resend.isPending} onClick={() => setConfirming(false)}>
-                  {tr.common.cancel}
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" className="primary" onClick={() => setConfirming(true)}>
-                  {tr.invoices.bulkResend}
-                </button>
-                <button type="button" onClick={clearSelection}>
-                  {tr.invoices.clearSelection}
-                </button>
-              </>
-            )}
-          </>
-        )}
-      </div>
+      {/* Çubuk hep yerinde durur: ilk seçimde ortaya çıkıp tabloyu aşağı kaydırırsa hızlı tıklayan yanlış satırı seçer.
+          İzleyici toplu yeniden gönderemez: ne çubuk ne seçim kutuları görünür (servis de bu isteği 403 ile reddeder). */}
+      {canIntervene && (
+        <div className="bulkbar">
+          {selected.size === 0 ? (
+            <span className="muted">{tr.invoices.nothingSelected}</span>
+          ) : (
+            <>
+              <span>{tr.invoices.selectedCount(selected.size, maxSelection)}</span>
+              {confirming ? (
+                <>
+                  <strong>{tr.invoices.bulkConfirm(selected.size)}</strong>
+                  <button type="button" className="primary" disabled={resend.isPending} onClick={() => resend.mutate([...selected])}>
+                    {resend.isPending ? tr.invoices.bulkSending : tr.common.yes}
+                  </button>
+                  <button type="button" disabled={resend.isPending} onClick={() => setConfirming(false)}>
+                    {tr.common.cancel}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className="primary" onClick={() => setConfirming(true)}>
+                    {tr.invoices.bulkResend}
+                  </button>
+                  <button type="button" onClick={clearSelection}>
+                    {tr.invoices.clearSelection}
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
       {limitReached && <Notice kind="info">{tr.invoices.selectionLimit(maxSelection)}</Notice>}
 
       <QueryState query={list}>
@@ -166,6 +171,7 @@ export function InvoiceListPage() {
           <>
             <InvoiceTable
               invoices={data.items}
+              selectable={canIntervene}
               selected={selected}
               onToggle={(number) => choose(toggle(selected, number))}
               onSelectPage={(numbers, on) => (on ? choose(selectMany(selected, numbers)) : choose({ selected: deselectMany(selected, numbers), limitReached: false }))}
@@ -189,12 +195,14 @@ export function InvoiceListPage() {
 
 interface TableProps {
   invoices: Invoice[]
+  // Seçim kutuları (toplu yeniden gönderme için) yalnızca müdahale edebilene gösterilir.
+  selectable: boolean
   selected: ReadonlySet<string>
   onToggle: (invoiceNumber: string) => void
   onSelectPage: (invoiceNumbers: string[], selectThem: boolean) => void
 }
 
-function InvoiceTable({ invoices, selected, onToggle, onSelectPage }: TableProps) {
+function InvoiceTable({ invoices, selectable, selected, onToggle, onSelectPage }: TableProps) {
   const failedOnPage = invoices.filter((i) => i.status === failedStatus).map((i) => i.invoiceNumber)
   const allFailedSelected = failedOnPage.length > 0 && failedOnPage.every((n) => selected.has(n))
 
@@ -205,16 +213,18 @@ function InvoiceTable({ invoices, selected, onToggle, onSelectPage }: TableProps
       <table>
         <thead>
           <tr>
-            <th>
-              <input
-                type="checkbox"
-                aria-label={tr.invoices.selectAllFailed}
-                title={tr.invoices.selectAllFailed}
-                disabled={failedOnPage.length === 0}
-                checked={allFailedSelected}
-                onChange={(e) => onSelectPage(failedOnPage, e.target.checked)}
-              />
-            </th>
+            {selectable && (
+              <th>
+                <input
+                  type="checkbox"
+                  aria-label={tr.invoices.selectAllFailed}
+                  title={tr.invoices.selectAllFailed}
+                  disabled={failedOnPage.length === 0}
+                  checked={allFailedSelected}
+                  onChange={(e) => onSelectPage(failedOnPage, e.target.checked)}
+                />
+              </th>
+            )}
             <th>{tr.invoices.columns.invoiceNumber}</th>
             <th>{tr.invoices.columns.customerCode}</th>
             <th className="num">{tr.invoices.columns.amount}</th>
@@ -230,16 +240,18 @@ function InvoiceTable({ invoices, selected, onToggle, onSelectPage }: TableProps
             const canSelect = invoice.status === failedStatus
             return (
               <tr key={invoice.invoiceNumber} className={selected.has(invoice.invoiceNumber) ? 'row-selected' : ''}>
-                <td>
-                  {canSelect && (
-                    <input
-                      type="checkbox"
-                      aria-label={`${invoice.invoiceNumber} ${tr.invoices.columns.select}`}
-                      checked={selected.has(invoice.invoiceNumber)}
-                      onChange={() => onToggle(invoice.invoiceNumber)}
-                    />
-                  )}
-                </td>
+                {selectable && (
+                  <td>
+                    {canSelect && (
+                      <input
+                        type="checkbox"
+                        aria-label={`${invoice.invoiceNumber} ${tr.invoices.columns.select}`}
+                        checked={selected.has(invoice.invoiceNumber)}
+                        onChange={() => onToggle(invoice.invoiceNumber)}
+                      />
+                    )}
+                  </td>
+                )}
                 <td>{invoice.invoiceNumber}</td>
                 <td>{invoice.customerCode}</td>
                 <td className="num">{formatAmount(invoice.amount, invoice.currency)}</td>

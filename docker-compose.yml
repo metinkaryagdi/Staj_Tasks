@@ -124,6 +124,8 @@ services:
         # Fatura Servisi'nin tarayıcıdan görünen adresi; derleme sırasında koda gömülür. Değiştirince
         # `docker compose up -d --build operations-ui`.
         VITE_API_URL: http://localhost:5090
+        # Keycloak'ın tarayıcıdan görünen adresi: kullanıcı giriş için buraya yönlendirilir, token buradan alınır.
+        VITE_KEYCLOAK_URL: http://localhost:8080
     ports:
       - "5100:80"
 
