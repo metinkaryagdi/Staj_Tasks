@@ -70,7 +70,8 @@ app.UseSwaggerUI(o =>
 });
 app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
+// Docker and Kubernetes probes carry no token, so /health needs none; it only says the service is up, nothing else.
+app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription().AllowAnonymous();
 app.MapInvoiceEndpoints();
 app.MapWebhookEndpoints();
 app.MapReconciliationEndpoints();
