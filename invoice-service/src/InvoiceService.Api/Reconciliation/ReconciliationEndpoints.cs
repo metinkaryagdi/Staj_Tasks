@@ -19,7 +19,7 @@ public static class ReconciliationEndpoints
                 "Compares the service's invoices with the ERP's records, fixes what it can and reports the rest. Returns 202 with " +
                 "the run (Çalışıyor); the run goes on in the background and is read with GET /api/v1/reconciliation-runs/{id}. " +
                 "409 while another run is going, whether it was started by the schedule, by this endpoint or by another copy " +
-                "of the service. " + InvoiceEndpoints.OperatorDescription + " The run keeps the name as startedBy.")
+                "of the service. " + InvoiceEndpoints.OperatorDescription + " The run keeps the name as startedBy, with the sub.")
             .Produces<ReconciliationRunResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .RequireAuthorization(Policies.Intervene);
@@ -48,11 +48,11 @@ public static class ReconciliationEndpoints
     private static async Task<IResult> StartRun(
         ClaimsPrincipal user, ReconciliationService service, IHostApplicationLifetime lifetime, CancellationToken ct)
     {
-        var (operatorName, invalid) = OperatorName.Read(user);
+        var (by, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 
-        var started = await service.TryStartAsync(operatorName, ct);
+        var started = await service.TryStartAsync(by, ct);
         if (started is null)
         {
             return Results.Problem(

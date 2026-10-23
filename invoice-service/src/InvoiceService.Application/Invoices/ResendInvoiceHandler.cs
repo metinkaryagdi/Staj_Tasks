@@ -34,7 +34,7 @@ public sealed class ResendInvoiceHandler(
     /// <param name="action">How the operator asked for it: <see cref="OperatorActionType.Resend"/> or, one invoice of a
     /// bulk request, <see cref="OperatorActionType.BulkResend"/>.</param>
     public async Task<ResendInvoiceResult> HandleAsync(
-        string invoiceNumber, string operatorName, string action = OperatorActionType.Resend)
+        string invoiceNumber, OperatorIdentity by, string action = OperatorActionType.Resend)
     {
         var now = time.GetUtcNow();
         await using var transaction = await unitOfWork.BeginAsync(CancellationToken.None);
@@ -49,7 +49,7 @@ public sealed class ResendInvoiceHandler(
             var refused = current is null
                 ? new ResendInvoiceResult(ResendStatus.NotFound)
                 : new ResendInvoiceResult(ResendStatus.NotFailed, CurrentStatus: current.Status);
-            await actions.RecordAsync(Record(operatorName, action, invoiceNumber, ResultText(refused), now), CancellationToken.None);
+            await actions.RecordAsync(Record(by, action, invoiceNumber, ResultText(refused), now), CancellationToken.None);
             await transaction.CommitAsync(CancellationToken.None);
             return refused;
         }
@@ -57,10 +57,11 @@ public sealed class ResendInvoiceHandler(
         // Reset the entry so the worker treats it like a new one; inserted if missing (invoices that failed before
         // the outbox existed).
         await outbox.ResetAsync(invoiceNumber, now, CancellationToken.None);
-        await actions.RecordAsync(Record(operatorName, action, invoiceNumber, OperatorActionResult.Queued, now), CancellationToken.None);
+        await actions.RecordAsync(Record(by, action, invoiceNumber, OperatorActionResult.Queued, now), CancellationToken.None);
 
         await transaction.CommitAsync(CancellationToken.None);
-        _logger.LogInformation("Invoice queued again invoice={InvoiceNumber} operator={Operator}", invoiceNumber, operatorName);
+        _logger.LogInformation("Invoice queued again invoice={InvoiceNumber} operator={Operator} sub={OperatorSub}",
+            invoiceNumber, by.Name, by.Sub);
 
         // The resend is a step of the invoice's journey: it shows in the invoice's trace, before the attempts it causes.
         var entry = await outbox.FindAsync(invoiceNumber, CancellationToken.None);
@@ -75,10 +76,10 @@ public sealed class ResendInvoiceHandler(
         : OperatorActionResult.NotFailed(result.CurrentStatus!);
 
     /// <summary>A number too long to be an invoice is cut to fit the column; it was not found either way.</summary>
-    public static OperatorAction Record(string operatorName, string action, string invoiceNumber, string result, DateTimeOffset now) =>
+    public static OperatorAction Record(OperatorIdentity by, string action, string invoiceNumber, string result, DateTimeOffset now) =>
         new()
         {
-            OperatorName = operatorName, Action = action,
+            OperatorName = by.Name, OperatorSub = by.Sub, Action = action,
             InvoiceNumber = invoiceNumber.Length <= OperatorAction.MaxInvoiceNumberLength
                 ? invoiceNumber
                 : invoiceNumber[..OperatorAction.MaxInvoiceNumberLength],

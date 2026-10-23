@@ -91,7 +91,7 @@ public abstract class IntegrationTest(PostgresFixture postgres) : IAsyncLifetime
     {
         await using var scope = NewScope();
         var started = await scope.ServiceProvider.GetRequiredService<ReconciliationService>()
-            .TryStartAsync(operatorName: null, CancellationToken.None);
+            .TryStartAsync(by: null, CancellationToken.None);
         await started!.Lease.DisposeAsync();
         return started.Run.Id;
     }

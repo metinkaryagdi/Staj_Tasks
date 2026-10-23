@@ -1,5 +1,6 @@
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Operators;
 using Microsoft.EntityFrameworkCore;
 
 namespace InvoiceService.Infrastructure.Persistence;
@@ -19,9 +20,12 @@ public sealed class InvoiceFollowUpStore(InvoiceDbContext db) : IInvoiceFollowUp
         await db.SaveChangesAsync(ct);
     }
 
-    public Task CloseAsync(long id, string closedBy, DateTimeOffset closedAt, CancellationToken ct) =>
+    public Task CloseAsync(long id, OperatorIdentity closedBy, DateTimeOffset closedAt, CancellationToken ct) =>
         db.InvoiceFollowUps.Where(f => f.Id == id && f.ClosedAt == null)
-            .ExecuteUpdateAsync(s => s.SetProperty(f => f.ClosedAt, closedAt).SetProperty(f => f.ClosedBy, closedBy), ct);
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(f => f.ClosedAt, closedAt)
+                .SetProperty(f => f.ClosedBy, closedBy.Name)
+                .SetProperty(f => f.ClosedBySub, closedBy.Sub), ct);
 
     public async Task<IReadOnlyDictionary<string, string>> OpenNamesAsync(
         IReadOnlyCollection<string> invoiceNumbers, CancellationToken ct) =>

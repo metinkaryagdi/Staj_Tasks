@@ -14,7 +14,7 @@ public class ResendInvoiceHandlerTests
     {
         _s.Invoices.Add("FTR-000001", InvoiceStatus.Failed).LastError = "ERP 500";
 
-        var result = await _s.ResendInvoiceHandler().HandleAsync("FTR-000001", "Ayşe");
+        var result = await _s.ResendInvoiceHandler().HandleAsync("FTR-000001", Scenario.Operator("Ayşe"));
 
         Assert.Equal(ResendStatus.Queued, result.Status);
         Assert.Equal(InvoiceStatus.Pending, result.Invoice!.Status);
@@ -29,7 +29,7 @@ public class ResendInvoiceHandlerTests
     {
         _s.Invoices.Add("FTR-000001", InvoiceStatus.Sent);
 
-        var result = await _s.ResendInvoiceHandler().HandleAsync("FTR-000001", "Ayşe");
+        var result = await _s.ResendInvoiceHandler().HandleAsync("FTR-000001", Scenario.Operator("Ayşe"));
 
         Assert.Equal(ResendStatus.NotFailed, result.Status);
         Assert.Equal(InvoiceStatus.Sent, result.CurrentStatus);
@@ -42,7 +42,7 @@ public class ResendInvoiceHandlerTests
     [Fact]
     public async Task Unknown_invoice_is_not_found()
     {
-        var result = await _s.ResendInvoiceHandler().HandleAsync("FTR-999999", "Ayşe");
+        var result = await _s.ResendInvoiceHandler().HandleAsync("FTR-999999", Scenario.Operator("Ayşe"));
 
         Assert.Equal(ResendStatus.NotFound, result.Status);
         Assert.Empty(_s.Outbox.Resets);
@@ -54,7 +54,7 @@ public class ResendInvoiceHandlerTests
     {
         var number = new string('9', 80);
 
-        await _s.ResendInvoiceHandler().HandleAsync(number, "Ayşe");
+        await _s.ResendInvoiceHandler().HandleAsync(number, Scenario.Operator("Ayşe"));
 
         Assert.Equal(number[..OperatorAction.MaxInvoiceNumberLength], Assert.Single(_s.OperatorActions.Actions).InvoiceNumber);
     }
@@ -62,8 +62,8 @@ public class ResendInvoiceHandlerTests
     private void AssertRecorded(string invoiceNumber, string result)
     {
         var action = Assert.Single(_s.OperatorActions.Actions);
-        Assert.Equal(("Ayşe", OperatorActionType.Resend, invoiceNumber, result),
-            (action.OperatorName, action.Action, action.InvoiceNumber, action.Result));
+        Assert.Equal(("Ayşe", "sub-Ayşe", OperatorActionType.Resend, invoiceNumber, result),
+            (action.OperatorName, action.OperatorSub, action.Action, action.InvoiceNumber, action.Result));
     }
 
     [Fact]

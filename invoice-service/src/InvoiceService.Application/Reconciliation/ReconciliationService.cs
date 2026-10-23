@@ -19,16 +19,16 @@ public sealed class ReconciliationService(
     IServiceScopeFactory scopes, IReconciliationLock gate, TimeProvider time, ILogger<ReconciliationService> logger)
 {
     /// <summary>Takes the lock and records the run as Çalışıyor; null when another run holds the lock.</summary>
-    /// <param name="operatorName">Who started it from the screen; null for the schedule. The run keeps it (the schedule
-    /// as <see cref="ReconciliationRun.Schedule"/>), and an operator's request is recorded in operator_actions whether it
-    /// started a run or was refused.</param>
-    public async Task<StartedRun?> TryStartAsync(string? operatorName, CancellationToken ct)
+    /// <param name="by">Who started it from the screen; null for the schedule. The run keeps the name and the sub (the
+    /// schedule as <see cref="ReconciliationRun.Schedule"/>, without a sub), and an operator's request is recorded in
+    /// operator_actions whether it started a run or was refused.</param>
+    public async Task<StartedRun?> TryStartAsync(OperatorIdentity? by, CancellationToken ct)
     {
         var lease = await gate.TryAcquireAsync(ct);
         if (lease is null)
         {
-            if (operatorName is not null)
-                await RecordRefusedAsync(operatorName, ct);
+            if (by is not null)
+                await RecordRefusedAsync(by, ct);
             return null;
         }
 
@@ -44,15 +44,16 @@ public sealed class ReconciliationService(
 
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
             await using var transaction = await unitOfWork.BeginAsync(ct);
-            var run = await store.StartRunAsync(time.GetUtcNow(), operatorName ?? ReconciliationRun.Schedule, ct);
-            if (operatorName is not null)
+            var run = await store.StartRunAsync(time.GetUtcNow(), by?.Name ?? ReconciliationRun.Schedule, by?.Sub, ct);
+            if (by is not null)
             {
                 await scope.ServiceProvider.GetRequiredService<IOperatorActionStore>().RecordAsync(
-                    StartRecord(operatorName, OperatorActionResult.RunStarted(run.Id)), ct);
+                    StartRecord(by, OperatorActionResult.RunStarted(run.Id)), ct);
             }
             await transaction.CommitAsync(ct);
 
-            logger.LogInformation("Reconciliation run started run={RunId} by={StartedBy}", run.Id, run.StartedBy);
+            logger.LogInformation("Reconciliation run started run={RunId} by={StartedBy} sub={StartedBySub}",
+                run.Id, run.StartedBy, run.StartedBySub);
             return new StartedRun(run, lease);
         }
         catch
@@ -62,16 +63,16 @@ public sealed class ReconciliationService(
         }
     }
 
-    private async Task RecordRefusedAsync(string operatorName, CancellationToken ct)
+    private async Task RecordRefusedAsync(OperatorIdentity by, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<IOperatorActionStore>().RecordAsync(
-            StartRecord(operatorName, OperatorActionResult.AlreadyRunning), ct);
+            StartRecord(by, OperatorActionResult.AlreadyRunning), ct);
     }
 
-    private OperatorAction StartRecord(string operatorName, string result) => new()
+    private OperatorAction StartRecord(OperatorIdentity by, string result) => new()
     {
-        OperatorName = operatorName, Action = OperatorActionType.StartReconciliation, Result = result,
+        OperatorName = by.Name, OperatorSub = by.Sub, Action = OperatorActionType.StartReconciliation, Result = result,
         CreatedAt = time.GetUtcNow()
     };
 

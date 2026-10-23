@@ -17,6 +17,7 @@ public class ReconciliationServiceTests
         Assert.NotNull(started);
         Assert.Equal(ReconciliationStatus.Running, started.Run.Status);
         Assert.Null(started.Run.FinishedAt);
+        Assert.Equal((ReconciliationRun.Schedule, null), (started.Run.StartedBy, started.Run.StartedBySub));
         Assert.Equal(1, _s.Lock.Acquired);
         Assert.Equal(0, _s.Lock.Released);
     }
@@ -88,12 +89,12 @@ public class ReconciliationServiceTests
     [Fact]
     public async Task A_run_started_by_an_operator_keeps_the_name_and_the_request_is_recorded_with_the_run()
     {
-        var started = await _s.ReconciliationService().TryStartAsync("Ayşe Yılmaz", CancellationToken.None);
+        var started = await _s.ReconciliationService().TryStartAsync(Scenario.Operator("Ayşe Yılmaz"), CancellationToken.None);
 
-        Assert.Equal("Ayşe Yılmaz", started!.Run.StartedBy);
+        Assert.Equal(("Ayşe Yılmaz", "sub-Ayşe Yılmaz"), (started!.Run.StartedBy, started.Run.StartedBySub));
         var action = Assert.Single(_s.OperatorActions.Actions);
-        Assert.Equal(("Ayşe Yılmaz", OperatorActionType.StartReconciliation, null, $"Başlatıldı: çalışma {started.Run.Id}"),
-            (action.OperatorName, action.Action, action.InvoiceNumber, action.Result));
+        Assert.Equal(("Ayşe Yılmaz", "sub-Ayşe Yılmaz", OperatorActionType.StartReconciliation, null, $"Başlatıldı: çalışma {started.Run.Id}"),
+            (action.OperatorName, action.OperatorSub, action.Action, action.InvoiceNumber, action.Result));
         Assert.Equal(1, _s.UnitOfWork.Committed);
     }
 
@@ -105,7 +106,7 @@ public class ReconciliationServiceTests
         Assert.Null(await _s.ReconciliationService().TryStartAsync(null, CancellationToken.None));
         Assert.Empty(_s.OperatorActions.Actions);
 
-        Assert.Null(await _s.ReconciliationService().TryStartAsync("Ayşe", CancellationToken.None));
+        Assert.Null(await _s.ReconciliationService().TryStartAsync(Scenario.Operator("Ayşe"), CancellationToken.None));
         var action = Assert.Single(_s.OperatorActions.Actions);
         Assert.Equal(OperatorActionResult.AlreadyRunning, action.Result);
         Assert.Empty(_s.Reconciliation.Runs);

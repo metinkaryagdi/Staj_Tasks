@@ -107,7 +107,7 @@ public class InvoiceMetricsTests
         ], null);
         _s.Erp.LookupResults.Enqueue(new ErpLookupResult(ErpLookup.Found, "ERP-1", 200, null, TimeSpan.Zero, new ErpDecision(ErpDecisionKind.None)));
 
-        var run = await _s.Reconciliation.StartRunAsync(Scenario.Start, ReconciliationRun.Schedule, default);
+        var run = await _s.Reconciliation.StartRunAsync(Scenario.Start, ReconciliationRun.Schedule, null, default);
         await _s.ReconciliationRunner().RunAsync(run, CancellationToken.None);
 
         Assert.Equal(ReconciliationStatus.Completed, Assert.Single(runs.GetMeasurementSnapshot()).Tags["status"]);
@@ -125,7 +125,7 @@ public class InvoiceMetricsTests
         using var runs = Collect<long>("reconciliation.runs");
         _s.Erp.ListResult = new ErpListResult(false, [], "ERP kayıtları listelenemedi");
 
-        var run = await _s.Reconciliation.StartRunAsync(Scenario.Start, ReconciliationRun.Schedule, default);
+        var run = await _s.Reconciliation.StartRunAsync(Scenario.Start, ReconciliationRun.Schedule, null, default);
         await _s.ReconciliationRunner().RunAsync(run, CancellationToken.None);
 
         Assert.Equal(ReconciliationStatus.Failed, Assert.Single(runs.GetMeasurementSnapshot()).Tags["status"]);

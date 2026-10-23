@@ -11,20 +11,30 @@ public class OperatorNameTests
     private static ClaimsPrincipal User(params Claim[] claims) => new(new ClaimsIdentity(claims, "test"));
 
     [Fact]
-    public void The_name_is_the_tokens_preferred_username()
+    public void The_operator_is_the_tokens_preferred_username_and_sub()
     {
-        var (name, error) = OperatorName.Read(User(new Claim(OperatorName.ClaimType, "operator")));
+        var (identity, error) = OperatorName.Read(User(
+            new Claim(OperatorName.ClaimType, "operator"), new Claim(OperatorName.SubClaimType, "1d547fb7")));
 
-        Assert.Equal("operator", name);
+        Assert.Equal(new OperatorIdentity("operator", "1d547fb7"), identity);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void A_token_without_a_sub_is_recorded_under_the_name_alone()
+    {
+        var (identity, error) = OperatorName.Read(User(new Claim(OperatorName.ClaimType, "operator")));
+
+        Assert.Equal(new OperatorIdentity("operator", null), identity);
         Assert.Null(error);
     }
 
     [Fact]
     public void A_token_without_a_user_name_is_refused_with_403()
     {
-        var (name, error) = OperatorName.Read(User(new Claim("sub", "1d547fb7")));
+        var (identity, error) = OperatorName.Read(User(new Claim(OperatorName.SubClaimType, "1d547fb7")));
 
-        Assert.Null(name);
+        Assert.Null(identity);
         Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ProblemHttpResult>(error).StatusCode);
     }
 

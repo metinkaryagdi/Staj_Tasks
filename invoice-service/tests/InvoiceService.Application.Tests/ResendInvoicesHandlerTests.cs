@@ -10,7 +10,7 @@ public class ResendInvoicesHandlerTests
     private readonly Scenario _s = new();
 
     private Task<BulkResendResult> Resend(params string[] numbers) =>
-        _s.ResendInvoicesHandler().HandleAsync(new ResendInvoicesRequest(numbers), "Ayşe");
+        _s.ResendInvoicesHandler().HandleAsync(new ResendInvoicesRequest(numbers), Scenario.Operator("Ayşe"));
 
     [Fact]
     public async Task Every_invoice_gets_its_own_result_and_only_the_failed_one_is_queued()
@@ -40,7 +40,8 @@ public class ResendInvoicesHandlerTests
                 ("FTR-999999", OperatorActionResult.NotFound)
             ],
             _s.OperatorActions.Actions.Select(a => (a.InvoiceNumber!, a.Result)));
-        Assert.All(_s.OperatorActions.Actions, a => Assert.Equal(("Ayşe", OperatorActionType.BulkResend), (a.OperatorName, a.Action)));
+        Assert.All(_s.OperatorActions.Actions,
+            a => Assert.Equal(("Ayşe", "sub-Ayşe", OperatorActionType.BulkResend), (a.OperatorName, a.OperatorSub, a.Action)));
     }
 
     [Fact]
@@ -111,7 +112,7 @@ public class ResendInvoicesHandlerTests
 
         Assert.NotNull((await Resend()).Errors);
         Assert.NotNull((await Resend("FTR-000001", " ")).Errors);
-        Assert.NotNull((await _s.ResendInvoicesHandler().HandleAsync(new ResendInvoicesRequest(null), "Ayşe")).Errors);
+        Assert.NotNull((await _s.ResendInvoicesHandler().HandleAsync(new ResendInvoicesRequest(null), Scenario.Operator("Ayşe"))).Errors);
         Assert.Empty(_s.Outbox.Resets);
         Assert.Empty(_s.OperatorActions.Actions);
     }

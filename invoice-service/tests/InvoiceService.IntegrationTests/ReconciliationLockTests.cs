@@ -14,7 +14,7 @@ public class ReconciliationLockTests(PostgresFixture postgres) : IntegrationTest
         var service = scope.ServiceProvider.GetRequiredService<ReconciliationService>();
         if (startSignal is not null)
             await startSignal;
-        return await service.TryStartAsync(operatorName: null, CancellationToken.None);
+        return await service.TryStartAsync(by: null, CancellationToken.None);
     }
 
     // Only the locks of this test's own database: pg_locks lists the locks of the whole server.

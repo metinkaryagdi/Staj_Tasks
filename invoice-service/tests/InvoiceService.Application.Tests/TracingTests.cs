@@ -237,7 +237,7 @@ public sealed class TracingTests : IDisposable
         var stopped = CaptureStopped();
         using var request = Current("request");
 
-        var result = await _s.ResendInvoiceHandler().HandleAsync(Number, "Ayşe", OperatorActionType.BulkResend);
+        var result = await _s.ResendInvoiceHandler().HandleAsync(Number, Scenario.Operator("Ayşe"), OperatorActionType.BulkResend);
 
         Assert.Equal(ResendStatus.Queued, result.Status);
         var resend = Assert.Single(stopped, a => a.OperationName == "invoice.resend" && a.TraceId.ToHexString() == StoredTraceId);
@@ -256,7 +256,7 @@ public sealed class TracingTests : IDisposable
         var stopped = CaptureStopped();
         using var request = Current("request");
 
-        await _s.ResendInvoiceHandler().HandleAsync(untraced, "Ayşe");
+        await _s.ResendInvoiceHandler().HandleAsync(untraced, Scenario.Operator("Ayşe"));
 
         Assert.DoesNotContain(stopped, a => a.OperationName == "invoice.resend" && Equals(a.GetTagItem(InvoiceTracing.InvoiceNumber), untraced));
         Assert.Same(request, Activity.Current);

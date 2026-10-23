@@ -4,6 +4,7 @@ using InvoiceService.Application.Metrics;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Webhooks;
+using InvoiceService.Domain.Operators;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -13,6 +14,9 @@ namespace InvoiceService.Application.Tests.Fakes;
 public sealed class Scenario
 {
     public static readonly DateTimeOffset Start = new(2026, 10, 3, 10, 0, 0, TimeSpan.Zero);
+
+    /// <summary>An operator as the token names them: the user name and a sub made from it.</summary>
+    public static OperatorIdentity Operator(string name) => new(name, $"sub-{name}");
 
     public FixedTime Time { get; } = new(Start);
     public FakeUnitOfWork UnitOfWork { get; } = new();

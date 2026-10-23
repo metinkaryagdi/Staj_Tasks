@@ -2,7 +2,7 @@ namespace InvoiceService.Domain.Operators;
 
 /// <summary>
 /// One intervention made from the operations screen (operator_actions): who made it, what it was, on which invoice and
-/// how it ended. The name is what the person typed into the screen; it is a record, not an identity.
+/// how it ended. Who is the user name and the sub of the token the request came with.
 /// </summary>
 public sealed class OperatorAction
 {
@@ -18,6 +18,9 @@ public sealed class OperatorAction
     public long Id { get; set; }
 
     public required string OperatorName { get; set; }
+
+    /// <summary>The token's sub; null for the actions recorded before it was kept.</summary>
+    public string? OperatorSub { get; set; }
 
     /// <summary>One of <see cref="OperatorActionType"/>, enforced by a check constraint.</summary>
     public required string Action { get; set; }

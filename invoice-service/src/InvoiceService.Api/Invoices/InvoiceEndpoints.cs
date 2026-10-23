@@ -130,15 +130,16 @@ public static class InvoiceEndpoints
     /// <summary>For the endpoints that change something on an operator's request.</summary>
     public const string OperatorDescription =
         "The operator is the user name in the token (preferred_username): the request and its result are recorded in " +
-        "operator_actions under that name, and a name sent in the request is not used. 403 if the token carries no usable name.";
+        "operator_actions under that name and the token's sub, and a name sent in the request is not used. 403 if the " +
+        "token carries no usable name.";
 
     private static async Task<IResult> ResendInvoice(string invoiceNumber, ClaimsPrincipal user, ResendInvoiceHandler handler)
     {
-        var (operatorName, invalid) = OperatorName.Read(user);
+        var (by, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 
-        var result = await handler.HandleAsync(invoiceNumber, operatorName!);
+        var result = await handler.HandleAsync(invoiceNumber, by!);
         return result.Status switch
         {
             ResendStatus.NotFound => NotFound(invoiceNumber),
@@ -159,11 +160,11 @@ public static class InvoiceEndpoints
     private static async Task<IResult> ResendInvoices(
         ResendInvoicesRequest request, ClaimsPrincipal user, ResendInvoicesHandler handler)
     {
-        var (operatorName, invalid) = OperatorName.Read(user);
+        var (by, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 
-        var result = await handler.HandleAsync(request, operatorName!);
+        var result = await handler.HandleAsync(request, by!);
         return result.Errors is not null
             ? Results.ValidationProblem(result.Errors)
             : Results.Ok(new BulkResendResponse(result.Items.Select(BulkResendItemResponse.From).ToList()));
@@ -209,11 +210,11 @@ public static class InvoiceEndpoints
     private static async Task<IResult> OpenFollowUp(
         string invoiceNumber, FollowUpRequest? body, ClaimsPrincipal user, InvoiceFollowUpHandler handler, CancellationToken ct)
     {
-        var (operatorName, invalid) = OperatorName.Read(user);
+        var (by, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 
-        var result = await handler.OpenAsync(invoiceNumber, operatorName!, body?.Note, ct);
+        var result = await handler.OpenAsync(invoiceNumber, by!, body?.Note, ct);
         return result.Status switch
         {
             FollowUpStatus.InvalidNote => Results.ValidationProblem(new Dictionary<string, string[]>
@@ -248,11 +249,11 @@ public static class InvoiceEndpoints
     private static async Task<IResult> CloseFollowUp(
         string invoiceNumber, ClaimsPrincipal user, InvoiceFollowUpHandler handler, CancellationToken ct)
     {
-        var (operatorName, invalid) = OperatorName.Read(user);
+        var (by, invalid) = OperatorName.Read(user);
         if (invalid is not null)
             return invalid;
 
-        var result = await handler.CloseAsync(invoiceNumber, operatorName!, ct);
+        var result = await handler.CloseAsync(invoiceNumber, by!, ct);
         return result.Status == FollowUpStatus.NotOpen
             ? Results.Problem(
                 statusCode: StatusCodes.Status409Conflict,

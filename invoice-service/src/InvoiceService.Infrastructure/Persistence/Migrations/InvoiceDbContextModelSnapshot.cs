@@ -121,6 +121,10 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("closed_by");
 
+                    b.Property<string>("ClosedBySub")
+                        .HasColumnType("text")
+                        .HasColumnName("closed_by_sub");
+
                     b.Property<string>("InvoiceNumber")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -142,6 +146,10 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("operator_name");
+
+                    b.Property<string>("OperatorSub")
+                        .HasColumnType("text")
+                        .HasColumnName("operator_sub");
 
                     b.HasKey("Id");
 
@@ -188,6 +196,10 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("operator_name");
+
+                    b.Property<string>("OperatorSub")
+                        .HasColumnType("text")
+                        .HasColumnName("operator_sub");
 
                     b.Property<string>("Result")
                         .IsRequired()
@@ -372,6 +384,10 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("started_by");
+
+                    b.Property<string>("StartedBySub")
+                        .HasColumnType("text")
+                        .HasColumnName("started_by_sub");
 
                     b.Property<string>("Status")
                         .IsRequired()

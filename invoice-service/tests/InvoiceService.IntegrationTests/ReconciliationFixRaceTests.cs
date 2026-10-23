@@ -2,6 +2,7 @@ using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Invoices;
 using InvoiceService.Application.Reconciliation;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Operators;
 using InvoiceService.Domain.Outbox;
 using InvoiceService.Domain.Reconciliation;
 using InvoiceService.Domain.Webhooks;
@@ -113,7 +114,7 @@ public class ReconciliationFixRaceTests(PostgresFixture postgres) : IntegrationT
             {
                 await start.Task;
                 await using var scope = NewScope();
-                return await scope.ServiceProvider.GetRequiredService<ResendInvoiceHandler>().HandleAsync(number, "operator");
+                return await scope.ServiceProvider.GetRequiredService<ResendInvoiceHandler>().HandleAsync(number, new OperatorIdentity("operator", "sub-operator"));
             });
             return (Number: number, Fix: fix, Resend: resend);
         }).ToList();

@@ -23,7 +23,7 @@ public sealed class InvoiceFollowUpHandler(
     IUnitOfWork unitOfWork, IInvoiceStore invoices, IInvoiceFollowUpStore followUps,
     IOperatorActionStore actions, TimeProvider time, IOptions<ReconciliationOptions> options)
 {
-    public async Task<FollowUpResult> OpenAsync(string invoiceNumber, string operatorName, string? note, CancellationToken ct)
+    public async Task<FollowUpResult> OpenAsync(string invoiceNumber, OperatorIdentity by, string? note, CancellationToken ct)
     {
         var now = time.GetUtcNow();
         await using var transaction = await unitOfWork.BeginAsync(ct);
@@ -43,7 +43,7 @@ public sealed class InvoiceFollowUpHandler(
         {
             var followUp = new InvoiceFollowUp
             {
-                InvoiceNumber = invoiceNumber, OperatorName = operatorName, Note = note.Trim(), OpenedAt = now
+                InvoiceNumber = invoiceNumber, OperatorName = by.Name, OperatorSub = by.Sub, Note = note.Trim(), OpenedAt = now
             };
             await followUps.AddAsync(followUp, ct);
             result = new(FollowUpStatus.Opened, followUp);
@@ -57,12 +57,12 @@ public sealed class InvoiceFollowUpHandler(
             FollowUpStatus.AlreadyOpen => OperatorActionResult.AlreadyFollowed(result.ExistingOperator!),
             _ => OperatorActionResult.InvalidNote
         };
-        await actions.RecordAsync(ResendInvoiceHandler.Record(operatorName, OperatorActionType.FollowUp, invoiceNumber, actionResult, now), ct);
+        await actions.RecordAsync(ResendInvoiceHandler.Record(by, OperatorActionType.FollowUp, invoiceNumber, actionResult, now), ct);
         await transaction.CommitAsync(ct);
         return result;
     }
 
-    public async Task<FollowUpResult> CloseAsync(string invoiceNumber, string operatorName, CancellationToken ct)
+    public async Task<FollowUpResult> CloseAsync(string invoiceNumber, OperatorIdentity by, CancellationToken ct)
     {
         var now = time.GetUtcNow();
         await using var transaction = await unitOfWork.BeginAsync(ct);
@@ -73,12 +73,13 @@ public sealed class InvoiceFollowUpHandler(
             : new FollowUpResult(FollowUpStatus.Closed, existing);
         if (existing is not null)
         {
-            await followUps.CloseAsync(existing.Id, operatorName, now, ct);
+            await followUps.CloseAsync(existing.Id, by, now, ct);
             existing.ClosedAt = now;
-            existing.ClosedBy = operatorName;
+            existing.ClosedBy = by.Name;
+            existing.ClosedBySub = by.Sub;
         }
         var actionResult = existing is null ? OperatorActionResult.FollowUpNotOpen : OperatorActionResult.FollowUpClosed;
-        await actions.RecordAsync(ResendInvoiceHandler.Record(operatorName, OperatorActionType.CloseFollowUp, invoiceNumber, actionResult, now), ct);
+        await actions.RecordAsync(ResendInvoiceHandler.Record(by, OperatorActionType.CloseFollowUp, invoiceNumber, actionResult, now), ct);
         await transaction.CommitAsync(ct);
         return result;
     }

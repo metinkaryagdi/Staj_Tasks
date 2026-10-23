@@ -337,13 +337,14 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
     /// <summary>Findings this says yes to cannot be recorded, like a database that refuses them.</summary>
     public Func<ReconciliationFinding, bool>? RefuseFinding { get; set; }
 
-    public Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, string startedBy, CancellationToken ct)
+    public Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, string startedBy, string? startedBySub, CancellationToken ct)
     {
         if (FailToStart)
             throw new InvalidOperationException("database is gone");
         var run = new ReconciliationRun
         {
-            Id = Runs.Count + 1, StartedAt = now, Status = ReconciliationStatus.Running, StartedBy = startedBy
+            Id = Runs.Count + 1, StartedAt = now, Status = ReconciliationStatus.Running, StartedBy = startedBy,
+            StartedBySub = startedBySub
         };
         Runs.Add(run);
         return Task.FromResult(run);
@@ -518,10 +519,11 @@ public sealed class FakeInvoiceFollowUpStore : IInvoiceFollowUpStore
         return Task.CompletedTask;
     }
 
-    public Task CloseAsync(long id, string closedBy, DateTimeOffset closedAt, CancellationToken ct)
+    public Task CloseAsync(long id, OperatorIdentity closedBy, DateTimeOffset closedAt, CancellationToken ct)
     {
         var followUp = FollowUps.Single(f => f.Id == id);
-        followUp.ClosedBy = closedBy;
+        followUp.ClosedBy = closedBy.Name;
+        followUp.ClosedBySub = closedBy.Sub;
         followUp.ClosedAt = closedAt;
         return Task.CompletedTask;
     }

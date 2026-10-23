@@ -26,6 +26,9 @@ public static class AuthExtensions
                 options.Audience = settings.Audience;
                 // JwtBearer's default would accept an expired token for 5 more minutes; the settings file says how long.
                 options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(settings.ClockSkewSeconds!.Value);
+                // Claims keep the names they have in the token: by default "sub" would be renamed to the long
+                // NameIdentifier type and FindFirst("sub") would find nothing.
+                options.MapInboundClaims = false;
                 // Keycloak runs on plain HTTP on the developer's machine and in docker compose.
                 options.RequireHttpsMetadata = false;
                 options.Events = new JwtBearerEvents

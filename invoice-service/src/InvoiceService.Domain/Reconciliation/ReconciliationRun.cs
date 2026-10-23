@@ -32,6 +32,10 @@ public sealed class ReconciliationRun
     /// </summary>
     public string? StartedBy { get; set; }
 
+    /// <summary>The starting operator's sub from the token; null for the schedule and for the runs started before it was
+    /// kept.</summary>
+    public string? StartedBySub { get; set; }
+
     public const string Schedule = "Zamanlayıcı";
 }
 

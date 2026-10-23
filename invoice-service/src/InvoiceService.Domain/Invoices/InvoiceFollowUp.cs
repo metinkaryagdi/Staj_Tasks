@@ -15,6 +15,9 @@ public sealed class InvoiceFollowUp
     /// <summary>The operator's user name from the token, at most <see cref="Operators.OperatorAction.MaxNameLength"/>.</summary>
     public required string OperatorName { get; set; }
 
+    /// <summary>The opening operator's sub from the token; null for the follow-ups opened before it was kept.</summary>
+    public string? OperatorSub { get; set; }
+
     public required string Note { get; set; }
     public DateTimeOffset OpenedAt { get; set; }
 
@@ -22,4 +25,7 @@ public sealed class InvoiceFollowUp
     public DateTimeOffset? ClosedAt { get; set; }
 
     public string? ClosedBy { get; set; }
+
+    /// <summary>The closing operator's sub from the token; null while open and for the ones closed before it was kept.</summary>
+    public string? ClosedBySub { get; set; }
 }

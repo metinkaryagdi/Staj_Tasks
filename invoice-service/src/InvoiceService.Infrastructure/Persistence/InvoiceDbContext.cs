@@ -141,6 +141,7 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.Property(e => e.ReportedCount).HasColumnName("reported_count");
             entity.Property(e => e.Error).HasColumnName("error");
             entity.Property(e => e.StartedBy).HasColumnName("started_by").HasMaxLength(OperatorAction.MaxNameLength);
+            entity.Property(e => e.StartedBySub).HasColumnName("started_by_sub");
         });
 
         modelBuilder.Entity<ReconciliationFinding>(entity =>
@@ -181,6 +182,7 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
             entity.Property(e => e.OperatorName).HasColumnName("operator_name").HasMaxLength(OperatorAction.MaxNameLength);
+            entity.Property(e => e.OperatorSub).HasColumnName("operator_sub");
             entity.Property(e => e.Action).HasColumnName("action").HasMaxLength(32);
             // No foreign key to invoices: a resend of a number that does not exist is recorded too.
             entity.Property(e => e.InvoiceNumber).HasColumnName("invoice_number").HasMaxLength(OperatorAction.MaxInvoiceNumberLength);
@@ -204,10 +206,12 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
             entity.Property(e => e.InvoiceNumber).HasColumnName("invoice_number").HasMaxLength(32);
             entity.HasOne<Invoice>().WithMany().HasForeignKey(e => e.InvoiceNumber).OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.OperatorName).HasColumnName("operator_name").HasMaxLength(OperatorAction.MaxNameLength);
+            entity.Property(e => e.OperatorSub).HasColumnName("operator_sub");
             entity.Property(e => e.Note).HasColumnName("note").HasMaxLength(InvoiceFollowUp.MaxNoteLength);
             entity.Property(e => e.OpenedAt).HasColumnName("opened_at");
             entity.Property(e => e.ClosedAt).HasColumnName("closed_at");
             entity.Property(e => e.ClosedBy).HasColumnName("closed_by").HasMaxLength(OperatorAction.MaxNameLength);
+            entity.Property(e => e.ClosedBySub).HasColumnName("closed_by_sub");
             entity.HasIndex(e => e.InvoiceNumber).IsUnique().HasFilter("closed_at IS NULL");
         });
     }

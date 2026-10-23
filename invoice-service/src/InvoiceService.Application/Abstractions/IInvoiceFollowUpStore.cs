@@ -1,4 +1,5 @@
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Operators;
 
 namespace InvoiceService.Application.Abstractions;
 
@@ -14,7 +15,8 @@ public interface IInvoiceFollowUpStore
     /// <summary>Writes a new open follow-up in the open transaction.</summary>
     Task AddAsync(InvoiceFollowUp followUp, CancellationToken ct);
 
-    Task CloseAsync(long id, string closedBy, DateTimeOffset closedAt, CancellationToken ct);
+    /// <summary>Closes the follow-up if it is still open, under the closing operator's name and sub.</summary>
+    Task CloseAsync(long id, OperatorIdentity closedBy, DateTimeOffset closedAt, CancellationToken ct);
 
     /// <summary>For each of these invoices that has an open follow-up, who opened it.</summary>
     Task<IReadOnlyDictionary<string, string>> OpenNamesAsync(IReadOnlyCollection<string> invoiceNumbers, CancellationToken ct);

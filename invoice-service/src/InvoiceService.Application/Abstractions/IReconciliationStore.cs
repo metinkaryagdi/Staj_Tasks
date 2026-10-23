@@ -10,8 +10,9 @@ namespace InvoiceService.Application.Abstractions;
 public interface IReconciliationStore
 {
     /// <summary>Records a new run as Çalışıyor; <paramref name="startedBy"/>: the operator or
-    /// <see cref="ReconciliationRun.Schedule"/>.</summary>
-    Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, string startedBy, CancellationToken ct);
+    /// <see cref="ReconciliationRun.Schedule"/>, <paramref name="startedBySub"/>: the operator's sub, null for the
+    /// schedule.</summary>
+    Task<ReconciliationRun> StartRunAsync(DateTimeOffset now, string startedBy, string? startedBySub, CancellationToken ct);
 
     /// <summary>
     /// Makes every run still Çalışıyor Başarısız ("the service stopped") and counts its findings. Only called while the
