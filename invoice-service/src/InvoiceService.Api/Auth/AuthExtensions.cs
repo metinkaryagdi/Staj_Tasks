@@ -46,8 +46,8 @@ public static class AuthExtensions
             options.AddPolicy(Policies.Read, p => p.RequireRole(Roles.Viewer, Roles.Operator));
             options.AddPolicy(Policies.Intervene, p => p.RequireRole(Roles.Operator));
             options.AddPolicy(Policies.CreateInvoice, p => p.RequireRole(Roles.InvoiceCreator));
-            // Every endpoint needs a valid token unless it says otherwise; only the ERP webhook does (it has its own HMAC
-            // signature). A new endpoint is protected even if its rule is forgotten.
+            // Every endpoint needs a valid token unless it says otherwise; only the ERP webhook (it has its own HMAC
+            // signature) and /health do. A new endpoint is protected even if its rule is forgotten.
             options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
         });
         return services;
