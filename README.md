@@ -368,8 +368,8 @@ React + TypeScript (Vite), nginx ile sunulur. Tarayıcı doğrudan Invoice Servi
 - **Rol:** `fatura-operatoru` bütün butonları görür. `fatura-izleyici` verileri görür, müdahale butonlarını görmez (Yeniden Gönder,
   Takibe Al / Takibi Kapat, toplu seçim ve toplu yeniden gönderme, Mutabakatı Şimdi Çalıştır). İkisi de yoksa yalnızca "Yetkiniz yok"
   sayfası açılır. Butonları gizlemek ekranın davranışıdır; aynı kurallar serviste de uygulanır (izleyicinin müdahale isteği `403`).
-- **Keycloak'a ulaşılamazsa** ekran açılmaz, "Giriş servisine (Keycloak) ulaşılamıyor" mesajı görünür; tarayıcı Keycloak'ın
-  adresine yönlendirilmez (yönlendirilseydi tarayıcının hata sayfası çıkardı). Token yenilenirken ulaşılamazsa istek gönderilmez ve
+- **Keycloak'a ulaşılamazsa** ekran açılmaz, "Giriş servisine (Keycloak, http://localhost:8080) ulaşılamıyor. Ekran giriş
+  yapılmadan açılmaz; Keycloak çalışınca sayfayı yenileyin." mesajı görünür; tarayıcı Keycloak'ın adresine yönlendirilmez (yönlendirilseydi tarayıcının hata sayfası çıkardı). Token yenilenirken ulaşılamazsa istek gönderilmez ve
   mesaj nedeni Keycloak olarak söyler.
 - Her sayfa 10 saniyede bir kendiliğinden yenilenir ve son yenileme zamanını yazar.
 - Invoice Service'e ulaşılamazsa sayfa çökmez: "Fatura Servisi'ne ulaşılamıyor" mesajı gösterilir; daha önce veri geldiyse son
@@ -613,11 +613,11 @@ Kontrol listesi ([`manual-tests/gun18/`](manual-tests/gun18/); `1-sub.ps1` büt�
 | 2 | `/health` token'sız | `200`, gövde yalnızca `{"status":"ok"}` |
 | 3 | Varsayılan kurulumda `fatura-test` | Keycloak yeniden oluşturuldu, realm dosyadan kuruldu; client'lar `operasyon-ekrani` ve `siparis-sistemi`, `fatura-test` yok |
 | 4 | Süresi dolmuş token | Token bitişinden 33 sn sonra `401`, `error_description` "The token expired" |
-| 5 | Üç kullanıcıyla giriş | Operatör bütün butonları gördü ve ekrandan mutabakat başlattı; izleyici verileri gördü, müdahale butonlarını görmedi; `rolsuz` "Yetkiniz yok" sayfasını gördü |
+| 5 | Üç kullanıcıyla giriş | Operatör bütün butonları gördü (takılı faturada Takibe Al, takipteki faturada Takibi Kapat dahil), ekrandan mutabakat başlattı ve faturayı takibe aldı; izleyici verileri gördü, müdahale butonlarını görmedi; `rolsuz` "Yetkiniz yok" sayfasını gördü |
 | 6 | İzleyicinin token'ıyla ekran dışından müdahale | Ekranın isteğinden kopyalanan izleyici token'ıyla `POST /api/v1/invoices/{n}/resend`: `403` |
 | 7 | Ekran 10 dakikadan uzun açık | Oturum kesilmedi, sayfa yeniden yüklenmedi; token girişten sonra yaklaşık 4,5 dakikada bir yenilendi |
 | 8 | Çıkıştan sonra | Geri tuşu ve yenileme giriş sayfasını açtı, veri görünmedi; Keycloak'taki oturum sayısı çıkıştan önce 1, sonra 0 |
-| 9 | Keycloak durdurulmuşken ekran | "Giriş servisine (Keycloak) ulaşılamıyor" mesajı; tarayıcının hata sayfası çıkmadı |
+| 9 | Keycloak durdurulmuşken ekran | "Giriş servisine (Keycloak, http://localhost:8080) ulaşılamıyor. Ekran giriş yapılmadan açılmaz; Keycloak çalışınca sayfayı yenileyin." mesajı; tarayıcının hata sayfası çıkmadı |
 
 `1-sub.ps1` yeniden gönderilecek Başarısız faturayı simülatörü kısa süre yalnızca 500 döndürecek şekilde açıp hazırlar, sonra
 varsayılan ayarlarına döndürür. `4-sure-dolmus.ps1` sipariş sisteminin token'ının bitişini ve 30 sn toleransı bekler (~6 dk).
@@ -634,7 +634,8 @@ varsayılan ayarlarına döndürür. `4-sure-dolmus.ps1` sipariş sisteminin tok
 - **Giriş yönlendirmesi yarım kalırsa** kütüphanenin `localStorage`'a yazdığı tek kullanımlık değerler (`kc-callback-*`; token değil)
   bir saat kalır.
 - **Otomatik test:** girişin ve rol davranışının uçtan uca denemesi Keycloak ve tarayıcı gerektirdiği için `manual-tests/gun18`'dedir;
-  CI'da ekranın yalnızca birim testleri çalışır (token'ın isteğe eklenmesi, rollerin okunması).
+  CI'da yalnızca Fatura Servisi'nin testleri çalışır; ekranın birim testleri (token'ın isteğe eklenmesi, rollerin okunması) yerelde
+  `npm test --prefix operations-ui` ile çalıştırılır.
 
 ---
 
