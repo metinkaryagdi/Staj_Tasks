@@ -102,5 +102,6 @@ public class ShippedSettingsTests
         Assert.Empty(settings.Validate());
         Assert.Equal("http://localhost:8080/realms/fatura", settings.Authority);
         Assert.Equal("fatura-servisi", settings.Audience);
+        Assert.Equal(30, settings.ClockSkewSeconds);
     }
 }

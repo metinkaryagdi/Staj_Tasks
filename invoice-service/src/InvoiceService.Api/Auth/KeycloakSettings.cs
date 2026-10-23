@@ -17,6 +17,9 @@ public sealed class KeycloakSettings
     /// <summary>The aud value a token must carry to be accepted by this service.</summary>
     public string Audience { get; set; } = "";
 
+    /// <summary>How long an expired token is still accepted, seconds (allows for clocks that differ a little).</summary>
+    public int? ClockSkewSeconds { get; set; }
+
     /// <summary>The realm's address; the discovery document and the signing keys (JWKS) are read from here.</summary>
     public string Authority => $"{BaseUrl.TrimEnd('/')}/realms/{Realm}";
 
@@ -30,6 +33,10 @@ public sealed class KeycloakSettings
             errors.Add($"{SectionName}:Realm is missing from the settings file.");
         if (string.IsNullOrWhiteSpace(Audience))
             errors.Add($"{SectionName}:Audience is missing from the settings file.");
+        if (ClockSkewSeconds is null)
+            errors.Add($"{SectionName}:ClockSkewSeconds is missing from the settings file.");
+        else if (ClockSkewSeconds < 0)
+            errors.Add($"{SectionName}:ClockSkewSeconds must be 0 or more (was {ClockSkewSeconds}).");
         return errors;
     }
 }

@@ -24,6 +24,8 @@ public static class AuthExtensions
                 // discovery document, the audience and the lifetime; none of them is turned off here.
                 options.Authority = settings.Authority;
                 options.Audience = settings.Audience;
+                // JwtBearer's default would accept an expired token for 5 more minutes; the settings file says how long.
+                options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(settings.ClockSkewSeconds!.Value);
                 // Keycloak runs on plain HTTP on the developer's machine and in docker compose.
                 options.RequireHttpsMetadata = false;
                 options.Events = new JwtBearerEvents
