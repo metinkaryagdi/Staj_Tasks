@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.IdentityModel.Tokens;
 
 namespace InvoiceService.Api.Auth;
 
@@ -37,6 +38,28 @@ public static class AuthExtensions
                     {
                         RealmRoles.AddTo((ClaimsIdentity)context.Principal!.Identity!);
                         return Task.CompletedTask;
+                    },
+                    // When the service could not read Keycloak's discovery document (Keycloak down when the service
+                    // started), it knows no issuer and no keys: every token fails as "issuer is invalid" and JwtBearer
+                    // logs this only at Information. Asking for the configuration again tells the two cases apart; a
+                    // token from another issuer while Keycloak is reachable is not logged here.
+                    OnAuthenticationFailed = async context =>
+                    {
+                        if (context.Exception is not SecurityTokenInvalidIssuerException)
+                            return;
+
+                        try
+                        {
+                            await context.Options.ConfigurationManager!.GetConfigurationAsync(context.HttpContext.RequestAborted);
+                        }
+                        catch (Exception ex)
+                        {
+                            var logger = context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                                .CreateLogger("InvoiceService.Api.Auth");
+                            logger.LogWarning(
+                                "Token rejected: Keycloak cannot be reached at {Authority}, so its signing keys are not known: {Error}",
+                                settings.Authority, ex.GetBaseException().Message);
+                        }
                     }
                 };
             });
