@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using InvoiceService.Api.Invoices;
 using InvoiceService.Api.Operators;
 using InvoiceService.Domain.Operators;
 using Microsoft.AspNetCore.Http;
@@ -21,12 +22,14 @@ public class OperatorNameTests
     }
 
     [Fact]
-    public void A_token_without_a_sub_is_recorded_under_the_name_alone()
+    public void A_token_without_a_sub_is_refused_with_403()
     {
         var (identity, error) = OperatorName.Read(User(new Claim(OperatorName.ClaimType, "operator")));
 
-        Assert.Equal(new OperatorIdentity("operator", null), identity);
-        Assert.Null(error);
+        Assert.Null(identity);
+        var problem = Assert.IsType<ProblemHttpResult>(error);
+        Assert.Equal(ProblemCodes.OperatorSubRequired, problem.ProblemDetails.Extensions["code"]);
+        Assert.Equal(StatusCodes.Status403Forbidden, problem.StatusCode);
     }
 
     [Fact]
