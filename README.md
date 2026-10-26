@@ -236,7 +236,7 @@ deneme içindir.
 - **Keycloak durursa** çalışan servis anahtarları bellekte tuttuğu için eldeki geçerli token'ları kabul etmeye devam eder; yeni token
   alınamaz, ekran açılamaz. Keycloak kapalıyken yeniden başlayan servis anahtarları alamaz ve geçerli token'ı da reddeder; `401`'in
   açıklaması "issuer is invalid" der, logda ise nedeni söyleyen bir uyarı satırı vardır:
-  `warn: InvoiceService.Api.Auth[0] Token rejected: Keycloak cannot be reached at http://keycloak:8080/realms/fatura, so its signing keys are not known: <neden>`.
+  `warn: InvoiceService.Api.Auth[0] Token rejected: Keycloak cannot be reached at http://keycloak:8080/realms/fatura, so its signing keys are not known: Name or service not known`.
   Keycloak açılınca token'lar servis yeniden başlatılmadan kabul edilir. Servis Keycloak'ı beklemez: compose'da Keycloak açılmadan
   gelen isteklere `401` döner.
 - **Geliştirme modu:** Keycloak `start-dev` ile çalışır (HTTP, container içinde H2); servis Keycloak'ın HTTP adresini kabul eder
@@ -524,7 +524,7 @@ trace'idir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
-| Gün 19 kontrol listesi (ekranda işlemsizlik süresi, kısaltılmış süreyle; rol ve audience kontrolü kaldırılınca kırılan testler; bütün testlerin 10 kez koşulması) | [`manual-tests/gun19/`](manual-tests/gun19/) |
+| Gün 19 kontrol listesi (ekranda işlemsizlik süresi, kısaltılmış süreyle; rol ve audience kontrolü kaldırılınca kırılan testler; bütün testlerin 10 kez koşulması) ve Keycloak kapalıyken açılan servisin log satırı | [`manual-tests/gun19/`](manual-tests/gun19/) |
 | Gün 18 kontrol listesi (kayıtta kullanıcı adıyla `sub`; `/health` token'sız; varsayılan kurulumda `fatura-test` yok; süresi dolmuş token 30 sn sonra `401`; izleyicinin token'ıyla müdahale `403`; çıkıştan önce ve sonra Keycloak oturumu; Keycloak durdurma). Ekran maddeleri tarayıcıda yapılır | [`manual-tests/gun18/`](manual-tests/gun18/) |
 | Gün 17 kontrol listesi (compose sonrası realm; endpoint × durum tablosu; operator_actions'ta token'daki ad; token ömründen uzun yük testi; webhook HMAC; Keycloak durdurma) ve audience / issuer kontrolü | [`manual-tests/gun17/`](manual-tests/gun17/) |
 | Gün 16 kontrol listesi (bellek sınırı denemesinde metriklerin sürekliliği ve alarmlar; 2 dakikalık karar süresiyle 10 dakikalık yük testi ve metrik Collector'ının maliyeti; servis ve veritabanı durdurma; alarm geçmişi; iz Collector'ını durdurma ve iki kopya; metrik Collector'ını durdurma) | [`manual-tests/gun16/`](manual-tests/gun16/) |
@@ -638,7 +638,7 @@ Kontrol listesi ([`manual-tests/gun19/`](manual-tests/gun19/); 1. madde tarayıc
 | 4 | Bütün testler 10 kez | Fatura Servisi (birim 406 + entegrasyon 80), ERP Simülatörü (124) ve ekran (27), tur başına 637 test; 10 turun hepsinde hepsi geçti. Entegrasyon testleri tur başına 2 dk 6 sn – 2 dk 23 sn (`4-on-tekrar.ps1`) |
 | 5 | Süre ve GitHub Actions | 80 entegrasyon testi 2 dk 20 sn ([Actions çalışması](https://github.com/metinkaryagdi/Staj_Tasks/actions/runs/40317650239)) |
 
-`1-ekran-sure.ps1 -Hazirla` yığını bu güne özel volume'lerle açar, `config.ts`'teki süreyi yalnızca derleme için değiştirip geri alır;
+`2-keycloak-kapali-log.ps1` Gün 17'deki durumu açık yığında tekrarlar (Keycloak durdurulur, servis yeniden başlatılır, aynı token `401` alır, logdaki uyarı satırı aranır, Keycloak açılınca aynı token `200`). `1-ekran-sure.ps1 -Hazirla` yığını bu güne özel volume'lerle açar, `config.ts`'teki süreyi yalnızca derleme için değiştirip geri alır;
 `-Oturum once|sonra` operatörün Keycloak oturumlarını yönetim API'sinden okur, `-Hazirla -Dakika 15` ekranı ayardaki süreyle geri derler.
 `3-mutasyon.ps1` dört mutasyonu sırayla koşar (~10 dk), `4-on-tekrar.ps1` üç takımı 10 kez (~35 dk).
 
