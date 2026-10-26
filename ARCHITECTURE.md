@@ -476,7 +476,7 @@ keycloak/
   listeyi Keycloak'tan yeniden okur. Bunu tetikleyen istek yine `401` alır, sonrakiler kabul edilir. Kütüphanenin "last known good"
   davranışı kapalıdır (`AuthExtensions`'taki `PostConfigure`): açıkken, yeni listede bulunamayan anahtarla imzalı token daha önce
   okunmuş listeyle yeniden denenir ve Keycloak'ın kaldırdığı anahtar çalışan serviste geçerli kalırdı (denendi). Servisin daha önce
-  okuduğu listede duran bir anahtar ise liste kendiliğinden yenilenene kadar kabul edilir.
+  okuduğu listede duran bir anahtar ise Keycloak'tan kaldırıldıktan sonra da kabul edilmeye devam eder (denendi).
 - **Keycloak'a ulaşılamadığı logda söylenir.** Keycloak kapalıyken açılan servis issuer'ı ve anahtarları bilmez; her token "issuer is
   invalid" ile reddedilir ve JwtBearer bunu yalnızca Information düzeyinde yazar. `OnAuthenticationFailed` issuer hatasında ayarları
   yeniden ister; alınamazsa Keycloak'ın adresi ve nedeniyle bir Warning satırı yazar, alınabiliyorsa (token başka bir

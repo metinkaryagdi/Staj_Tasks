@@ -632,7 +632,7 @@ Kontrol listesi ([`manual-tests/gun19/`](manual-tests/gun19/); 1. madde tarayıc
 
 | # | Madde | Sonuç |
 |---|---|---|
-| 1 | Ekranda işlemsizlik | Süre ayarda (`idleTimeoutMinutes`) 2 dakikaya indirilip ekran derlendi (`1-ekran-sure.ps1 -Hazirla`), operatörle giriş yapıldı, sayfaya uzatma dışında dokunulmadı. 1. dakikada uyarı çıktı ("oturumunuz 47 saniye içinde kapanacak"); "Oturumu uzat" ile süre baştan başladı; uzatmadan 1 dakika sonra uyarı yeniden çıktı, 2 dakika sonra giriş sayfası açıldı. Keycloak'ta operatörün oturumu girişte 1, sonunda 0. Ekranın 10 saniyelik yenilemeleri süreyi sıfırlamadı |
+| 1 | Ekranda işlemsizlik | Süre ayarda (`idleTimeoutMinutes`) 2 dakikaya indirilip ekran derlendi (`1-ekran-sure.ps1 -Hazirla`), operatörle giriş yapıldı, sayfaya uzatma dışında dokunulmadı. 1. dakikada uyarı çıktı ("Uzun süredir işlem yapılmadı; oturumunuz … saniye içinde kapanacak"); "Oturumu uzat" ile süre baştan başladı; uzatmadan 1 dakika sonra uyarı yeniden çıktı, 2 dakika sonra giriş sayfası açıldı. Keycloak'ta operatörün oturumu girişte 1, sonunda 0. Ekranın 10 saniyelik yenilemeleri süreyi sıfırlamadı |
 | 2 | Beş senaryonun testleri | 5 senaryo, 64 test (`RoleRuleTests` 56, `InvalidTokenTests` 4, `KeyRotationTests` 1, `InterventionRecordTests` 2, `KeycloakDownTests` 1); hepsi geçti |
 | 3 | Rol ve audience kontrolü kaldırılınca | Her satır ayrı koşu (`3-mutasyon.ps1`, `AuthExtensions.cs`): okuma kuralı `RequireRole(...)` → `RequireAuthenticatedUser()`: 12 test kırıldı (6 okuma endpoint'i × rolsüz ve sipariş sistemi; "Expected: 403, Actual: 200/404"); müdahale kuralı: 15 (5 endpoint × izleyici, rolsüz, sipariş sistemi; "Expected: 403", Actual endpoint'e göre 404, 409, 200 ya da 202); fatura oluşturma kuralı: 3 (izleyici, operatör, rolsüz; "Expected: 403, Actual: 202"); `ValidateAudience = false`: 1 (`A_token_without_the_services_audience_gets_401`, "Expected: Unauthorized, Actual: OK"). Her koşuda diğer testler geçti, kod geri alındı |
 | 4 | Bütün testler 10 kez | Fatura Servisi (birim 406 + entegrasyon 80), ERP Simülatörü (124) ve ekran (27), tur başına 637 test; 10 turun hepsinde hepsi geçti. Entegrasyon testleri tur başına 2 dk 6 sn – 2 dk 23 sn (`4-on-tekrar.ps1`) |
@@ -647,8 +647,8 @@ Kontrol listesi ([`manual-tests/gun19/`](manual-tests/gun19/); 1. madde tarayıc
 - **Anahtar değişiminden sonraki ilk istek:** servis yeni anahtarı ilk gördüğü istekte öğrenir; o istek `401` alır, sonrakiler kabul
   edilir. Bu, her anahtar değişiminde her servis kopyasında bir kez olur.
 - **Servisin önceden okuduğu anahtar:** Keycloak'ta önce yeni anahtar eklenip servis onu öğrendikten sonra eski anahtar kaldırılırsa,
-  eski anahtar servisin listesinde durduğu için liste kendiliğinden yenilenene kadar kabul edilir (denemede kaldırıldıktan sonraki
-  3 saniye boyunca kabul edildi). Test, anahtarın servis yeni anahtarı görmeden kaldırıldığı sırayla yazılmıştır.
+  eski anahtar servisin listesinde durduğu için kabul edilmeye devam eder (denemede kaldırıldıktan sonraki üç istekte, yaklaşık
+  2 saniye boyunca kabul edildi). Test, anahtarın servis yeni anahtarı görmeden kaldırıldığı sırayla yazılmıştır.
 
 ---
 
