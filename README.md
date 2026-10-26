@@ -645,7 +645,7 @@ Kontrol listesi ([`manual-tests/gun19/`](manual-tests/gun19/); 1. madde tarayıc
 ### Bilinen sınırlar
 
 - **Anahtar değişiminden sonraki ilk istek:** servis yeni anahtarı ilk gördüğü istekte öğrenir; o istek `401` alır, sonrakiler kabul
-  edilir. Bu, her servis kopyasında bir kez olur.
+  edilir. Bu, her anahtar değişiminde her servis kopyasında bir kez olur.
 - **Servisin önceden okuduğu anahtar:** Keycloak'ta önce yeni anahtar eklenip servis onu öğrendikten sonra eski anahtar kaldırılırsa,
   eski anahtar servisin listesinde durduğu için liste kendiliğinden yenilenene kadar kabul edilir (denemede kaldırıldıktan sonraki
   3 saniye boyunca kabul edildi). Test, anahtarın servis yeni anahtarı görmeden kaldırıldığı sırayla yazılmıştır.

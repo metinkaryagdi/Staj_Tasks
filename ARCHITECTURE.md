@@ -479,8 +479,8 @@ keycloak/
   okuduğu listede duran bir anahtar ise liste kendiliğinden yenilenene kadar kabul edilir.
 - **Keycloak'a ulaşılamadığı logda söylenir.** Keycloak kapalıyken açılan servis issuer'ı ve anahtarları bilmez; her token "issuer is
   invalid" ile reddedilir ve JwtBearer bunu yalnızca Information düzeyinde yazar. `OnAuthenticationFailed` issuer hatasında ayarları
-  yeniden ister; alınamazsa Keycloak'ın adresi ve nedeniyle bir Warning satırı yazar. Keycloak ayaktayken başka bir issuer'ın token'ı
-  için satır yazılmaz. Bedeli: Keycloak kapalıyken reddedilen her istekte bir bağlantı denemesi daha yapılır.
+  yeniden ister; alınamazsa Keycloak'ın adresi ve nedeniyle bir Warning satırı yazar, alınabiliyorsa (token başka bir
+  issuer'dan gelmişse) satır yazmaz. Bedeli: Keycloak kapalıyken reddedilen her istekte bir bağlantı denemesi daha yapılır.
 - **Roller serviste claim'e çevrilir.** Keycloak realm rollerini tek bir `realm_access` claim'inin içinde (JSON) verir, ASP.NET Core'un rol
   kontrolü ayrı role claim'leri arar. `RealmRoles` token doğrulandıktan sonra her rolü ayrı claim olarak ekler; Keycloak'ta token'ın
   biçimini değiştiren bir mapper eklenmedi.
