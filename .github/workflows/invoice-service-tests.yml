@@ -1,7 +1,8 @@
 name: Invoice service tests
 
-# Her push'ta: birim testler ve gerçek PostgreSQL ile çalışan entegrasyon testleri. Entegrasyon testleri veritabanını
-# Testcontainers ile kendileri açar; runner'da Docker hazır olduğundan başka kurulum gerekmez.
+# Her push'ta: birim testler ve gerçek PostgreSQL ve Keycloak ile çalışan entegrasyon testleri. Entegrasyon testleri
+# veritabanını ve Keycloak'ı (realm keycloak/fatura-realm.json'dan) Testcontainers ile kendileri açar; runner'da Docker hazır
+# olduğundan başka kurulum gerekmez.
 on: push
 
 jobs:
