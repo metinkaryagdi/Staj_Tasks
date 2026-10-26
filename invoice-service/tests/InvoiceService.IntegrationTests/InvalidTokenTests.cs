@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json.Nodes;
 using InvoiceService.IntegrationTests.Support;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 
 namespace InvoiceService.IntegrationTests;
@@ -12,16 +14,6 @@ namespace InvoiceService.IntegrationTests;
 public class InvalidTokenTests(PostgresFixture postgres, KeycloakFixture keycloak) : AuthTest(postgres, keycloak)
 {
     private const string ReadPath = "/api/v1/invoices/summary";
-
-    // Shorter than the shipped 30 s so the test waits seconds, not half a minute; the rule checked is the same.
-    private const int ClockSkewSeconds = 3;
-
-    protected override Dictionary<string, string?> Settings()
-    {
-        var settings = base.Settings();
-        settings["Keycloak:ClockSkewSeconds"] = ClockSkewSeconds.ToString();
-        return settings;
-    }
 
     [Fact]
     public async Task A_token_whose_signature_is_changed_gets_401()
@@ -45,12 +37,14 @@ public class InvalidTokenTests(PostgresFixture postgres, KeycloakFixture keycloa
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Get, "/health", null)).StatusCode);
         var token = await Keycloak.UserTokenAsync("operator", "fatura-test-kisa");
         var expires = new DateTimeOffset(new JsonWebToken(token).ValidTo, TimeSpan.Zero);
+        // The tolerance the service ships with (appsettings.json, 30 s).
+        var clockSkewSeconds = int.Parse(Service.Services.GetRequiredService<IConfiguration>()["Keycloak:ClockSkewSeconds"]!);
 
         // Expired, but within the tolerance: still accepted.
         await WaitUntilAsync(expires.AddSeconds(1));
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Get, ReadPath, token)).StatusCode);
 
-        await WaitUntilAsync(expires.AddSeconds(ClockSkewSeconds + 1));
+        await WaitUntilAsync(expires.AddSeconds(clockSkewSeconds + 1));
         AssertUnauthorized(await SendAsync(HttpMethod.Get, ReadPath, token), "expired");
     }
 
