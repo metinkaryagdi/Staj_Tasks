@@ -18,3 +18,12 @@ export const runningRefreshIntervalMs = 2_000
 
 // Fatura Servisi bu süre içinde cevap vermezse ulaşılamıyor sayılır.
 export const requestTimeoutMs = 15_000
+
+// Kullanıcı bu kadar dakika hiçbir işlem yapmazsa (tıklama, tuş, kaydırma) oturum kapanır ve giriş sayfasına dönülür. Ekranın
+// kendi yenilemeleri işlem sayılmaz. Derleme sırasında VITE_IDLE_TIMEOUT_MINUTES ile verilir (docker-compose.yml'deki build
+// arg); verilmezse ya da 2'den küçükse 15. En az 2: uyarı süre dolmadan 1 dakika önce çıkar.
+const idleMinutesSetting = Number(import.meta.env.VITE_IDLE_TIMEOUT_MINUTES ?? 15)
+export const idleTimeoutMinutes = Number.isFinite(idleMinutesSetting) && idleMinutesSetting >= 2 ? idleMinutesSetting : 15
+
+// Süre dolmadan bu kadar önce uyarı çıkar; kullanıcı oturumu uzatabilir.
+export const idleWarningMs = 60_000

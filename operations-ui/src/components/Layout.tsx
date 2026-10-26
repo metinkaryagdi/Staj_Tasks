@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { currentUser, signOut } from '../auth'
 import { tr } from '../tr'
 import { ErrorBoundary } from './ErrorBoundary'
+import { IdleTimeout } from './IdleTimeout'
 import { Notice } from './Notice'
 
 export function Layout() {
@@ -31,6 +32,7 @@ export function Layout() {
         </div>
       </header>
       <main>
+        <IdleTimeout />
         <ErrorBoundary>
           {user.canRead ? (
             <Outlet />

@@ -23,6 +23,9 @@ export const tr = {
       'Keycloak dönünce kendiliğinden yeniden denenecek.',
     user: (name: string) => `Kullanıcı: ${name}`,
     signOut: 'Çıkış',
+    idleWarning: (seconds: number) =>
+      `Uzun süredir işlem yapılmadı; oturumunuz ${seconds} saniye içinde kapanacak.`,
+    extendSession: 'Oturumu uzat',
     noAccessTitle: 'Yetkiniz yok',
     noAccess: (name: string) =>
       `${name} kullanıcısının bu ekranı kullanma yetkisi yok: verileri görmek için fatura-izleyici, müdahale için ` +
