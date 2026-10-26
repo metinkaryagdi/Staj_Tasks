@@ -1,20 +1,28 @@
-﻿# Kontrol listesi 1 için: ekranda işlem yapılmadığında oturumun kapanması. Süre ayardan kısaltılır: yığın açılır ve ekran
-# VITE_IDLE_TIMEOUT_MINUTES=<Dakika> ile derlenir (docker-compose.yml'deki 15 yerine). Deneme tarayıcıda yapılır; -Oturum
-# operatörün Keycloak'taki oturumlarını yazar (giriş yapılmışken ve süre dolduktan sonra çalıştırılır).
+﻿# Kontrol listesi 1 için: ekranda işlem yapılmadığında oturumun kapanması. Süre ayardan kısaltılır: yığın açılır, ekranın
+# ayarındaki süre (operations-ui/src/config.ts, idleTimeoutMinutes = 15) yalnız derleme için <Dakika> yapılır ve dosya hemen
+# geri alınır. Deneme tarayıcıda yapılır; -Oturum operatörün Keycloak'taki oturumlarını yazar (giriş yapılmışken ve süre
+# dolduktan sonra çalıştırılır).
 #   .\manual-tests\gun19\1-ekran-sure.ps1 -Hazirla            (yığın + ekran 2 dakikayla)
 #   .\manual-tests\gun19\1-ekran-sure.ps1 -Oturum once        (giriş yapılmışken)
 #   .\manual-tests\gun19\1-ekran-sure.ps1 -Oturum sonra       (süre dolduktan sonra)
-#   .\manual-tests\gun19\1-ekran-sure.ps1 -Hazirla -Dakika 15 (ekranı varsayılan süreyle geri derler)
+#   .\manual-tests\gun19\1-ekran-sure.ps1 -Hazirla -Dakika 15 (ekranı ayardaki süreyle geri derler)
 param([switch]$Hazirla, [int]$Dakika = 2, [ValidateSet('once', 'sonra')][string]$Oturum, [string]$User = 'operator')
 . "$PSScriptRoot\_common.ps1"
 
 if ($Hazirla) {
     Clear-SimulatorEnv
     Invoke-Compose @('up', '-d', '--build')
-    Invoke-Compose @('build', '--build-arg', "VITE_IDLE_TIMEOUT_MINUTES=$Dakika", 'operations-ui')
+    $config = Join-Path $RepoRoot 'operations-ui\src\config.ts'
+    $original = [IO.File]::ReadAllText($config)
+    if ($original -notmatch 'export const idleTimeoutMinutes = \d+') { throw "config.ts'te idleTimeoutMinutes bulunamadı." }
+    try {
+        [IO.File]::WriteAllText($config, ($original -replace 'export const idleTimeoutMinutes = \d+', "export const idleTimeoutMinutes = $Dakika"))
+        Invoke-Compose @('build', 'operations-ui')
+    }
+    finally { [IO.File]::WriteAllText($config, $original) }
     Invoke-Compose @('up', '-d', '--no-build', '--force-recreate', 'operations-ui')
     Wait-KeycloakAndService
-    Write-Host "$(Get-Date -Format 'HH:mm:ss') Yığın hazır; ekran $Dakika dakikalık süreyle derlendi: http://localhost:5100"
+    Write-Host "$(Get-Date -Format 'HH:mm:ss') Yığın hazır; ekran $Dakika dakikalık süreyle derlendi (config.ts geri alındı): http://localhost:5100"
     return
 }
 

@@ -9,9 +9,6 @@ ENV VITE_API_URL=$VITE_API_URL
 # Keycloak'ın tarayıcıdan görünen adresi; giriş sayfasına buradan gidilir.
 ARG VITE_KEYCLOAK_URL=http://localhost:8080
 ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
-# İşlem yapılmadan geçen kaç dakikadan sonra oturumun kapanacağı (src/config.ts).
-ARG VITE_IDLE_TIMEOUT_MINUTES=15
-ENV VITE_IDLE_TIMEOUT_MINUTES=$VITE_IDLE_TIMEOUT_MINUTES
 RUN npm run build
 
 FROM nginx:alpine

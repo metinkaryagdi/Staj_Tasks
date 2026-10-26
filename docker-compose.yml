@@ -126,8 +126,6 @@ services:
         VITE_API_URL: http://localhost:5090
         # Keycloak'ın tarayıcıdan görünen adresi: kullanıcı giriş için buraya yönlendirilir, token buradan alınır.
         VITE_KEYCLOAK_URL: http://localhost:8080
-        # Ekranda hiçbir işlem yapılmadan geçen kaç dakikadan sonra oturumun kapanacağı; uyarı 1 dakika önce çıkar. En az 2.
-        VITE_IDLE_TIMEOUT_MINUTES: 15
     ports:
       - "5100:80"
 
