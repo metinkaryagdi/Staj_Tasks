@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Testcontainers.Keycloak;
 
 namespace InvoiceService.IntegrationTests.Support;
@@ -17,7 +18,7 @@ public sealed class KeycloakFixture : IAsyncLifetime
     public const string OrderSystemSecret = "dev-only-siparis-sistemi-secret-do-not-use-in-production";
 
     private readonly KeycloakContainer _container = new KeycloakBuilder("quay.io/keycloak/keycloak:26.8.1")
-        .WithRealm(Path.Combine(AppContext.BaseDirectory, "keycloak", "fatura-realm.json"))
+        .WithRealm(FilePath("fatura-realm.json"))
         .Build();
 
     private readonly HttpClient _http = new();
@@ -27,8 +28,7 @@ public sealed class KeycloakFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _container.StartAsync();
-        var testClient = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "keycloak", "fatura-test-client.json"));
-        await AdminAsync(HttpMethod.Post, "/admin/realms/fatura/clients", testClient);
+        await AddTestClientAsync("fatura-test");
     }
 
     public async Task DisposeAsync()
@@ -37,11 +37,35 @@ public sealed class KeycloakFixture : IAsyncLifetime
         await _container.DisposeAsync();
     }
 
+    /// <summary>
+    /// Adds manual-tests' fatura-test client under the given id, changed as the test needs (a shorter token lifetime, no
+    /// audience mapper …), so the other tests' client stays as it is.
+    /// </summary>
+    public async Task AddTestClientAsync(string clientId, Action<JsonObject>? change = null, string realm = "fatura")
+    {
+        var client = JsonNode.Parse(await File.ReadAllTextAsync(FilePath("fatura-test-client.json")))!.AsObject();
+        client["clientId"] = clientId;
+        change?.Invoke(client);
+        await AdminAsync(HttpMethod.Post, $"/admin/realms/{realm}/clients", client.ToJsonString());
+    }
+
+    /// <summary>
+    /// The repository's realm imported once more under another name, with the test client: the same roles, users and
+    /// audience mapper, but its own signing keys and issuer.
+    /// </summary>
+    public async Task AddRealmCopyAsync(string realm)
+    {
+        var copy = JsonNode.Parse(await File.ReadAllTextAsync(FilePath("fatura-realm.json")))!.AsObject();
+        copy["realm"] = realm;
+        await AdminAsync(HttpMethod.Post, "/admin/realms", copy.ToJsonString());
+        await AddTestClientAsync("fatura-test", realm: realm);
+    }
+
     // The realm's test users (izleyici, operator, rolsuz); each password is the user name followed by 123.
-    public Task<string> UserTokenAsync(string user) => TokenAsync("fatura", new()
+    public Task<string> UserTokenAsync(string user, string clientId = "fatura-test", string realm = "fatura") => TokenAsync(realm, new()
     {
         ["grant_type"] = "password",
-        ["client_id"] = "fatura-test",
+        ["client_id"] = clientId,
         ["username"] = user,
         ["password"] = $"{user}123"
     });
@@ -82,6 +106,8 @@ public sealed class KeycloakFixture : IAsyncLifetime
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return body.GetProperty("access_token").GetString()!;
     }
+
+    private static string FilePath(string name) => Path.Combine(AppContext.BaseDirectory, "keycloak", name);
 }
 
 /// <summary>The authentication tests: the whole service over HTTP, with its own database and the real Keycloak.</summary>
