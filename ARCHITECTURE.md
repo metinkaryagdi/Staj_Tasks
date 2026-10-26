@@ -472,6 +472,15 @@ keycloak/
   kapatılan kullanıcının ya da alınan rolün elindeki token, süresi bitene kadar geçerli kalır (token ömrü Keycloak'ın varsayılanı, 5 dakika).
   Süresi dolan token'a tanınan tolerans (`ClockSkew`) JwtBearer'ın 5 dakikalık varsayılanı değil, `Keycloak:ClockSkewSeconds`'tur
   (30 sn): saatler arasındaki küçük fark için yeter, dolmuş token'ı dakikalarca kabul etmez.
+- **Anahtar değişince servis yeniden başlatılmaz.** Anahtar listesi (JWKS) bellekte tutulur; token'ın `kid`'i listede yoksa JwtBearer
+  listeyi Keycloak'tan yeniden okur. Bunu tetikleyen istek yine `401` alır, sonrakiler kabul edilir. Kütüphanenin "last known good"
+  davranışı kapalıdır (`AuthExtensions`'taki `PostConfigure`): açıkken, yeni listede bulunamayan anahtarla imzalı token daha önce
+  okunmuş listeyle yeniden denenir ve Keycloak'ın kaldırdığı anahtar çalışan serviste geçerli kalırdı (denendi). Servisin daha önce
+  okuduğu listede duran bir anahtar ise liste kendiliğinden yenilenene kadar kabul edilir.
+- **Keycloak'a ulaşılamadığı logda söylenir.** Keycloak kapalıyken açılan servis issuer'ı ve anahtarları bilmez; her token "issuer is
+  invalid" ile reddedilir ve JwtBearer bunu yalnızca Information düzeyinde yazar. `OnAuthenticationFailed` issuer hatasında ayarları
+  yeniden ister; alınamazsa Keycloak'ın adresi ve nedeniyle bir Warning satırı yazar. Keycloak ayaktayken başka bir issuer'ın token'ı
+  için satır yazılmaz. Bedeli: Keycloak kapalıyken reddedilen her istekte bir bağlantı denemesi daha yapılır.
 - **Roller serviste claim'e çevrilir.** Keycloak realm rollerini tek bir `realm_access` claim'inin içinde (JSON) verir, ASP.NET Core'un rol
   kontrolü ayrı role claim'leri arar. `RealmRoles` token doğrulandıktan sonra her rolü ayrı claim olarak ekler; Keycloak'ta token'ın
   biçimini değiştiren bir mapper eklenmedi.
@@ -486,7 +495,8 @@ keycloak/
 - **Müdahaleyi yapan `preferred_username` ve `sub`'dır.** İkisi de imzalı token'dan gelir; istekteki hiçbir ad okunmaz. Kullanıcı
   adı değiştirilebilir ve silinen kullanıcının adı başkasına verilebilir; geçmiş kaydın kime ait olduğunu değişmeyen `sub` söyler.
   İkisi birlikte `OperatorIdentity` olarak handler'lara geçer. Token'da ad yoksa ya da `operator_name` sütununa (100 karakter)
-  sığmıyorsa `403`; `sub` yoksa kayıt yalnızca adla yazılır. JwtBearer varsayılan olarak `sub`'ı uzun `NameIdentifier` adına çevirir;
+  sığmıyorsa `403`; `sub` yoksa da `403` (`operator_sub_required`): kayıt değişmeyen kimlik olmadan yazılmaz. JwtBearer varsayılan
+  olarak `sub`'ı uzun `NameIdentifier` adına çevirir;
   `MapInboundClaims = false` ile claim'ler token'daki adlarıyla kalır.
 - **Ayarlar API katmanında.** `Keycloak` bölümü (`KeycloakSettings`) HTTP'ye ait olduğu için CORS gibi Api'de okunur ve doğrulanır;
   eksik ya da geçersizse servis açılmaz.
@@ -512,6 +522,12 @@ keycloak/
   Keycloak oturumunun kapanması kütüphanenin varsayılan davranışıdır; süresi dolmadan yenileme için ekran kütüphanenin
   `updateToken`'ını her istekten önce çağırır. Bu akışı elle yazmak state, verifier, nonce ve eşzamanlı yenileme gibi güvenlik
   ayrıntılarını ekranın kendi koduna taşırdı.
+- **İşlemsizlik süresini ekran sayar.** Ekranın 10 saniyelik yenilemeleri token'ı tazelediği için Keycloak oturumu hiç boşta kalmaz ve
+  Keycloak'ın boşta kalma kuralı devreye girmez. Bu yüzden ekran (`IdleTimeout`) kullanıcının son tıklama, tuş ya da kaydırma zamanını
+  tutar; yenilemeler bu olayları tetiklemez. `idleTimeoutMinutes` (`src/config.ts`, 15) dolunca Çıkış'la aynı yol çalışır: veriler
+  silinir, Keycloak oturumu kapanır, giriş sayfası açılır. Bir dakika önce uyarı ve "Oturumu uzat" çıkar; uyarı açıkken yapılan her
+  işlem de süreyi yeniler. Süre tek bir zamanlayıcıyla değil, her saniye gerçek saate bakılarak hesaplanır: tarayıcı arka plandaki
+  sekmenin zamanlayıcılarını yavaşlatır, bilgisayar uykudayken durdurur.
 - **Token bellekte tutulur.** `localStorage` ya da `sessionStorage`'daki token'ı sayfada çalışan her script okuyabilir ve
   `localStorage`'daki token sekme kapandıktan sonra da kalır. Bellekte tutulan token sayfa yenilenince gider; Keycloak'ın kendi
   oturum çerezi açıkken şifre sorulmadan yenisi alınır. Bedeli: sayfa yenilenince Keycloak'a kısa bir yönlendirme olur.
@@ -546,9 +562,14 @@ keycloak/
 | `*.Domain.Tests` | Saf kurallar: durum geçişleri, fatura numarası biçimi |
 | `*.Application.Tests` | Politikalar ve doğrulamalar (`RetryPolicy`, imza, ayarlar, istek doğrulama, `BehaviorSelector`, `WebhookPlanner`) ve **use case'ler port'ların bellek içi sahteleriyle** (`Fakes/`): veritabanı ve HTTP olmadan gönderim akışı, yeniden gönderme, webhook işleme, simülatörün davranışları ve webhook gönderimi; span'lere yazılanlar ve saklanan traceparent (`ActivityListener` ile) |
 | `*.Infrastructure.Tests` | `ErpClient` (sahte `HttpMessageHandler` ile), ERP ayarları, migration'ların modeli hâlâ tarif ettiği (veritabanı gerekmez) |
-| `InvoiceService.Api.Tests` | Projeyle gelen `appsettings.json` değerleri (Keycloak dahil), CORS origin doğrulaması, Keycloak ayarlarının doğrulaması (ClockSkew'ün JwtBearer'a gitmesi dahil), CORS'un `Authorization`'a izni, realm rollerinin role claim'lerine çevrilmesi, token'dan operatör adı ve sub, log satırının biçimi ve trace_id'si. JWT doğrulamasının, rol kurallarının ve ekrana girişin uçtan uca denemesi Keycloak gerektirdiği için `manual-tests/gun17` ve `gun18`'dedir |
-| `InvoiceService.IntegrationTests` | Bellek içi sahtelerle sınanamayan mekanizmalar **gerçek PostgreSQL'e** karşı (Testcontainers; her test kendi veritabanında, ERP yerine testin içinde açılan HTTP sunucusuyla): kayıt alma ve sahiplik (alınan kaydın trace'i dahil), haberlerin bekleyip işlenmesi, mutabakat kilidi ve düzeltmeleri, ortak gönderim sırası, müdahalenin `sub`'ının veritabanına yazılması. Docker gerekir |
-| `operations-ui` (vitest) | Toplu seçim sınırı, API istemcisinin hata türleri (token'ın isteğe eklenmesi, token alınamazsa isteğin gönderilmemesi dahil), Türkçe hata mesajları, rollerin token'dan okunması |
+| `InvoiceService.Api.Tests` | Projeyle gelen `appsettings.json` değerleri (Keycloak dahil), CORS origin doğrulaması, Keycloak ayarlarının doğrulaması (ClockSkew'ün JwtBearer'a gitmesi dahil), CORS'un `Authorization`'a izni, realm rollerinin role claim'lerine çevrilmesi, token'dan operatör adı ve sub (sub'sız token'ın `403`'ü dahil), log satırının biçimi ve trace_id'si. Ekrana girişin uçtan uca denemesi tarayıcı gerektirdiği için `manual-tests/gun18`'dedir |
+| `InvoiceService.IntegrationTests` | Bellek içi sahtelerle sınanamayan mekanizmalar **gerçek PostgreSQL'e** karşı (Testcontainers; her test kendi veritabanında, ERP yerine testin içinde açılan HTTP sunucusuyla): kayıt alma ve sahiplik (alınan kaydın trace'i dahil), haberlerin bekleyip işlenmesi, mutabakat kilidi ve düzeltmeleri, ortak gönderim sırası, müdahalenin `sub`'ının veritabanına yazılması. Kimlik doğrulama ise **gerçek Keycloak'a** karşı (realm repodaki dosyadan; servis `WebApplicationFactory` ile bütün HTTP hattıyla açılır): her endpoint'in dört token'la rol kuralı, geçersiz token'lar, anahtar değişimi, müdahale kaydında ad ve sub, Keycloak kapalıyken açılış. Docker gerekir |
+| `operations-ui` (vitest) | Toplu seçim sınırı, API istemcisinin hata türleri (token'ın isteğe eklenmesi, token alınamazsa isteğin gönderilmemesi dahil), Türkçe hata mesajları, rollerin token'dan okunması. İşlemsizlik süresi tarayıcıda denenir (`manual-tests/gun19`) |
+
+Kimlik doğrulama testlerinde Keycloak bir kez açılır ve testler paylaşır (`KeycloakFixture`); token ömrü, audience mapper'ı ya da
+`sub` gibi bir farkı sınayan test, `fatura-test` client'ının ya da realm'in bir kopyasını açar, paylaşılanı değiştirmez. Keycloak'ı
+kapatan test kendi container'ını kullanır. Testlerde OpenTelemetry kapalıdır (`OTEL_SDK_DISABLED`): Collector olmadığı için her servis
+kopyası kapanırken göndermeye çalışıp yaklaşık 4 saniye bekliyordu.
 
 ```bash
 dotnet test invoice-service
