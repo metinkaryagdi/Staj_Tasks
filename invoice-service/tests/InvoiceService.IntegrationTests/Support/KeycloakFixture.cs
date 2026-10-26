@@ -17,11 +17,27 @@ public sealed class KeycloakFixture : IAsyncLifetime
     // The order system client's secret in fatura-realm.json (local and test use only).
     public const string OrderSystemSecret = "dev-only-siparis-sistemi-secret-do-not-use-in-production";
 
-    private readonly KeycloakContainer _container = new KeycloakBuilder("quay.io/keycloak/keycloak:26.8.1")
-        .WithRealm(FilePath("fatura-realm.json"))
-        .Build();
-
+    private readonly KeycloakContainer _container;
     private readonly HttpClient _http = new();
+
+    public KeycloakFixture() : this(null)
+    {
+    }
+
+    private KeycloakFixture(int? hostPort)
+    {
+        var builder = new KeycloakBuilder("quay.io/keycloak/keycloak:26.8.1").WithRealm(FilePath("fatura-realm.json"));
+        if (hostPort is { } port)
+            builder = builder.WithPortBinding(port, 8080);
+        _container = builder.Build();
+    }
+
+    /// <summary>
+    /// A Keycloak of its own on a fixed port, for a test that takes Keycloak down and brings it up again: the issuer in the
+    /// tokens contains the port, so the Keycloak that comes back must answer on the same one. The caller starts it
+    /// (InitializeAsync) and disposes it.
+    /// </summary>
+    public static KeycloakFixture OnFixedPort(int hostPort) => new(hostPort);
 
     public string BaseUrl => _container.GetBaseAddress().TrimEnd('/');
 
