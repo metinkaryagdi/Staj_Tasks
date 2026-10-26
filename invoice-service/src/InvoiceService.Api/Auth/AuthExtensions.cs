@@ -64,6 +64,12 @@ public static class AuthExtensions
                 };
             });
 
+        // A token signed with a key Keycloak no longer publishes is refused. By default the library retries a token whose key
+        // it cannot find with the keys it read earlier ("last known good"), so a key removed from Keycloak kept working.
+        // This runs after JwtBearer has created its configuration manager.
+        services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
+            ((BaseConfigurationManager)options.ConfigurationManager!).UseLastKnownGoodConfiguration = false);
+
         services.AddAuthorization(options =>
         {
             options.AddPolicy(Policies.Read, p => p.RequireRole(Roles.Viewer, Roles.Operator));
