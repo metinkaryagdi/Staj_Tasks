@@ -13,8 +13,8 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
   - **Yüksek:** faturaların durumu, verisi ya da yetkiler değiştirilebilir ya da doğrudan okunabilir.
   - **Orta:** etki sınırlı ya da başka bir açığın yanında anlam kazanır.
   - **Düşük:** bilgi sızıntısı, yalnız geliştirmede etkili olan ya da istismarı zor durumlar.
-- **Kod incelemesi:** iki servisin, alert-receiver'ın ve operasyon ekranının bütün kaynak kodu (156 dosya, yaklaşık 10.400
-  satır), ayar dosyaları, realm dosyası, compose, Dockerfile'lar, nginx ve izleme ayarları, CI, git geçmişi.
+- **Kod incelemesi:** iki servisin, alert-receiver'ın ve operasyon ekranının bütün kaynak kodu (`.cs`, `.ts`, `.tsx`; bin, obj,
+  node_modules ve migration'lar hariç 162 dosya, 10.636 satır), ayar dosyaları, realm dosyası, compose, Dockerfile'lar, nginx ve izleme ayarları, CI, git geçmişi.
 - **Canlı kontroller** (`manual-tests/gun20/`):
   - `1-canli-tarama.ps1`: portlara bilgisayarın yerel ağ adresinden bağlanır (bu adresten açılan bir port aynı ağdaki başka
     makineden de açılır), repodaki şifrelerle giriş dener, kimliksiz uçları ve sahte webhook'u dener, HTTP başlıklarını,
@@ -22,8 +22,9 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
     aynı bilgisayardan da reddedildiğini gösteren B2 bölümü eklenmiştir.
   - `2-log-arama.ps1`: isteklerden sonraki loglarda ve şu anki container'ların açılışından bu yana bütün loglarda token, şifre
     ve secret arar (gönderilen log seviyeleriyle ve `-AyrintiliLog` ile).
-  - `3-ham-sql.ps1`: ham SQL kullanılan her yeri bulur ve EF logunda parametreli gittiğini gösterir.
-  - Keycloak yönetim API'sinden realm ayarlarının okunması, izleme araçlarına kimliksiz ve başka origin'den istekler.
+  - `3-ham-sql.ps1`: üretim kodunda ham SQL kullanılan her yeri bulur; EF logunda görülenleri logdan, görülmeyenleri koddan gösterir.
+  - Keycloak yönetim API'sinden realm ayarlarının okunması, izleme araçlarına kimliksiz ve başka origin'den istekler; yan
+    kontroller (Jaeger izleri, Keycloak discovery CORS'u, `text/plain` POST, ekran kodu) `manual-tests/output/gun20/b-ek-kontroller.txt`'de.
 - **Bağımlılık taraması:** `dotnet list package --vulnerable --include-transitive`, `npm audit`.
 - **Bağımsız kontrol:** bulgular iki ayrı gözden geçirmeyle (biri dokümanı denetleyen, biri dokümanı okumadan bulgu arayan)
   karşılaştırıldı; bir bulgunun derecesi (Y5) ayrıca tarafsız bir değerlendirmeyle belirlendi.
@@ -432,10 +433,11 @@ Görev mailinin saydığı konular, aynı sırayla.
   isteklerden sonraki loglarında ve şu anki container'ların açılışından bu yana bütün loglarında (realm içe aktarma, yönetici hesabının oluşturulması,
   servislerin ayar satırları dahil) 23 arama: o koşuda alınan token'lar ve imza kısımları, her JWT biçimi, `Bearer` + değer, `Authorization`, `.env`'deki sekiz
   değerin her biri kendi değeriyle (iki veritabanı şifresi, Keycloak yönetici şifresi, webhook ve client secret'ı, üç test
-  kullanıcısının şifresi), yanlış girilen şifre, Basic kimlik bilgisi, `Password=`, `client_secret=`. Jaeger'daki izlerde token,
-  `Authorization` ve secret araması.
+  kullanıcısının şifresi), yanlış girilen şifre, Basic kimlik bilgisi, `Password=`, `client_secret=`. Jaeger'daki izlerde (üç servis,
+  son 24 saat) JWT, `Bearer`, `Authorization` ve `.env`'deki sekiz değerin araması.
 - **Sonuç:** Cevaplarda yığın izi ya da iç ad yok. Loglarda 23 aramanın hepsi 0: gönderilen seviyelerle isteklerden sonra 18,
-  açılıştan bu yana 1.971 satır; ayrıntılı seviyede 483 ve 2.450 satır (27 Ekim koşusu). EF parametre değerlerini yazmıyor (`'?'`); servis başlarken ayarları yazan satır secret'ı yazmıyor; izlerde token yok.
+  şu anki container'ların açılışından bu yana 1.971 satır; ayrıntılı seviyede 483 ve 2.450 satır (27 Ekim koşusu). EF parametre değerlerini yazmıyor (`'?'`); servis başlarken ayarları yazan satır secret'ı yazmıyor; izlerde aramaların hepsi 0
+  (`b-ek-kontroller.txt`).
   Bulgular: D2, D8.
 
 ### Girdi doğrulama ve veritabanı sorguları
@@ -497,7 +499,7 @@ Görev mailinin saydığı konular, aynı sırayla.
 | A07 Authentication Failures | Keycloak realm, token doğrulama, anahtar yenileme, şifreler | K1, K2, Y3, Y4, O1, O2, O7, D7 |
 | A08 Software or Data Integrity Failures | webhook imzası, telemetri verisi | Y2, D11 |
 | A09 Security Logging and Alerting Failures | Keycloak olay kaydı, API'nin 401/403 logu, alarm kuralları | O8, D8 |
-| A10 Mishandling of Exceptional Conditions | hata yolları (43 `catch`): JWT hataları reddediyor, Keycloak açılışta yoksa token reddediliyor, ayar hatasında servis açılmıyor, mutabakat okuma hatasında hiçbir şey değiştirmiyor, ERP cevabı okunamazsa "yok" sayılmıyor; açık kalan: Keycloak'a sonradan ulaşılamazken eski anahtar listesi kalıyor (Önce bir düzeltme, README) | D9 |
+| A10 Mishandling of Exceptional Conditions | hata yolları (`catch` blokları): JWT hataları reddediyor, Keycloak açılışta yoksa token reddediliyor, ayar hatasında servis açılmıyor, mutabakat okuma hatasında hiçbir şey değiştirmiyor, ERP cevabı okunamazsa "yok" sayılmıyor; açık kalan: Keycloak'a sonradan ulaşılamazken eski anahtar listesi kalıyor (Önce bir düzeltme, README) | D9 |
 
 Diğer bileşenler: operasyon ekranında `dangerouslySetInnerHTML`, `innerHTML`, `eval` yok, sunucudan gelen bütün metin JSX ile
 kaçışlı, bağlantılar `encodeURIComponent`'li, token yalnız bellekte; CSRF: API token'ı `Authorization` başlığında taşıyor, çerez
