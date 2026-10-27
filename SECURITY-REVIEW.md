@@ -18,7 +18,8 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Canlı kontroller** (`manual-tests/gun20/`):
   - `1-canli-tarama.ps1`: portlara bilgisayarın yerel ağ adresinden bağlanır (bu adresten açılan bir port aynı ağdaki başka
     makineden de açılır), repodaki şifrelerle giriş dener, kimliksiz uçları ve sahte webhook'u dener, HTTP başlıklarını,
-    CORS'u ve hata cevaplarını kontrol eder. Düzeltmeden önce ve sonra aynı script koşulmuştur.
+    CORS'u ve hata cevaplarını kontrol eder. Düzeltmeden önce ve sonra koşulmuştur; sonraki koşuya, eski değerlerin
+    aynı bilgisayardan da reddedildiğini gösteren B2 bölümü eklenmiştir.
   - `2-log-arama.ps1`: isteklerden sonraki loglarda ve şu anki container'ların açılışından bu yana bütün loglarda token, şifre
     ve secret arar (gönderilen log seviyeleriyle ve `-AyrintiliLog` ile).
   - `3-ham-sql.ps1`: ham SQL kullanılan her yeri bulur ve EF logunda parametreli gittiğini gösterir.
