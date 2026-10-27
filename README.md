@@ -234,7 +234,8 @@ için bu değerlerden biri değişince `docker compose up -d --force-recreate ke
   ve süre. Süresi dolan token `Keycloak:ClockSkewSeconds` (30 sn) daha kabul edilir, sonra `401` alır. Anahtarlar ilk istekte discovery
   belgesinden alınır ve bellekte tutulur; her istekte Keycloak'a sorulmaz.
 - **Anahtar değişimi:** token'ın imza anahtarı (`kid`) servisin listesinde yoksa servis listeyi Keycloak'tan yeniden okur; yeniden
-  başlatmak gerekmez. Bunu tetikleyen ilk istek `401` alır, sonrakiler kabul edilir. Listede zaten bulunan bir anahtar yeniden okumayı
+  başlatmak gerekmez. Okumayı yeni anahtarla gelen istek başlatır ve o istek `401` alır; okuma bitene kadar gelen başka istekler
+  de `401` alabilir. Gün 19'daki bir denemede (istekler ~0,3 sn arayla) yalnızca ilk istek `401` aldı. Listede zaten bulunan bir anahtar yeniden okumayı
   tetiklemez: Keycloak'tan kaldırılan anahtar, liste bir sonraki okunuşa kadar kabul edilir. Liste `Keycloak:JwksRefreshMinutes`
   (5) dakikada bir okunur. 5, kütüphanenin izin verdiği en küçük değerdir; kütüphanenin varsayılanı 12 saattir.
   - Okumayı süre dolduktan sonra gelen ilk istek başlatır, o istek henüz eski listeyle doğrulanır. Kütüphane her okumadan sonra
@@ -674,8 +675,9 @@ kimlik doğrulama Debug ve EF SQL logu açıkken yapar, bu koşunun logunu `3-ha
 
 ### Bilinen sınırlar
 
-- **Anahtar değişiminden sonraki ilk istek:** servis yeni anahtarı ilk gördüğü istekte öğrenir; o istek `401` alır, sonrakiler kabul
-  edilir. Bu, her anahtar değişiminde her servis kopyasında bir kez olur.
+- **Anahtar değişiminden sonraki istekler:** servis yeni anahtarı listeyi yeniden okuyunca öğrenir; okumayı yeni anahtarla gelen
+  istek başlatır ve o istek `401` alır. Okuma bitene kadar gelen başka istekler de `401` alabilir. Gün 19'daki bir denemede
+  (istekler ~0,3 sn arayla) yalnızca ilk istek `401` aldı.
 - **Keycloak'a ulaşılamazken kaldırılan anahtar:** listenin yeniden okunması başarısız olursa servis eski listeyi kullanmaya devam
   eder; bu sürede kaldırılan anahtarın kabul süresinin üst sınırı yoktur.
 - **Boştaki servisin ilk isteği:** süre dolduktan sonra gelen ilk istek eski listeyle doğrulanır; servis uzun süre istek almadıysa
