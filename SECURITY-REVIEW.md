@@ -29,6 +29,8 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 
 ## Özet
 
+Bulgu numarasındaki harf önem derecesinin baş harfidir (K Kritik, Y Yüksek, O Orta, D Düşük), rakam o derecedeki sırasıdır.
+
 | # | Önem | Bulgu | OWASP | Durum |
 |---|---|---|---|---|
 | K1 | Kritik | Keycloak yönetici hesabı `admin/admin`, Keycloak portu ağa açık | A07, A02 | Düzeltildi |
@@ -41,11 +43,11 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 | O1 | Orta | Kaba kuvvet koruması ve şifre politikası yok; `admin-cli` şifreyle token veriyor | A07 | Öneri |
 | O2 | Orta | Grafana yönetici hesabı imajın varsayılanı (`admin/admin`) | A07 | Öneri |
 | O3 | Orta | Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor | A01 | Öneri |
-| O4 | Orta | Operasyon ekranında HTTP güvenlik başlıkları yok, sunucu sürümleri görünüyor | A02 | Öneri |
+| O4 | Orta | Operasyon ekranında HTTP güvenlik başlıkları yok, nginx sürümü görünüyor | A02 | Öneri |
 | O5 | Orta | Bütün trafik HTTP üzerinden (TLS yok) | A04 | Öneri |
 | O6 | Orta | ERP'deki kayıt içeriği karşılaştırılmadan faturaya bağlanıyor | A06 | Öneri |
 | O7 | Orta | Tarayıcı client'ı offline token alabiliyor; refresh token tekrar kullanılabiliyor | A07 | Öneri |
-| O8 | Orta | Güvenlik olayları loglanmıyor ve izlenmiyor | A09 | Öneri |
+| O8 | Orta | Güvenlik olayları saklanmıyor ve izlenmiyor | A09 | Öneri |
 | O9 | Orta | Uygulamaların veritabanı kullanıcıları süper kullanıcı | A02 | Öneri |
 | O10 | Orta | Alertmanager ve Prometheus her web sitesine CORS izni veriyor | A01 | Öneri |
 | D1 | Düşük | Geliştirme bağımlılığında (vitest) bilinen açıklar | A03 | Öneri |
@@ -74,8 +76,10 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Öneri:** Yönetici şifresi repoda değil ortamdan gelsin, yoksa Keycloak açılmasın; port yalnız bu bilgisayara açılsın.
 - **Düzeltme:** Şifre `.env`'deki `KEYCLOAK_ADMIN_PASSWORD`'den (`.env` git'e girmez, örneği `.env.example`); değer yoksa
   compose açılmıyor. Port yalnız `127.0.0.1`'de (Y1).
-- **Önce/sonra:** `1-canli-tarama.ps1`: önce yerel ağ adresinden `admin/admin` ile yönetici token'ı alındı (200); sonra 8080
-  yerel ağdan kapalı, bu bilgisayardan `admin/admin` reddediliyor (400, `invalid_grant`).
+- **Önce:** istek `POST http://<yerel ağ adresi>:8080/realms/master/protocol/openid-connect/token`
+  (`grant_type=password`, `client_id=admin-cli`, `admin/admin`) → 200, yönetici token'ı (`1-canli-tarama.ps1` B, `b-canli-once.txt`).
+- **Sonra:** aynı istek → bağlantı kurulamıyor (B, HTTP 0); aynı istek `localhost:8080`'e → 400 `invalid_grant` (B2)
+  (`c-canli-sonra.txt`).
 
 ### K2 — Veritabanı şifreleri repoda, veritabanı portları ağa açık (Kritik, düzeltildi)
 
@@ -89,9 +93,11 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Düzeltme:** Şifreler `.env`'den (`ERP_DB_PASSWORD`, `INVOICE_DB_PASSWORD`); compose bağlantı dizelerini ortam
   değişkeniyle veriyor, ayar dosyalarında şifre yok. Portlar yalnız `127.0.0.1`'de. `.env`'den önce oluşturulmuş bir volume
   eski şifreyi tutar; bir kez `ALTER USER` ile değiştirilir (README, Kurulum).
-- **Önce/sonra:** önce yerel ağ adresinden `invoice/invoice` ile giriş yapıldı; sonra 5433 ve 5434 yerel ağdan kapalı, iki
-  veritabanına da (`invoice/invoice`, `erp/erp`) eski şifreyle giriş `password authentication failed`.
-  `ShippedSettingsTests.Shipped_settings_hold_no_secret_or_password`: gönderilen ayar dosyasının bağlantı dizesinde şifre yok.
+- **Önce:** istek `psql postgresql://invoice:invoice@<yerel ağ adresi>:5434/invoice_service` → giriş yapıldı
+  (`1-canli-tarama.ps1` B, `b-canli-once.txt`).
+- **Sonra:** aynı adrese bağlantı kurulamıyor (B); `psql` ile iki veritabanına eski şifreyle (`invoice/invoice`, `erp/erp`) giriş
+  → `password authentication failed` (B2) (`c-canli-sonra.txt`). Test:
+  `ShippedSettingsTests.Shipped_settings_hold_no_secret_or_password`, gönderilen ayar dosyasının bağlantı dizesinde şifre yok.
 
 ### Y1 — compose'daki bütün portlar bütün ağ arayüzlerine açık (Yüksek, düzeltildi)
 
@@ -104,9 +110,10 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
   ERP Simülatörü'nden fatura verisi doğrudan okunur.
 - **Öneri:** Portlar yalnız bu bilgisayara açılsın.
 - **Düzeltme:** Bütün portlar (5091 dahil) `"127.0.0.1:PORT:PORT"`.
-- **Önce/sonra:** `1-canli-tarama.ps1` A bölümü: önce varsayılan profildeki 10 portun 10'u yerel ağ adresinden açık, sonra 10'u
-  da kapalı. `iki-kopya` profilindeki 5091 denenmedi; compose satırı aynı biçimde değişti.
-  Port daraltması ağ erişimini kapatır, uygulamaların kendi kimlik doğrulaması eksikliğini kapatmaz (Y5, O3, O10).
+- **Önce:** istek: varsayılan profildeki 10 porta yerel ağ adresinden TCP bağlantısı → 10'u açık (`1-canli-tarama.ps1` A,
+  `b-canli-once.txt`).
+- **Sonra:** aynı bağlantılar → 10'u kapalı (`c-canli-sonra.txt`). `iki-kopya` profilindeki 5091 denenmedi; compose satırı
+  aynı biçimde değişti. Port daraltması ağ erişimini kapatır, uygulamaların kendi kimlik doğrulaması eksikliğini kapatmaz (Y5, O3, O10).
 
 ### Y2 — Webhook HMAC secret'ı repoda: sahte ERP haberiyle fatura durumu değiştirilebiliyor (Yüksek, düzeltildi)
 
@@ -118,8 +125,9 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Etki:** ERP'nin vermediği bir karar faturaya yazılır; kesin durum bir daha değişmediği için ERP'nin gerçek kararı yok sayılır.
 - **Öneri:** Secret repoda değil ortamdan gelsin; ayar dosyasında değer olmasın, değer yoksa servis açılmasın.
 - **Düzeltme:** Secret `.env`'deki `ERP_WEBHOOK_SECRET`'tan; iki ayar dosyasında değer boş, boşsa servis açılmıyor.
-- **Önce/sonra:** `1-canli-tarama.ps1` D bölümü: önce FTR-000001 için sahte ret haberi 200 aldı, fatura Gönderildi → Reddedildi
-  oldu; sonra FTR-000007 için eski secret'la imzalanmış haber 401, fatura Gönderildi kaldı. Not: fatura durumunu dışarıdan
+- **Önce:** istek `POST /api/v1/erp-webhooks`, FTR-000001 için repodaki secret'la imzalanmış `invoice.rejected` → 200, fatura
+  Gönderildi → Reddedildi (`1-canli-tarama.ps1` D, `b-canli-once.txt`).
+- **Sonra:** aynı istek FTR-000007 için → 401, fatura Gönderildi kaldı (`c-canli-sonra.txt`). Not: fatura durumunu dışarıdan
   değiştirmenin secret gerektirmeyen bir yolu ERP Simülatörü üzerinden açık (Y5, O6).
 
 ### Y3 — Sipariş sistemi client secret'ı repoda (Yüksek, düzeltildi)
@@ -131,7 +139,11 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Öneri:** Secret realm dosyasında olmasın, realm içe aktarılırken ortamdan verilsin.
 - **Düzeltme:** Realm dosyasında `"secret": "${ORDER_SYSTEM_CLIENT_SECRET}"`; Keycloak içe aktarırken ortamdan okuyor, compose
   `.env`'deki değeri veriyor. Testlerin Keycloak'ı kendi test değerini veriyor.
-- **Önce/sonra:** önce repodaki secret'la token alındı (200); sonra 401 (`unauthorized_client`), `.env`'deki secret'la token alınıyor.
+- **Önce:** istek `POST http://<yerel ağ adresi>:8080/realms/fatura/protocol/openid-connect/token`
+  (`grant_type=client_credentials`, `client_id=siparis-sistemi`, realm dosyasındaki secret) → 200 (`1-canli-tarama.ps1` B,
+  `b-canli-once.txt`).
+- **Sonra:** aynı istek `localhost:8080`'e → 401 `unauthorized_client` (B2, `c-canli-sonra.txt`); `.env`'deki secret'la token
+  alınıyor (`2-log-arama.ps1`, `b-log-arama.txt`).
 
 ### Y4 — Test kullanıcılarının şifreleri repoda: operatör yetkisi alınabiliyor (Yüksek, düzeltildi)
 
@@ -144,9 +156,11 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Düzeltme:** Realm dosyasında `${TEST_IZLEYICI_PASSWORD}`, `${TEST_OPERATOR_PASSWORD}`, `${TEST_ROLSUZ_PASSWORD}`; compose
   `.env`'deki değerleri Keycloak'a veriyor, testlerin Keycloak'ı kendi test değerlerini veriyor; script'ler şifreleri `.env`'den
   okuyor, `.http` dosyasında değer yok (`.env`'den elle kopyalanır).
-- **Önce/sonra:** önce `manual-tests/output/gun17/gun17-1-hazir.txt`: realm dosyasındaki şifrelerle üç kullanıcının token'ı
-  alındı (operator `fatura-operatoru`, izleyici `fatura-izleyici` rolüyle). Sonra `1-canli-tarama.ps1` B2: üç kullanıcının eski şifresi `invalid_grant` (400);
-  `.env`'deki şifreyle token alınıyor.
+- **Önce:** istek `POST http://localhost:8080/realms/fatura/protocol/openid-connect/token` (`grant_type=password`,
+  `client_id=fatura-test`, realm dosyasındaki şifreler) → üç kullanıcının token'ı alındı; operator `fatura-operatoru`, izleyici
+  `fatura-izleyici` rolüyle (`manual-tests/gun17/1-hazir.ps1`, `manual-tests/output/gun17/gun17-1-hazir.txt`).
+- **Sonra:** aynı istek eski şifrelerle → üçünde 400 `invalid_grant` (`1-canli-tarama.ps1` B2, `c-canli-sonra.txt`); `.env`'deki
+  şifrelerle token alınıyor (`2-log-arama.ps1`, `b-log-arama.txt`).
 
 ### Y5 — ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor (Yüksek; ağ erişimi düzeltildi, kalan risk Orta)
 
@@ -165,7 +179,9 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
   bir faturayı düzeltemez hale gelir.
 - **Düzeltme:** Bulguyu Yüksek yapan, düzeltmeden önceki compose'da aynı ağdaki herkesin simülatöre ulaşabilmesiydi; port
   yalnız `127.0.0.1`'e açıldı (Y1).
-- **Önce/sonra:** `1-canli-tarama.ps1` C bölümü: önce yerel ağ adresinden liste token'sız 200; sonra 5080 yerel ağdan kapalı.
+- **Önce:** istek `GET http://<yerel ağ adresi>:5080/api/v1/invoices?from=…&to=…`, token'sız → 200 (`1-canli-tarama.ps1` C,
+  `b-canli-once.txt`).
+- **Sonra:** aynı istek → bağlantı kurulamıyor (C, `c-canli-sonra.txt`).
 - **Kalan risk (Orta):** Uygulama katmanında kimlik doğrulaması hâlâ yok. Bu bilgisayardan ya da compose ağındaki bir
   container'dan simülatöre ulaşan biri yukarıdakilerin hepsini yapabilir; yani bulgu artık başka bir açığın (bu makineye ya da
   compose ağına erişim) yanında anlam kazanıyor.
@@ -189,7 +205,6 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Nerede:** `docker-compose.yml` (`grafana`; `GF_SECURITY_ADMIN_PASSWORD` yok).
 - **Nasıl istismar edilir:** Grafana'ya ulaşabilen biri `admin/admin` ile girer.
 - **Etki:** Pano ve veri kaynağı değiştirilir; Prometheus'taki metrikler okunur. Uygulama verisine yazma yok.
-- **Önce:** yönetici API'si 200 (yerel ağ adresinden).
 - **Öneri:** `GF_SECURITY_ADMIN_PASSWORD` ortamdan verilsin.
 
 ### O3 — Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor (Orta)
@@ -199,13 +214,12 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Nasıl istismar edilir:** Alertmanager'a `POST /api/v2/silences` ile alarmları susturan bir kayıt yazılır; Prometheus'tan
   ayarlar ve metrikler, Jaeger'dan fatura numaralı izler okunur.
 - **Etki:** Bir saldırı sırasında alarmlar sessizce kapatılabilir; iç yapı ve fatura numaraları okunur.
-- **Önce:** susturma kaydı yazıldı (200, hemen silindi); Prometheus ve Jaeger 200.
 - **Öneri:** Dışarıya açılacaksa önlerine kimlik doğrulayan bir reverse proxy konsun.
 
 ### O4 — Operasyon ekranında HTTP güvenlik başlıkları yok (Orta)
 
 - **Ne:** `Content-Security-Policy`, `X-Frame-Options` (ya da `frame-ancestors`), `X-Content-Type-Options`, `Referrer-Policy`,
-  `Permissions-Policy` yok; `Server: nginx/1.31.8` ve API'de `Server: Kestrel` sürüm/ürün bilgisi veriyor.
+  `Permissions-Policy` yok; `Server: nginx/1.31.8` sürüm bilgisi veriyor; API'nin cevabında da `Server` başlığı var (Kestrel varsayılanı).
 - **Nerede:** `operations-ui/nginx.conf`, Kestrel varsayılanı.
 - **Nasıl istismar edilir:** Ekran başka bir sitenin içine iframe ile gömülüp operatöre "Yeniden gönder"e tıklatılır
   (clickjacking); bir XSS olursa CSP onu sınırlamaz.
@@ -240,19 +254,18 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Nasıl istismar edilir:** Kullanıcı (ya da tarayıcısında kod çalıştıran biri) `scope=openid offline_access` ile offline
   refresh token alır.
 - **Etki:** Bu token SSO süreleri, ekranın 15 dk işlemsizlik kapanması ve çıkıştan bağımsız; çalınırsa uzun ömürlü kimlik bilgisi olur.
-- **Önce:** yönetim API'sinden okunan ayarlar. Offline token'ın verilmesi tarayıcıyla giriş gerektirdiği için denenmedi.
 - **Öneri:** `offline_access` varsayılan rollerden ve ekranın scope'larından çıkarılsın; offline oturuma en uzun süre ve
   `revokeRefreshToken` açılsın.
 
-### O8 — Güvenlik olayları loglanmıyor ve izlenmiyor (Orta)
+### O8 — Güvenlik olayları saklanmıyor ve izlenmiyor (Orta)
 
-- **Ne:** Keycloak'ta `eventsEnabled` ve `adminEventsEnabled` kapalı. Fatura Servisi'nin 401/403 cevapları gönderilen log
-  seviyesinde yazılmıyor, metrik ve alarm yok (alarm yalnız webhook 401'i için).
+- **Ne:** Keycloak'ta `eventsEnabled` ve `adminEventsEnabled` kapalı: başarısız girişler yalnız container loguna yazılıyor
+  (`jboss-logging`, `LOGIN_ERROR`), olaylar saklanmıyor, yönetici değişiklikleri kaydedilmiyor. Fatura Servisi'nin 401/403
+  cevapları gönderilen log seviyesinde yazılmıyor, metrik ve alarm yok (alarm yalnız webhook 401'i için).
 - **Nerede:** realm, `invoice-service/.../appsettings.json` (`Microsoft.AspNetCore: Warning`), `monitoring/prometheus/alert-rules.yml`.
-- **Nasıl istismar edilir:** Şifre, çalıntı token ya da yetkisiz müdahale denemeleri iz bırakmadan yapılır; yönetici
-  değişiklikleri kaydedilmez.
+- **Nasıl istismar edilir:** Çalıntı ya da bozuk token'la ve yetkisiz müdahale denemeleri API'de iz bırakmaz; şifre denemeleri
+  yalnız Keycloak'ın container logunda kalır, olay olarak sorgulanamaz; yönetici değişiklikleri kaydedilmez.
 - **Etki:** Saldırı fark edilmez, sonradan incelenemez.
-- **Önce:** log aramasında bozuk token'lı, token'sız ve yetkisiz istekler yapıldı; gönderilen seviyede bunlara ait satır yok.
 - **Öneri:** Keycloak olay kaydı açılsın; serviste 401/403 için bir log satırı ve metrik, yoğunlaşınca alarm.
 
 ### O9 — Uygulamaların veritabanı kullanıcıları süper kullanıcı (Orta)
@@ -262,7 +275,6 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Nasıl istismar edilir:** Bir SQL enjeksiyonu (bulunmadı) ya da sızan bağlantı bilgisiyle bütün veritabanı ve
   `COPY … TO PROGRAM` ile veritabanı container'ında komut çalıştırma.
 - **Etki:** Başka bir açığın etkisini en üst düzeye çıkarır.
-- **Önce:** `SELECT rolsuper FROM pg_roles` → iki veritabanında `t`.
 - **Öneri:** Migration için yönetici kullanıcı, uygulama için yalnız gereken tablolarda yetkisi olan ayrı bir kullanıcı.
 
 ### O10 — Alertmanager ve Prometheus her web sitesine CORS izni veriyor (Orta)
@@ -274,7 +286,6 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
   `localhost:9093`'e alarm susturma yazar, `localhost:9090`'dan metrik ve ayar okur. Port daraltması (Y1) bunu engellemez:
   isteği kurbanın tarayıcısı atar.
 - **Etki:** Alarmların uzaktan susturulması; metriklerin okunması.
-- **Önce:** başka bir origin'le Alertmanager preflight 204 (`*`, `POST`, `content-type`); Prometheus ACAO origin'i yansıtıyor.
 - **Öneri:** Prometheus'a `--web.cors.origin` ile yalnız Grafana; Alertmanager'ın önüne kimlik doğrulayan bir proxy (O3).
 
 ### D1 — Geliştirme bağımlılığında bilinen açıklar (Düşük)
@@ -300,7 +311,6 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Nerede:** Dockerfile'lar (son aşamada `USER` yok).
 - **Nasıl istismar edilir:** Önce uygulamada kod çalıştırma açığı gerekir; o zaman container içinde root olunur.
 - **Etki:** Container'dan kaçışın etkisi büyür.
-- **Önce:** `docker compose exec <servis> id` → `uid=0(root)`.
 - **Öneri:** .NET imajlarında `USER $APP_UID`; nginx için yetkisiz kullanıcıyla çalışan imaj.
 
 ### D4 — Keycloak yönetim konsolu kullanıcı giriş adresiyle aynı yerde (Düşük)
@@ -345,7 +355,6 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 - **Nerede:** `invoice-service/src/InvoiceService.Api/Webhooks/WebhookEndpoints.cs` (401 log satırı).
 - **Nasıl istismar edilir:** Başlığa `1 reason=expired invoice=FTR-000001` gibi bir metin yazılır.
 - **Etki:** Loga bakan biri ya da logdan sayan bir araç yanıltılır.
-- **Önce:** başlık log satırında aynen göründü.
 - **Öneri:** Başlık yalnız rakamsa yazılsın, değilse uzunluğu ya da "geçersiz" yazılsın.
 
 ### D9 — ERP cevaplarına üst sınır yok (Düşük)
