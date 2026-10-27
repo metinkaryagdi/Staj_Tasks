@@ -28,7 +28,8 @@ const TOTAL = RATE * Number(DURATION.slice(0, -1)) * (DURATION.endsWith('m') ? 6
 
 // Faturayı yalnızca sipariş sistemi oluşturabilir: token'ı onun client'ıyla alınır (keycloak/fatura-realm.json).
 const TOKEN_URL = 'http://keycloak:8080/realms/fatura/protocol/openid-connect/token';
-const CLIENT_SECRET = 'dev-only-siparis-sistemi-secret-do-not-use-in-production';
+// Secret'ı docker-compose.yml .env'den verir (ORDER_SYSTEM_CLIENT_SECRET); repoda tutulmaz.
+const CLIENT_SECRET = __ENV.ORDER_SYSTEM_CLIENT_SECRET;
 // Token bitmeden bu kadar saniye önce yenisi alınır; süresi dolmuş token'la istek gitmesin.
 const RENEW_BEFORE_SECONDS = 30;
 

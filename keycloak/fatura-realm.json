@@ -15,7 +15,7 @@
       "firstName": "Test",
       "lastName": "Izleyici",
       "email": "izleyici@fatura.test",
-      "credentials": [ { "type": "password", "value": "izleyici123", "temporary": false } ],
+      "credentials": [ { "type": "password", "value": "${TEST_IZLEYICI_PASSWORD}", "temporary": false } ],
       "realmRoles": [ "fatura-izleyici" ]
     },
     {
@@ -24,7 +24,7 @@
       "firstName": "Test",
       "lastName": "Operator",
       "email": "operator@fatura.test",
-      "credentials": [ { "type": "password", "value": "operator123", "temporary": false } ],
+      "credentials": [ { "type": "password", "value": "${TEST_OPERATOR_PASSWORD}", "temporary": false } ],
       "realmRoles": [ "fatura-operatoru" ]
     },
     {
@@ -33,7 +33,7 @@
       "firstName": "Test",
       "lastName": "Rolsuz",
       "email": "rolsuz@fatura.test",
-      "credentials": [ { "type": "password", "value": "rolsuz123", "temporary": false } ],
+      "credentials": [ { "type": "password", "value": "${TEST_ROLSUZ_PASSWORD}", "temporary": false } ],
       "realmRoles": []
     },
     {
@@ -75,7 +75,7 @@
       "clientId": "siparis-sistemi",
       "description": "Faturaları oluşturan sipariş sistemi: kullanıcı değil, servis (client credentials)",
       "publicClient": false,
-      "secret": "dev-only-siparis-sistemi-secret-do-not-use-in-production",
+      "secret": "${ORDER_SYSTEM_CLIENT_SECRET}",
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true,

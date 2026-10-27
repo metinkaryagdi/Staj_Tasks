@@ -14,8 +14,21 @@ namespace InvoiceService.IntegrationTests.Support;
 /// </summary>
 public sealed class KeycloakFixture : IAsyncLifetime
 {
-    // The order system client's secret in fatura-realm.json (local and test use only).
-    public const string OrderSystemSecret = "dev-only-siparis-sistemi-secret-do-not-use-in-production";
+    // The order system client's secret in the test Keycloak.
+    public const string OrderSystemSecret = "test-only-siparis-sistemi-secret";
+
+    // fatura-realm.json reads these from the environment (${NAME}) when the realm is imported: the order system's secret and
+    // the test users' passwords.
+    private static readonly Dictionary<string, string> RealmEnvironment = new()
+    {
+        ["ORDER_SYSTEM_CLIENT_SECRET"] = OrderSystemSecret,
+        ["TEST_IZLEYICI_PASSWORD"] = TestPassword("izleyici"),
+        ["TEST_OPERATOR_PASSWORD"] = TestPassword("operator"),
+        ["TEST_ROLSUZ_PASSWORD"] = TestPassword("rolsuz")
+    };
+
+    /// <summary>A test user's password in the test Keycloak.</summary>
+    private static string TestPassword(string user) => $"test-only-{user}";
 
     private readonly KeycloakContainer _container;
     private readonly HttpClient _http = new();
@@ -26,7 +39,8 @@ public sealed class KeycloakFixture : IAsyncLifetime
 
     private KeycloakFixture(int? hostPort)
     {
-        var builder = new KeycloakBuilder("quay.io/keycloak/keycloak:26.8.1").WithRealm(FilePath("fatura-realm.json"));
+        var builder = new KeycloakBuilder("quay.io/keycloak/keycloak:26.8.1").WithRealm(FilePath("fatura-realm.json"))
+            .WithEnvironment(RealmEnvironment);
         if (hostPort is { } port)
             builder = builder.WithPortBinding(port, 8080);
         _container = builder.Build();
@@ -71,19 +85,46 @@ public sealed class KeycloakFixture : IAsyncLifetime
     /// </summary>
     public async Task AddRealmCopyAsync(string realm)
     {
-        var copy = JsonNode.Parse(await File.ReadAllTextAsync(FilePath("fatura-realm.json")))!.AsObject();
+        // The admin API does not replace ${...} placeholders the way the import at start does.
+        var realmFile = await File.ReadAllTextAsync(FilePath("fatura-realm.json"));
+        foreach (var (name, value) in RealmEnvironment)
+            realmFile = realmFile.Replace("${" + name + "}", value);
+        var copy = JsonNode.Parse(realmFile)!.AsObject();
         copy["realm"] = realm;
         await AdminAsync(HttpMethod.Post, "/admin/realms", copy.ToJsonString());
         await AddTestClientAsync("fatura-test", realm: realm);
     }
 
-    // The realm's test users (izleyici, operator, rolsuz); each password is the user name followed by 123.
+    /// <summary>
+    /// Keycloak changes the realm's signing key: a new RSA key with a higher priority signs from now on and the one the
+    /// realm was created with is removed, so it is no longer in the realm's JWKS.
+    /// </summary>
+    public async Task ReplaceSigningKeyAsync(string realm)
+    {
+        var realmJson = await (await AdminAsync(HttpMethod.Get, $"/admin/realms/{realm}")).Content.ReadFromJsonAsync<JsonElement>();
+        var providers = await (await AdminAsync(HttpMethod.Get,
+            $"/admin/realms/{realm}/components?type=org.keycloak.keys.KeyProvider")).Content.ReadFromJsonAsync<JsonElement>();
+        var oldKey = providers.EnumerateArray().Single(p => p.GetProperty("providerId").GetString() == "rsa-generated")
+            .GetProperty("id").GetString();
+
+        await AdminAsync(HttpMethod.Post, $"/admin/realms/{realm}/components", JsonSerializer.Serialize(new
+        {
+            name = "rsa-yeni",
+            providerId = "rsa-generated",
+            providerType = "org.keycloak.keys.KeyProvider",
+            parentId = realmJson.GetProperty("id").GetString(),
+            config = new Dictionary<string, string[]> { ["priority"] = ["200"], ["algorithm"] = ["RS256"] }
+        }));
+        await AdminAsync(HttpMethod.Delete, $"/admin/realms/{realm}/components/{oldKey}");
+    }
+
+    // The realm's test users (izleyici, operator, rolsuz), with the passwords this Keycloak was given.
     public Task<string> UserTokenAsync(string user, string clientId = "fatura-test", string realm = "fatura") => TokenAsync(realm, new()
     {
         ["grant_type"] = "password",
         ["client_id"] = clientId,
         ["username"] = user,
-        ["password"] = $"{user}123"
+        ["password"] = TestPassword(user)
     });
 
     public Task<string> OrderSystemTokenAsync() => TokenAsync("fatura", new()

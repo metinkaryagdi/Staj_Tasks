@@ -1,0 +1,12 @@
+# Ayrıntılı log: kimlik doğrulama ara katmanı Debug'da (token neden reddedildi, hangi şema), EF Core her SQL komutunu
+# parametre listesiyle yazar. Log aramasının en çok şey loglanırken de token/secret bulmadığını ve ham SQL'lerin
+# parametreli gittiğini göstermek için; yalnızca 2-log-arama.ps1 -AyrintiliLog kullanır.
+services:
+  invoice-service:
+    environment:
+      Logging__LogLevel__Microsoft.AspNetCore: Debug
+      Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command: Information
+  erp-simulator:
+    environment:
+      Logging__LogLevel__Microsoft.AspNetCore: Debug
+      Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command: Information

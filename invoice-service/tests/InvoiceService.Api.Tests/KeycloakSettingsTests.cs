@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 
 namespace InvoiceService.Api.Tests;
 
@@ -11,7 +12,7 @@ public class KeycloakSettingsTests
     [Fact]
     public void Every_missing_value_is_reported()
     {
-        Assert.Equal(4, new KeycloakSettings().Validate().Count);
+        Assert.Equal(5, new KeycloakSettings().Validate().Count);
     }
 
     [Fact]
@@ -19,7 +20,8 @@ public class KeycloakSettingsTests
     {
         var settings = new KeycloakSettings
         {
-            BaseUrl = "keycloak:8080", Realm = "fatura", Audience = "fatura-servisi", ClockSkewSeconds = 30
+            BaseUrl = "keycloak:8080", Realm = "fatura", Audience = "fatura-servisi", ClockSkewSeconds = 30,
+            JwksRefreshMinutes = 5
         };
         Assert.Single(settings.Validate());
     }
@@ -29,13 +31,25 @@ public class KeycloakSettingsTests
     {
         var settings = new KeycloakSettings
         {
-            BaseUrl = "http://localhost:8080", Realm = "fatura", Audience = "fatura-servisi", ClockSkewSeconds = -1
+            BaseUrl = "http://localhost:8080", Realm = "fatura", Audience = "fatura-servisi", ClockSkewSeconds = -1,
+            JwksRefreshMinutes = 5
         };
         Assert.Single(settings.Validate());
     }
 
     [Fact]
-    public void The_clock_skew_comes_from_the_settings()
+    public void A_key_refresh_below_the_library_minimum_is_reported()
+    {
+        var settings = new KeycloakSettings
+        {
+            BaseUrl = "http://localhost:8080", Realm = "fatura", Audience = "fatura-servisi", ClockSkewSeconds = 30,
+            JwksRefreshMinutes = 4
+        };
+        Assert.Single(settings.Validate());
+    }
+
+    [Fact]
+    public void The_clock_skew_and_the_key_refresh_come_from_the_settings()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -44,6 +58,7 @@ public class KeycloakSettingsTests
                 ["Keycloak:Realm"] = "fatura",
                 ["Keycloak:Audience"] = "fatura-servisi",
                 ["Keycloak:ClockSkewSeconds"] = "30",
+                ["Keycloak:JwksRefreshMinutes"] = "5",
             })
             .Build();
         var services = new ServiceCollection().AddKeycloakAuth(configuration).BuildServiceProvider();
@@ -52,5 +67,7 @@ public class KeycloakSettingsTests
             .Get(JwtBearerDefaults.AuthenticationScheme);
 
         Assert.Equal(TimeSpan.FromSeconds(30), options.TokenValidationParameters.ClockSkew);
+        // The configuration manager, which reads the keys, gets the value; not only the options.
+        Assert.Equal(TimeSpan.FromMinutes(5), ((BaseConfigurationManager)options.ConfigurationManager!).AutomaticRefreshInterval);
     }
 }

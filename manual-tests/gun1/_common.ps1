@@ -2,6 +2,19 @@
 # Doğrudan çalıştırılmaz; diğer script'ler bunu ". $PSScriptRoot\_common.ps1" ile yükler.
 
 $RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+
+# docker compose'un okuduğu .env'den (repo kökü, git'e girmez) bir değer; örneği .env.example. Değer yoksa durur.
+function Get-DotEnvValue([string]$Name) {
+    $file = Join-Path $RepoRoot '.env'
+    if (Test-Path $file) {
+        foreach ($line in Get-Content $file -Encoding UTF8) {
+            # -cmatch: büyük/küçük harfe duyarlı; Türkçe kültürde -match 'I' ile 'ı'yı ayırır ve adı bulamazdı.
+            if ($line -cmatch "^$Name=(.+)$") { return $Matches[1].Trim() }
+        }
+    }
+    throw "$Name .env dosyasında yok (repo kökünde .env.example'dan oluşturulur)."
+}
+
 $BaseUrl  = 'http://localhost:5080'
 $OutputDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'output'
 

@@ -4,6 +4,9 @@ namespace InvoiceService.IntegrationTests.Support;
 
 public static class TestSettings
 {
+    /// <summary>The ERP webhook secret in the tests; the shipped appsettings.json has none.</summary>
+    public const string WebhookSecret = "test-only-erp-webhook-secret-at-least-32-bytes";
+
     /// <summary>
     /// The settings the service ships with (appsettings.json of the Api project, copied next to the test dll), pointed
     /// at the test database and the fake ERP.
@@ -13,7 +16,8 @@ public static class TestSettings
         var values = new Dictionary<string, string?>
         {
             ["ConnectionStrings:InvoiceDb"] = connectionString,
-            ["Erp:BaseUrl"] = erpBaseUrl
+            ["Erp:BaseUrl"] = erpBaseUrl,
+            ["ErpWebhooks:Secret"] = WebhookSecret
         };
 
         return new ConfigurationBuilder()

@@ -8,9 +8,13 @@ Use-Gun10Volumes 'gun17'
 
 $KeycloakUrl = 'http://localhost:8080'
 $TokenUrl = "$KeycloakUrl/realms/fatura/protocol/openid-connect/token"
-# keycloak/fatura-realm.json'daki test değerleri.
-$TestUsers = [ordered]@{ izleyici = 'izleyici123'; operator = 'operator123'; rolsuz = 'rolsuz123' }
-$OrderSystemSecret = 'dev-only-siparis-sistemi-secret-do-not-use-in-production'
+# keycloak/fatura-realm.json'daki test kullanıcıları; şifreleri .env'de (realm içe aktarılırken Keycloak'a verilir).
+$TestUsers = [ordered]@{
+    izleyici = Get-DotEnvValue 'TEST_IZLEYICI_PASSWORD'
+    operator = Get-DotEnvValue 'TEST_OPERATOR_PASSWORD'
+    rolsuz = Get-DotEnvValue 'TEST_ROLSUZ_PASSWORD'
+}
+$OrderSystemSecret = Get-DotEnvValue 'ORDER_SYSTEM_CLIENT_SECRET'
 # Fatura Servisi'nin Keycloak:ClockSkewSeconds ayarı (appsettings.json): süresi dolan token bu kadar daha kabul edilir.
 $ClockSkewSeconds = 30
 

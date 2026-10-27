@@ -1,6 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
 using InvoiceService.IntegrationTests.Support;
 using Microsoft.IdentityModel.JsonWebTokens;
 
@@ -29,17 +27,7 @@ public class KeyRotationTests(PostgresFixture postgres, KeycloakFixture keycloak
         var oldToken = await Keycloak.UserTokenAsync("operator", realm: Realm);
         Assert.Equal(HttpStatusCode.OK, (await ReadAsync(oldToken)).StatusCode);
 
-        // Keycloak changes its key: a new RSA key with a higher priority signs from now on and the old one is removed.
-        var oldKey = await SigningKeyIdAsync();
-        await Keycloak.AdminAsync(HttpMethod.Post, $"/admin/realms/{Realm}/components", JsonSerializer.Serialize(new
-        {
-            name = "rsa-yeni",
-            providerId = "rsa-generated",
-            providerType = "org.keycloak.keys.KeyProvider",
-            parentId = await RealmIdAsync(),
-            config = new Dictionary<string, string[]> { ["priority"] = ["200"], ["algorithm"] = ["RS256"] }
-        }));
-        await Keycloak.AdminAsync(HttpMethod.Delete, $"/admin/realms/{Realm}/components/{oldKey}");
+        await Keycloak.ReplaceSigningKeyAsync(Realm);
         var newToken = await Keycloak.UserTokenAsync("operator", realm: Realm);
         Assert.NotEqual(new JsonWebToken(oldToken).Kid, new JsonWebToken(newToken).Kid);
 
@@ -51,19 +39,4 @@ public class KeyRotationTests(PostgresFixture postgres, KeycloakFixture keycloak
     }
 
     private Task<HttpResponseMessage> ReadAsync(string token) => SendAsync(HttpMethod.Get, "/api/v1/invoices/summary", token);
-
-    private async Task<string> RealmIdAsync()
-    {
-        var realm = await (await Keycloak.AdminAsync(HttpMethod.Get, $"/admin/realms/{Realm}")).Content.ReadFromJsonAsync<JsonElement>();
-        return realm.GetProperty("id").GetString()!;
-    }
-
-    /// <summary>The realm's RSA signing key provider that Keycloak created with the realm.</summary>
-    private async Task<string> SigningKeyIdAsync()
-    {
-        var providers = await (await Keycloak.AdminAsync(HttpMethod.Get,
-            $"/admin/realms/{Realm}/components?type=org.keycloak.keys.KeyProvider")).Content.ReadFromJsonAsync<JsonElement>();
-        return providers.EnumerateArray().Single(p => p.GetProperty("providerId").GetString() == "rsa-generated")
-            .GetProperty("id").GetString()!;
-    }
 }

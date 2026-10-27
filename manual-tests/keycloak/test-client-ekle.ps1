@@ -6,9 +6,12 @@
 param([string]$KeycloakUrl = 'http://localhost:8080')
 $ErrorActionPreference = 'Stop'
 
-# Keycloak'ın yönetim API'si, docker-compose.yml'deki yerel admin kullanıcısıyla.
+# Keycloak'ın yönetim API'si, docker-compose.yml'deki yerel admin kullanıcısıyla; şifresi repo kökündeki .env'de.
+$envLine = Get-Content (Join-Path $PSScriptRoot '..\..\.env') -Encoding UTF8 | Where-Object { $_ -cmatch '^KEYCLOAK_ADMIN_PASSWORD=.+' }
+if (-not $envLine) { throw 'KEYCLOAK_ADMIN_PASSWORD .env dosyasında yok (repo kökünde .env.example''dan oluşturulur).' }
+$adminPassword = $envLine.Substring('KEYCLOAK_ADMIN_PASSWORD='.Length).Trim()
 $admin = (Invoke-RestMethod -Method Post -Uri "$KeycloakUrl/realms/master/protocol/openid-connect/token" -Body @{
-    grant_type = 'password'; client_id = 'admin-cli'; username = 'admin'; password = 'admin' }).access_token
+    grant_type = 'password'; client_id = 'admin-cli'; username = 'admin'; password = $adminPassword }).access_token
 $headers = @{ Authorization = "Bearer $admin" }
 $clientsUrl = "$KeycloakUrl/admin/realms/fatura/clients"
 

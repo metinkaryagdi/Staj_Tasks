@@ -11,6 +11,9 @@
 @baseUrl = http://localhost:5090
 @tokenUrl = http://localhost:8080/realms/fatura/protocol/openid-connect/token
 @invoiceNumber = FTR-000001
+# Copy these two from your .env (TEST_OPERATOR_PASSWORD, ORDER_SYSTEM_CLIENT_SECRET); do not commit the values.
+@operatorPassword =
+@orderSystemSecret =
 
 ### 0a) Token of the operator test user: reads and interventions, recorded under the name "operator"
 # The fatura-test client (user name and password) is not in the default setup; for local tests add it to the running
@@ -19,14 +22,14 @@
 POST {{tokenUrl}}
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=password&client_id=fatura-test&username=operator&password=operator123
+grant_type=password&client_id=fatura-test&username=operator&password={{operatorPassword}}
 
 ### 0b) Token of the order system (client credentials, no user): only it creates invoices
 # @name orderSystemLogin
 POST {{tokenUrl}}
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=client_credentials&client_id=siparis-sistemi&client_secret=dev-only-siparis-sistemi-secret-do-not-use-in-production
+grant_type=client_credentials&client_id=siparis-sistemi&client_secret={{orderSystemSecret}}
 
 ### 1) Create an invoice (202, status Bekliyor)
 POST {{baseUrl}}/api/v1/invoices

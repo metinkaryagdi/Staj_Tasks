@@ -19,17 +19,34 @@ Her günün teslim edilen hali bir git tag'idir; README yalnızca uygulamaları 
 
 ## Kurulum
 
+Şifreler ve secret'lar repoda değil, repo kökündeki `.env` dosyasındadır (git'e girmez). İlk kurulumda
+[.env.example](.env.example) `.env` adıyla kopyalanır ve her satıra rastgele bir değer yazılır; değeri olmayan bir satır
+varken compose açılmaz.
+
 ```bash
 docker compose up -d --build
 ```
 
+Veritabanı şifresi volume ilk oluşturulurken yazılır. `.env`'den önce oluşturulmuş bir volume eski şifreyi (`erp` /
+`invoice`) tutar; bir kez yeni şifreye çekilir (değerler `.env`'deki):
+
+```bash
+docker compose exec erp-db psql -U erp -d erp_simulator -c "ALTER USER erp PASSWORD '<ERP_DB_PASSWORD>'"
+```
+
+```bash
+docker compose exec invoice-db psql -U invoice -d invoice_service -c "ALTER USER invoice PASSWORD '<INVOICE_DB_PASSWORD>'"
+```
+
+Portlar yalnızca bu bilgisayara (`127.0.0.1`) açılır; aynı ağdaki başka makineler bağlanamaz.
+
 | Servis | Adres |
 |---|---|
 | ERP Simulator | http://localhost:5080 (Swagger: http://localhost:5080/swagger) |
-| ERP veritabanı | `localhost:5433` — db `erp_simulator`, kullanıcı `erp`, şifre `erp` |
+| ERP veritabanı | `localhost:5433` — db `erp_simulator`, kullanıcı `erp`, şifre `.env`'deki `ERP_DB_PASSWORD` |
 | Invoice Service | http://localhost:5090 (Swagger: http://localhost:5090/swagger) |
-| Fatura veritabanı | `localhost:5434` — db `invoice_service`, kullanıcı `invoice`, şifre `invoice` |
-| Keycloak | http://localhost:8080 (yönetim konsolu `admin` / `admin`; realm `fatura`) |
+| Fatura veritabanı | `localhost:5434` — db `invoice_service`, kullanıcı `invoice`, şifre `.env`'deki `INVOICE_DB_PASSWORD` |
+| Keycloak | http://localhost:8080 (yönetim konsolu `admin`, şifre `.env`'deki `KEYCLOAK_ADMIN_PASSWORD`; realm `fatura`) |
 | Operasyon Ekranı | http://localhost:5100 |
 | Grafana (pano) | http://localhost:3000 (giriş gerekmez; değiştirmek için `admin` / `admin`) |
 | Prometheus | http://localhost:9090 (alarmlar: http://localhost:9090/alerts) |
@@ -207,16 +224,28 @@ sonra yalnızca `http://localhost:5100/*` adresine döner) ve `siparis-sistemi` 
 token'ında da `aud` `fatura-servisi`'dir (audience mapper). Token ömrü 5 dakikadır. Kullanıcı adı ve şifreyle token veren `fatura-test`
 client'ı varsayılan kurulumda yoktur: tanımı [`manual-tests/keycloak/`](manual-tests/keycloak/)'tadır, kullanıcı token'ı alan test
 script'leri onu çalışan Keycloak'a yönetim API'siyle ekler (`test-client-ekle.ps1`, compose'daki `admin` kullanıcısıyla). Keycloak'ın
-verisi container'ın içindedir: container yeniden oluşturulunca client da gider. Test kullanıcılarının şifreleri ve `siparis-sistemi`'nin secret'ı realm dosyasında düz yazılıdır, yalnızca yerel
-deneme içindir.
+verisi container'ın içindedir: container yeniden oluşturulunca client da gider. `siparis-sistemi`'nin secret'ı realm dosyasında `${ORDER_SYSTEM_CLIENT_SECRET}`
+olarak durur; Keycloak realm'i içe aktarırken değeri ortamdan okur, compose `.env`'deki değeri verir. Test kullanıcılarının şifreleri de
+aynı yolla gelir (`TEST_IZLEYICI_PASSWORD`, `TEST_OPERATOR_PASSWORD`, `TEST_ROLSUZ_PASSWORD`). Realm yalnızca yokken içe aktarıldığı
+için bu değerlerden biri değişince `docker compose up -d --force-recreate keycloak`.
 
 - **Doğrulama** ([`Api/Auth/AuthExtensions.cs`](invoice-service/src/InvoiceService.Api/Auth/AuthExtensions.cs)): servis token'ı kendisi
   doğrular: imza (realm'in yayımladığı anahtarlar, JWKS), issuer (`http://localhost:8080/realms/fatura`), audience (`fatura-servisi`)
   ve süre. Süresi dolan token `Keycloak:ClockSkewSeconds` (30 sn) daha kabul edilir, sonra `401` alır. Anahtarlar ilk istekte discovery
   belgesinden alınır ve bellekte tutulur; her istekte Keycloak'a sorulmaz.
 - **Anahtar değişimi:** token'ın imza anahtarı (`kid`) servisin listesinde yoksa servis listeyi Keycloak'tan yeniden okur; yeniden
-  başlatmak gerekmez. Bunu tetikleyen ilk istek `401` alır, sonrakiler kabul edilir. Keycloak'ın artık yayımlamadığı bir anahtarla
-  imzalı token reddedilir.
+  başlatmak gerekmez. Bunu tetikleyen ilk istek `401` alır, sonrakiler kabul edilir. Listede zaten bulunan bir anahtar yeniden okumayı
+  tetiklemez: Keycloak'tan kaldırılan anahtar, liste bir sonraki okunuşa kadar kabul edilir. Liste `Keycloak:JwksRefreshMinutes`
+  (5) dakikada bir okunur. 5, kütüphanenin izin verdiği en küçük değerdir; kütüphanenin varsayılanı 12 saattir.
+  - Okumayı süre dolduktan sonra gelen ilk istek başlatır, o istek henüz eski listeyle doğrulanır. Kütüphane her okumadan sonra
+    süreye 0 ile T/20 − 1 sn arasında rastgele bir pay ekler (T = ayardaki süre; 5 dk için en çok 14 sn). Okuma iki istektir
+    (discovery belgesi ve JWKS), her biri en çok 60 sn bekler.
+  - Servise istek gelmeye devam ediyor ve Keycloak'a ulaşılıyorsa kaldırılan anahtarın en uzun kabul süresi:
+    T + en çok (T/20 − 1 sn) + okuma süresi. 5 dk için 300 + 14 sn + okuma süresi, yani yaklaşık 5 dk 14 sn. Keycloak yavaş
+    ama zaman aşımından önce cevap veriyorsa en çok 300 + 14 + 2 × 60 sn ≈ 7 dk 14 sn (hesap, ölçülmedi).
+  - Servis boştaysa süre dolduktan sonraki ilk istek daha geç gelebilir ve o istek de eski listeyle kabul edilir; kabul süresi bu
+    isteğin ne zaman geldiğine bağlıdır.
+  - Keycloak'a ulaşılamazken okuma başarısız olur, eski liste kalır; bu sürede üst sınır yoktur.
 - **401 / 403:** token yoksa, imzası bozuksa, süresi dolmuşsa, issuer ya da audience tutmuyorsa `401`; nedeni `WWW-Authenticate`
   header'ındadır. Token geçerli ama rol yetmiyorsa `403`. Roller token'da `realm_access.roles` içindedir; servis her birini ayrı bir
   role claim'ine çevirir (`RealmRoles`).
@@ -225,11 +254,11 @@ deneme içindir.
 - **Issuer:** Keycloak'a bilgisayardan `localhost:8080`, container'lardan `keycloak:8080` ile ulaşılır. `KC_HOSTNAME` sayesinde iki
   durumda da token'daki issuer `http://localhost:8080/realms/fatura`'dır; servis anahtarları `keycloak:8080` üzerinden alır
   (`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`).
-- **Token almak** (PowerShell; sipariş sistemi için `grant_type = 'client_credentials'`, `client_id = 'siparis-sistemi'` ve realm
-  dosyasındaki `client_secret`). Kullanıcı token'ı için test client'ı önce bir kez eklenir: `.\manual-tests\keycloak\test-client-ekle.ps1`.
+- **Token almak** (PowerShell; sipariş sistemi için `grant_type = 'client_credentials'`, `client_id = 'siparis-sistemi'` ve `.env`'deki
+  `ORDER_SYSTEM_CLIENT_SECRET`). Kullanıcı token'ı için test client'ı önce bir kez eklenir: `.\manual-tests\keycloak\test-client-ekle.ps1`.
 
   ```powershell
-  $token = (Invoke-RestMethod -Method Post -Uri http://localhost:8080/realms/fatura/protocol/openid-connect/token -Body @{ grant_type = 'password'; client_id = 'fatura-test'; username = 'operator'; password = 'operator123' }).access_token
+  $token = (Invoke-RestMethod -Method Post -Uri http://localhost:8080/realms/fatura/protocol/openid-connect/token -Body @{ grant_type = 'password'; client_id = 'fatura-test'; username = 'operator'; password = '<.env''deki TEST_OPERATOR_PASSWORD>' }).access_token
   curl.exe http://localhost:5090/api/v1/invoices/summary -H "Authorization: Bearer $token"
   ```
 
@@ -324,7 +353,7 @@ hiçbir fatura değişmemiştir.
 [`appsettings.json`](invoice-service/src/InvoiceService.Api/appsettings.json): her değerin yanında ne işe yaradığı ve
 neden o değerde olduğu yazılı. Hepsi zorunludur; eksik ya da kurala aykırıysa servis açılmaz ve nedenini yazar.
 Değişiklikten sonra `docker compose up -d --build invoice-service`. Docker'da ERP adresi `appsettings.Docker.json`'dadır.
-`ErpWebhooks:Secret`, ERP Simulator'daki `Webhooks:Secret` ile aynı olmalıdır. `Cors:AllowedOrigins` operasyon ekranının
+`ErpWebhooks:Secret` dosyada boştur: compose ikisine de (`Webhooks:Secret` dahil) `.env`'deki `ERP_WEBHOOK_SECRET`'ı verir. `Cors:AllowedOrigins` operasyon ekranının
 adresidir (`http://localhost:5100`); ekran başka bir adresten açılacaksa buraya eklenir. `Keycloak:BaseUrl`, `Keycloak:Realm` ve
 `Keycloak:Audience`: token'ları veren Keycloak ve token'ın taşıması gereken `aud`; Docker'da adres `http://keycloak:8080`'dir.
 `Keycloak:ClockSkewSeconds` 30: süresi dolan token'ın kabul edilmeye devam ettiği süre.
@@ -586,6 +615,7 @@ token, ikinci realm, anahtar değişimi) client'ın ya da realm'in bir kopyasın
 | 14. Keycloak imza anahtarını değiştirince yeni anahtarlı token kabul, kaldırılan anahtarlı token ret; servis yeniden başlatılmaz | `KeyRotationTests` |
 | 15. Müdahale kaydında token'daki ad ve `sub`; `sub`'sız token'la müdahale `403`, kayıt yok | `InterventionRecordTests` (2 test) |
 | 16. Keycloak kapalıyken açılan servis token'ı reddeder ve logda uyarı satırı yazar; Keycloak açılınca yeniden başlatılmadan kabul eder | `KeycloakDownTests` (Keycloak aynı portta yeni container olarak açılır: Testcontainers durdurulan Keycloak container'ını yeniden hazır hale getirirken takılıyor; yeni container yeni anahtar ürettiği için kabul yeni token'la sınanır) |
+| 17. Servis listeyi okuduktan hemen sonra Keycloak'tan kaldırılan anahtar, `Keycloak:JwksRefreshMinutes`'tan önce reddedilmez, ardından en geç rastgele pay ve 6 sn içinde reddedilir | `KeyRefreshTests` (~5 dk 10 sn sürer; test realm'inde token ömrü 15 dk) |
 
 Özet sayısının yük altındaki ölçümü: [`manual-tests/gun9/1-ozet-yuk-altinda.ps1`](manual-tests/gun9/1-ozet-yuk-altinda.ps1)
 (yük testi sürerken çalıştırılır).
@@ -616,39 +646,44 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 19 — Kimlik Doğrulamanın Otomatik Testleri
+## Gün 20 — Güvenlik Gözden Geçirmesi
 
-Bugünün işi: Gün 18'in ardından kalan düzeltmeler ve kimlik doğrulamanın gerçek Keycloak'la çalışan otomatik testleri.
+Bugünün işi: anahtar listesinin yenilenme süresinin ayara bağlanması ve projenin tamamının güvenlik gözden geçirmesi. Bulgular,
+nasıl bakıldığı ve öneriler [SECURITY-REVIEW.md](SECURITY-REVIEW.md)'de.
 
-- **Düzeltmeler:** ekranda 15 dakika işlem yapılmazsa oturum kapanır, bir dakika önce uyarı ve "Oturumu uzat" çıkar; süre ekranın
-  ayarında (`src/config.ts`), ekranın kendi yenilemeleri işlem sayılmaz ([Operasyon Ekranı](#operasyon-ekranı)). Token'da `sub` yoksa
-  müdahale `403` alır. Keycloak'a ulaşamadan açılan servis token'ı reddettiğinde logda nedeni söyleyen bir uyarı satırı vardır
-  ([Kimlik doğrulama](#kimlik-doğrulama)).
-- **Keycloak'lı entegrasyon testleri:** testler Keycloak'ı Testcontainers ile kendileri açar, realm'i repodaki dosyadan kurar; mevcut
-  entegrasyon testleriyle birlikte her push'ta GitHub Actions'ta çalışır ([Entegrasyon testleri](#entegrasyon-testleri), senaryo 12-16).
-  Anahtar değişimi testi için servisin kaldırılan imza anahtarını reddetmesi sağlandı (kütüphanenin "last known good" davranışı kapalı).
+- **Anahtar yenileme:** servis Keycloak'ın anahtar listesini `Keycloak:JwksRefreshMinutes` (5) dakikada bir okur; en uzun kabul
+  süresinin hesabı ve koşulları [Kimlik doğrulama](#kimlik-doğrulama)'da.
+- **Düzeltilen Kritik ve Yüksek bulgular:** compose'daki portlar yalnızca `127.0.0.1`'e açılır; Keycloak yönetici şifresi, veritabanı
+  şifreleri, webhook secret'ı, sipariş sisteminin client secret'ı ve test kullanıcılarının şifreleri repodan çıkarılıp `.env`'e
+  alındı ([Kurulum](#kurulum)). ERP Simülatörü'nün kimlik doğrulaması olmaması için ağ erişimi kapatıldı; uygulama katmanındaki
+  kimlik doğrulama öneri olarak duruyor. Orta ve Düşük bulgular dokümanda öneri olarak duruyor.
 
-Kontrol listesi ([`manual-tests/gun19/`](manual-tests/gun19/); 1. madde tarayıcıda yapılır):
+Kontrol listesi ([`manual-tests/gun20/`](manual-tests/gun20/)):
 
 | # | Madde | Sonuç |
 |---|---|---|
-| 1 | Ekranda işlemsizlik | Süre ayarda (`idleTimeoutMinutes`) 2 dakikaya indirilip ekran derlendi (`1-ekran-sure.ps1 -Hazirla`), operatörle giriş yapıldı, sayfaya uzatma dışında dokunulmadı. 1. dakikada uyarı çıktı ("Uzun süredir işlem yapılmadı; oturumunuz … saniye içinde kapanacak"); "Oturumu uzat" ile süre baştan başladı; uzatmadan 1 dakika sonra uyarı yeniden çıktı, 2 dakika sonra giriş sayfası açıldı. Keycloak'ta operatörün oturumu girişte 1, sonunda 0. Ekranın 10 saniyelik yenilemeleri süreyi sıfırlamadı |
-| 2 | Beş senaryonun testleri | 5 senaryo, 64 test (`RoleRuleTests` 56, `InvalidTokenTests` 4, `KeyRotationTests` 1, `InterventionRecordTests` 2, `KeycloakDownTests` 1); hepsi geçti |
-| 3 | Rol ve audience kontrolü kaldırılınca | Her satır ayrı koşu (`3-mutasyon.ps1`, `AuthExtensions.cs`): okuma kuralı `RequireRole(...)` → `RequireAuthenticatedUser()`: 12 test kırıldı (6 okuma endpoint'i × rolsüz ve sipariş sistemi; "Expected: 403, Actual: 200/404"); müdahale kuralı: 15 (5 endpoint × izleyici, rolsüz, sipariş sistemi; "Expected: 403", Actual endpoint'e göre 404, 409, 200 ya da 202); fatura oluşturma kuralı: 3 (izleyici, operatör, rolsüz; "Expected: 403, Actual: 202"); `ValidateAudience = false`: 1 (`A_token_without_the_services_audience_gets_401`, "Expected: Unauthorized, Actual: OK"). Her koşuda diğer testler geçti, kod geri alındı |
-| 4 | Bütün testler 10 kez | Fatura Servisi (birim 406 + entegrasyon 80), ERP Simülatörü (124) ve ekran (27), tur başına 637 test; 10 turun hepsinde hepsi geçti. Entegrasyon testleri tur başına 2 dk 6 sn – 2 dk 23 sn (`4-on-tekrar.ps1`) |
-| 5 | Süre ve GitHub Actions | 80 entegrasyon testi 2 dk 20 sn ([Actions çalışması](https://github.com/metinkaryagdi/Staj_Tasks/actions/runs/40317650239)) |
+| 1 | Anahtar yenileme süresi | Ayar `Keycloak:JwksRefreshMinutes` = 5. `KeyRefreshTests`: liste en geç 0,1 sn'de okundu, anahtar en geç 0,4 sn'de kaldırıldı; son kabul 310,1 sn, ilk ret 311,1 sn. `AuthExtensions.cs`'teki `AutomaticRefreshInterval` satırı geçici kaldırılınca (kütüphane varsayılanı 12 saat) test kırıldı: 351,3 sn'de hâlâ kabul. En kötü durum (istek geliyor, Keycloak'a ulaşılıyor): 300 sn + en çok 14 sn rastgele pay + okuma süresi; Keycloak yavaş ama zaman aşımından önce cevap veriyorsa en çok 300 + 14 + 2 × 60 sn (hesap, ölçülmedi). Servis boştayken: repoya girmeyen tek seferlik bir testte ilk istek 334,6 sn'de kabul, sonraki 337,6 sn'de ret |
+| 2 | Konuların hepsi | `SECURITY-REVIEW.md`: 28 bulgu (2 Kritik, 5 Yüksek, 10 Orta, 11 Düşük). Mailin dokuz konusu ayrı başlıklarda, her birinde nasıl bakıldığı ve sonuç; bulgu çıkmayan kısımlar (webhook imza doğrulaması, Fatura Servisi'nin CORS'u, ham SQL, hata cevapları ve loglar) "bulgu yok" diye. OWASP Top 10:2025 kategorileriyle eşleştirme tablosu |
+| 3 | Bağımlılık taraması | .NET (16 proje, `dotnet list package --vulnerable --include-transitive`): bilinen açık yok. Operasyon ekranı (`npm audit`): üretim bağımlılıklarında 0, geliştirme bağımlılıklarında 2 moderate (vitest). 27 Ekim 2026 tarihli tarama |
+| 4 | Ham SQL | Üretim kodunda 16 yer (`3-ham-sql.ps1`): 11'i parametreli (7'si EF logunda, 4'ü koddan gösterildi); 5'i dışarıdan değer almayan sabit metin (`nextval`, ayardan gelen sayıyla `SET LOCAL`, 3 migration komutu) |
+| 5 | Düzeltmeden önce ve sonra | `1-canli-tarama.ps1` önce/sonra (Y4'ün öncesi hariç): varsayılan profildeki portlardan yerel ağdan açık olan 10 → 0 (ERP Simülatörü'nün token'sız listesi dahil; `iki-kopya` profilindeki 5091 denenmedi, compose satırı aynı biçimde değişti); repodaki değerlerle giriş: Keycloak yöneticisi ve client secret kabul → ret (`invalid_grant`, `unauthorized_client`); önce `invoice/invoice` ile veritabanına girildi, sonra iki veritabanında da eski şifre `password authentication failed`; test kullanıcılarının eski şifreleri sonra `invalid_grant`; repodaki secret'la sahte ret haberi faturayı Reddedildi yaptı → `401`, fatura Gönderildi kaldı. Test kullanıcılarının "önce"si Gün 17'nin çıktısında (`gun17-1-hazir.txt`) |
+| 6 | Loglarda token, şifre, secret | `2-log-arama.ps1`: dört token'lı, token'sız ve bozuk istekler, yanlış şifre, imzalı/imzasız webhook; bütün container loglarında 23 arama (alınan token'lar, JWT biçimi, `Bearer`, `Authorization`, `.env`'deki sekiz değerin her biri, yanlış şifre, Basic, `Password=`, `client_secret=`). İsteklerden sonraki loglarda ve şu anki container'ların açılışından bu yana bütün loglarda, gönderilen ve ayrıntılı log seviyesinde 0 |
 
-`2-keycloak-kapali-log.ps1` Gün 17'deki durumu açık yığında tekrarlar (Keycloak durdurulur, servis yeniden başlatılır, aynı token `401` alır, logdaki uyarı satırı aranır, Keycloak açılınca aynı token `200`). `1-ekran-sure.ps1 -Hazirla` yığını bu güne özel volume'lerle açar, `config.ts`'teki süreyi yalnızca derleme için değiştirip geri alır;
-`-Oturum once|sonra` operatörün Keycloak oturumlarını yönetim API'sinden okur, `-Hazirla -Dakika 15` ekranı ayardaki süreyle geri derler.
-`3-mutasyon.ps1` dört mutasyonu sırayla koşar (~10 dk), `4-on-tekrar.ps1` üç takımı 10 kez (~35 dk).
+`1-canli-tarama.ps1 -Etiket <ad>` portları bilgisayarın yerel ağ adresinden dener; `2-log-arama.ps1 -AyrintiliLog` aynı aramayı
+kimlik doğrulama Debug ve EF SQL logu açıkken yapar, bu koşunun logunu `3-ham-sql.ps1` okur.
 
 ### Bilinen sınırlar
 
 - **Anahtar değişiminden sonraki ilk istek:** servis yeni anahtarı ilk gördüğü istekte öğrenir; o istek `401` alır, sonrakiler kabul
   edilir. Bu, her anahtar değişiminde her servis kopyasında bir kez olur.
-- **Servisin önceden okuduğu anahtar:** Keycloak'ta önce yeni anahtar eklenip servis onu öğrendikten sonra eski anahtar kaldırılırsa,
-  eski anahtar servisin listesinde durduğu için kabul edilmeye devam eder (denemede kaldırıldıktan sonraki üç istekte, yaklaşık
-  2 saniye boyunca kabul edildi). Test, anahtarın servis yeni anahtarı görmeden kaldırıldığı sırayla yazılmıştır.
+- **Keycloak'a ulaşılamazken kaldırılan anahtar:** listenin yeniden okunması başarısız olursa servis eski listeyi kullanmaya devam
+  eder; bu sürede kaldırılan anahtarın kabul süresinin üst sınırı yoktur.
+- **Boştaki servisin ilk isteği:** süre dolduktan sonra gelen ilk istek eski listeyle doğrulanır; servis uzun süre istek almadıysa
+  kaldırılan anahtarla imzalı bir token bu istekte kabul edilebilir.
+- **ERP Simülatörü'ne yerelden erişim:** simülatör hâlâ kimlik doğrulaması istemiyor; bu bilgisayardan ya da compose ağındaki bir
+  container'dan ulaşılabilir (SECURITY-REVIEW.md, Y5).
+- **`KeyRefreshTests`'in süresi:** test ayardaki süre kadar bekler (5 dk için ~5 dk 10 sn); ayar büyütülürse entegrasyon testlerinin
+  toplam süresi CI'daki 15 dk sınırını geçebilir.
 
 ---
 
@@ -675,3 +710,4 @@ Kontrol listesi ([`manual-tests/gun19/`](manual-tests/gun19/); 1. madde tarayıc
 | `gun-17` | Kimlik Doğrulama, Keycloak ve API | [tree/gun-17](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-17) |
 | `gun-18` | Operasyon Ekranına Giriş | [tree/gun-18](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-18) |
 | `gun-19` | Kimlik Doğrulamanın Otomatik Testleri | [tree/gun-19](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-19) |
+| `gun-20` | Güvenlik Gözden Geçirmesi | [tree/gun-20](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-20) |

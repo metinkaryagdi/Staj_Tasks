@@ -27,7 +27,7 @@ $wrongAudience = (Invoke-RestMethod -Method Post -Uri $TokenUrl -Body @{
     grant_type = 'password'; client_id = 'admin-cli'; username = 'izleyici'; password = $TestUsers['izleyici'] }).access_token
 Test-Token "2) fatura realm'i, admin-cli client'ı (audience mapper yok), izleyici" $wrongAudience 401
 $otherIssuer = (Invoke-RestMethod -Method Post -Uri "$KeycloakUrl/realms/master/protocol/openid-connect/token" -Body @{
-    grant_type = 'password'; client_id = 'admin-cli'; username = 'admin'; password = 'admin' }).access_token
+    grant_type = 'password'; client_id = 'admin-cli'; username = 'admin'; password = (Get-DotEnvValue 'KEYCLOAK_ADMIN_PASSWORD') }).access_token
 Test-Token "3) master realm'i (başka issuer), admin" $otherIssuer 401
 
 Write-Line ''

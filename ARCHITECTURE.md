@@ -476,7 +476,10 @@ keycloak/
   listeyi Keycloak'tan yeniden okur. Bunu tetikleyen istek yine `401` alır, sonrakiler kabul edilir. Kütüphanenin "last known good"
   davranışı kapalıdır (`AuthExtensions`'taki `PostConfigure`): açıkken, yeni listede bulunamayan anahtarla imzalı token daha önce
   okunmuş listeyle yeniden denenir ve Keycloak'ın kaldırdığı anahtar çalışan serviste geçerli kalırdı (denendi). Servisin daha önce
-  okuduğu listede duran bir anahtar ise Keycloak'tan kaldırıldıktan sonra da kabul edilmeye devam eder (denendi).
+  okuduğu listede duran bir anahtar ise yeniden okumayı tetiklemez; liste bir sonraki okunuşa kadar kabul edilir. Bu yüzden liste
+  `Keycloak:JwksRefreshMinutes` (5) dakikada bir okunur; kütüphanenin varsayılanı 12 saattir, alt sınırı 5 dakikadır. Okuma bir
+  istekle tetiklenir: süre dolduktan sonraki ilk istek hâlâ eski listeyle doğrulanır, yeni liste arka planda okunur. Okuma başarısız
+  olursa (Keycloak'a ulaşılamıyorsa) eski liste kalır.
 - **Keycloak'a ulaşılamadığı logda söylenir.** Keycloak kapalıyken açılan servis issuer'ı ve anahtarları bilmez; her token "issuer is
   invalid" ile reddedilir ve JwtBearer bunu yalnızca Information düzeyinde yazar. `OnAuthenticationFailed` issuer hatasında ayarları
   yeniden ister; alınamazsa Keycloak'ın adresi ve nedeniyle bir Warning satırı yazar, alınabiliyorsa (token başka bir

@@ -14,7 +14,7 @@ function Check([bool]$Passed, [string]$Text) {
 # Keycloak'ın yönetim API'si (docker-compose.yml'deki yerel admin kullanıcısıyla). $Path fatura realm'ine göre.
 function Get-Admin([string]$Path) {
     $admin = (Invoke-RestMethod -Method Post -Uri "$KeycloakUrl/realms/master/protocol/openid-connect/token" -Body @{
-        grant_type = 'password'; client_id = 'admin-cli'; username = 'admin'; password = 'admin' }).access_token
+        grant_type = 'password'; client_id = 'admin-cli'; username = 'admin'; password = (Get-DotEnvValue 'KEYCLOAK_ADMIN_PASSWORD') }).access_token
     Invoke-RestMethod -Uri "$KeycloakUrl/admin/realms/fatura$Path" -Headers @{ Authorization = "Bearer $admin" } |
         ForEach-Object { $_ }
 }

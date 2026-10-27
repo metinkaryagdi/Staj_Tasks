@@ -14,12 +14,8 @@ function Send-Json([string]$Url, [string]$Json) {
 
 # --- ERP haberleri (webhook) ----------------------------------------------------------------------------------------
 
-# Servisin ayar dosyasındaki gizli anahtar (appsettings.json yorum içerdiği için ConvertFrom-Json yerine regex).
-function Get-WebhookSecret {
-    $text = Get-Content (Join-Path $RepoRoot 'invoice-service\src\InvoiceService.Api\appsettings.json') -Raw -Encoding UTF8
-    if ($text -notmatch '"ErpWebhooks"[\s\S]*?"Secret"\s*:\s*"([^"]+)"') { throw 'ErpWebhooks:Secret ayar dosyasında bulunamadı.' }
-    $Matches[1]
-}
+# Haber imzasının anahtarı: docker compose'un servislere verdiği, .env'deki değer.
+function Get-WebhookSecret { Get-DotEnvValue 'ERP_WEBHOOK_SECRET' }
 
 function Get-UnixNow { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
 

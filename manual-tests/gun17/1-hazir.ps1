@@ -30,7 +30,7 @@ Check ($import.Count -ge 1 -and $import[-1].Line -match 'imported') "Realm 'fatu
 
 # Keycloak'ın yönetim API'si (compose'daki admin kullanıcısıyla, yalnızca okuma).
 $admin = (Invoke-RestMethod -Method Post -Uri "$KeycloakUrl/realms/master/protocol/openid-connect/token" -Body @{
-    grant_type = 'password'; client_id = 'admin-cli'; username = 'admin'; password = 'admin' }).access_token
+    grant_type = 'password'; client_id = 'admin-cli'; username = 'admin'; password = (Get-DotEnvValue 'KEYCLOAK_ADMIN_PASSWORD') }).access_token
 $h = @{ Authorization = "Bearer $admin" }
 function Get-Admin([string]$Path) { @(Invoke-RestMethod -Uri "$KeycloakUrl/admin/realms/fatura$Path" -Headers $h) | ForEach-Object { $_ } }
 

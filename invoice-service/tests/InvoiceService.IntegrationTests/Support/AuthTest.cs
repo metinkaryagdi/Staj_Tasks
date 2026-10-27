@@ -37,6 +37,7 @@ public abstract class AuthTest(PostgresFixture postgres, KeycloakFixture keycloa
         ["ConnectionStrings:InvoiceDb"] = ConnectionString,
         ["Erp:BaseUrl"] = Erp.BaseUrl,
         ["Keycloak:BaseUrl"] = keycloak.BaseUrl,
+        ["ErpWebhooks:Secret"] = TestSettings.WebhookSecret,
         // No Collector runs in the tests: the exporters would wait about 4 s at every shutdown trying to send.
         ["OTEL_SDK_DISABLED"] = "true"
     };

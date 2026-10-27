@@ -27,6 +27,9 @@ public static class AuthExtensions
                 options.Audience = settings.Audience;
                 // JwtBearer's default would accept an expired token for 5 more minutes; the settings file says how long.
                 options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(settings.ClockSkewSeconds!.Value);
+                // A key Keycloak no longer publishes stays in the service's list until the list is read again; the library's
+                // default reads it every 12 hours. A key already in the list does not make the service read it sooner.
+                options.AutomaticRefreshInterval = TimeSpan.FromMinutes(settings.JwksRefreshMinutes!.Value);
                 // Claims keep the names they have in the token: by default "sub" would be renamed to the long
                 // NameIdentifier type and FindFirst("sub") would find nothing.
                 options.MapInboundClaims = false;

@@ -1,14 +1,18 @@
 name: staj-tasks
 
+# Every published port is bound to 127.0.0.1: the browser and the scripts on this computer reach them, other machines on
+# the network do not (a plain "5434:5432" would listen on every interface).
 services:
   erp-db:
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: erp_simulator
       POSTGRES_USER: erp
-      POSTGRES_PASSWORD: erp
+      # Passwords and secrets come from .env (example: .env.example; .env is not in git). Without a value compose does
+      # not start. The password is set when the volume is created; an older volume keeps its old one (see README).
+      POSTGRES_PASSWORD: ${ERP_DB_PASSWORD:?.env dosyasında ERP_DB_PASSWORD yok (bkz. .env.example)}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - erp-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -22,11 +26,14 @@ services:
   erp-simulator:
     build: ./erp-simulator
     ports:
-      - "5080:8080"
+      - "127.0.0.1:5080:8080"
     environment:
       # Container settings (database, invoice service address) are in appsettings.Docker.json, read on top of
       # appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
+      # The database password and the webhook secret come from .env, not from a file in the repository.
+      ConnectionStrings__ErpDb: "Host=erp-db;Database=erp_simulator;Username=erp;Password=${ERP_DB_PASSWORD:?};GSS Encryption Mode=Disable"
+      Webhooks__Secret: ${ERP_WEBHOOK_SECRET:?.env dosyasında ERP_WEBHOOK_SECRET yok (bkz. .env.example)}
       # Optional overrides, passed through from the shell only when set there (e.g.
       # `Simulator__Rates__Success=0 Simulator__Rates__Busy=100 ... docker compose up -d erp-simulator`; rates must
       # add up to 100).
@@ -78,9 +85,9 @@ services:
     environment:
       POSTGRES_DB: invoice_service
       POSTGRES_USER: invoice
-      POSTGRES_PASSWORD: invoice
+      POSTGRES_PASSWORD: ${INVOICE_DB_PASSWORD:?.env dosyasında INVOICE_DB_PASSWORD yok (bkz. .env.example)}
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - invoice-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -94,11 +101,14 @@ services:
   invoice-service:
     build: ./invoice-service
     ports:
-      - "5090:8080"
+      - "127.0.0.1:5090:8080"
     environment:
       # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of
       # appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
+      # The database password and the webhook secret come from .env, not from a file in the repository.
+      ConnectionStrings__InvoiceDb: "Host=invoice-db;Database=invoice_service;Username=invoice;Password=${INVOICE_DB_PASSWORD:?};GSS Encryption Mode=Disable"
+      ErpWebhooks__Secret: ${ERP_WEBHOOK_SECRET:?}
       # Optional overrides of the reconciliation settings, passed through from the shell only when set there
       # (e.g. IntervalMinutes=1 to see the scheduled runs quickly).
       Reconciliation__IntervalMinutes:
@@ -127,25 +137,33 @@ services:
         # Keycloak'ın tarayıcıdan görünen adresi: kullanıcı giriş için buraya yönlendirilir, token buradan alınır.
         VITE_KEYCLOAK_URL: http://localhost:8080
     ports:
-      - "5100:80"
+      - "127.0.0.1:5100:80"
 
   # Kimlik doğrulama: kullanıcılar ve servisler token'ı buradan alır; Fatura Servisi token'ı buranın yayımladığı anahtarlarla
   # (JWKS) doğrular. Realm (roller, client'lar, test kullanıcıları) açılışta keycloak/ klasöründeki dosyadan kurulur. Realm
   # zaten varsa dosya okunmaz: dosyadaki bir değişiklik için container yeniden yaratılır
-  # (docker compose up -d --force-recreate keycloak). Yönetim konsolu http://localhost:8080 (admin / admin).
+  # (docker compose up -d --force-recreate keycloak). Yönetim konsolu http://localhost:8080 (admin, şifre .env'deki
+  # KEYCLOAK_ADMIN_PASSWORD).
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.1
     command: ["start-dev", "--import-realm"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?.env dosyasında KEYCLOAK_ADMIN_PASSWORD yok (bkz. .env.example)}
+      # The order system client's secret: keycloak/fatura-realm.json reads it as ${ORDER_SYSTEM_CLIENT_SECRET} when the
+      # realm is imported.
+      ORDER_SYSTEM_CLIENT_SECRET: ${ORDER_SYSTEM_CLIENT_SECRET:?.env dosyasında ORDER_SYSTEM_CLIENT_SECRET yok (bkz. .env.example)}
+      # The test users' passwords, read the same way (${TEST_..._PASSWORD} in the realm file).
+      TEST_IZLEYICI_PASSWORD: ${TEST_IZLEYICI_PASSWORD:?.env dosyasında TEST_IZLEYICI_PASSWORD yok (bkz. .env.example)}
+      TEST_OPERATOR_PASSWORD: ${TEST_OPERATOR_PASSWORD:?.env dosyasında TEST_OPERATOR_PASSWORD yok (bkz. .env.example)}
+      TEST_ROLSUZ_PASSWORD: ${TEST_ROLSUZ_PASSWORD:?.env dosyasında TEST_ROLSUZ_PASSWORD yok (bkz. .env.example)}
       # Token'lara yazılan issuer, isteğin hangi adresten geldiğine bakılmaksızın hep bu. Bilgisayardaki script'ler
       # localhost:8080'den, servisler ağın içinden keycloak:8080'den ulaşır; iki adres iki farklı issuer üretmesin.
       KC_HOSTNAME: http://localhost:8080
       # JWKS ve token adresleri isteğin geldiği adrese göre verilir: Fatura Servisi anahtarları keycloak:8080'den alır.
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
     networks:
@@ -159,11 +177,13 @@ services:
     build: ./invoice-service
     profiles: ["iki-kopya"]
     ports:
-      - "5091:8080"
+      - "127.0.0.1:5091:8080"
     environment:
       # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of
       # appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__InvoiceDb: "Host=invoice-db;Database=invoice_service;Username=invoice;Password=${INVOICE_DB_PASSWORD:?};GSS Encryption Mode=Disable"
+      ErpWebhooks__Secret: ${ERP_WEBHOOK_SECRET:?}
       # Optional overrides of the reconciliation settings, passed through from the shell only when set there
       # (e.g. IntervalMinutes=1 to see the scheduled runs quickly).
       Reconciliation__IntervalMinutes:
@@ -193,6 +213,8 @@ services:
       RATE:
       DURATION:
       RUN_ID:
+      # The order system's secret, for the token the load test takes.
+      ORDER_SYSTEM_CLIENT_SECRET: ${ORDER_SYSTEM_CLIENT_SECRET:?}
     volumes:
       - ./load-test:/scripts:ro
       - ./load-test/results:/results
@@ -233,14 +255,14 @@ services:
   jaeger:
     image: jaegertracing/jaeger:2.10.0
     ports:
-      - "16686:16686"
+      - "127.0.0.1:16686:16686"
     networks:
       - apps
 
   prometheus:
     image: prom/prometheus:v3.5.0
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./monitoring/prometheus:/etc/prometheus:ro
     networks:
@@ -249,7 +271,7 @@ services:
   alertmanager:
     image: prom/alertmanager:v0.28.1
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
     volumes:
       - ./monitoring/alertmanager:/etc/alertmanager:ro
     networks:
@@ -266,7 +288,7 @@ services:
   grafana:
     image: grafana/grafana:12.1.0
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer

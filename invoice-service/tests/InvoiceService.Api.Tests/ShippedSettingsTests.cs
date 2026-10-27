@@ -59,9 +59,23 @@ public class ShippedSettingsTests
     public void Settings_file_response_limits_are_valid()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-        var configuration = new ConfigurationBuilder().AddJsonFile(path).Build();
+        // The secret is given from the environment (docker compose, .env); every other webhook value is the shipped one.
+        var configuration = new ConfigurationBuilder().AddJsonFile(path)
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["ErpWebhooks:Secret"] = "test-only-erp-webhook-secret-at-least-32-bytes" })
+            .Build();
         Assert.True(Validates(configuration));
         Assert.True(configuration.GetValue<int>("ErpWebhooks:ResponseBudgetMilliseconds") < WebhookOptionsValidator.ResponseLimitMilliseconds);
+    }
+
+    [Fact]
+    public void Shipped_settings_hold_no_secret_or_password()
+    {
+        var configuration = new ConfigurationBuilder().AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json")).Build();
+
+        Assert.Equal("", configuration["ErpWebhooks:Secret"]);
+        Assert.DoesNotContain("password", configuration.GetConnectionString("InvoiceDb")!, StringComparison.OrdinalIgnoreCase);
+        // Without the secret from the environment the service does not start.
+        Assert.False(Validates(configuration));
     }
 
     [Fact]
@@ -103,5 +117,6 @@ public class ShippedSettingsTests
         Assert.Equal("http://localhost:8080/realms/fatura", settings.Authority);
         Assert.Equal("fatura-servisi", settings.Audience);
         Assert.Equal(30, settings.ClockSkewSeconds);
+        Assert.Equal(5, settings.JwksRefreshMinutes);
     }
 }
