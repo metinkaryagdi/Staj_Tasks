@@ -65,43 +65,14 @@ Write-Line 'O7) operasyon-ekrani client''ı: offline token ve refresh token''ın
 $ekranUser = New-TempUser 'gun21-ekran'
 $roles = @(Get-Admin "/users/$($ekranUser.Id)/role-mappings/realm/composite" | ForEach-Object { $_.name })
 Write-Line "  gun21-ekran'ın realm rolleri (varsayılan rollerden): $(($roles | Sort-Object) -join ', ')"
-# Ekranın giriş akışı (Authorization Code + PKCE): giriş formu kullanıcı adı ve şifreyle gönderilir, dönen kod token'la
-# değiştirilir. Keycloak'ın oturum çerezleri elle taşınır: Windows PowerShell'in CookieContainer'ı bu çerezleri
-# (Version=1, SameSite) kaydetmiyor.
-function Get-EkranTokens([string]$Scope, [pscustomobject]$User, [string]$UserName) {
-    $browser = [Net.Http.HttpClient]::new([Net.Http.HttpClientHandler]@{ AllowAutoRedirect = $false; UseCookies = $false })
-    $verifier = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
-    $challenge = [Convert]::ToBase64String([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::ASCII.GetBytes($verifier))).TrimEnd('=').Replace('+', '-').Replace('/', '_')
-    $redirect = [Uri]::EscapeDataString('http://localhost:5100/')
-    $authUrl = "$KeycloakUrl/realms/fatura/protocol/openid-connect/auth?client_id=operasyon-ekrani&response_type=code" +
-        "&scope=$([Uri]::EscapeDataString($Scope))&redirect_uri=$redirect&state=gun21&code_challenge=$challenge&code_challenge_method=S256"
-    $loginPage = $browser.GetAsync($authUrl).GetAwaiter().GetResult()
-    # Keycloak isteği giriş formunu göstermeden reddederse hatayla geri yönlendirir (ör. error=invalid_scope).
-    $authError = [regex]::Match("$($loginPage.Headers.Location)", '[?&]error=([^&]+)&error_description=([^&]+)')
-    if ($authError.Success) {
-        Write-Line "  Giriş, scope '$Scope': Keycloak reddetti, $($authError.Groups[1].Value): $([Uri]::UnescapeDataString($authError.Groups[2].Value.Replace('+', ' ')))"
-        return [pscustomobject]@{ Status = 'reddedildi'; Refresh = $null; Type = $null }
-    }
-    $page = $loginPage.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-    $cookies = ($loginPage.Headers.GetValues('Set-Cookie') | ForEach-Object { $_.Split(';')[0] }) -join '; '
-    $action = [Net.WebUtility]::HtmlDecode([regex]::Match($page, 'id="kc-form-login"[^>]*action="([^"]+)"').Groups[1].Value)
-    $loginPost = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Post, $action)
-    $loginPost.Content = [Net.Http.StringContent]::new("username=$UserName&password=$($User.Password)&credentialId=", [Text.Encoding]::UTF8, $form)
-    [void]$loginPost.Headers.TryAddWithoutValidation('Cookie', $cookies)
-    $posted = $browser.SendAsync($loginPost).GetAwaiter().GetResult()
-    $code = [regex]::Match("$($posted.Headers.Location)", '[?&]code=([^&]+)').Groups[1].Value
-    $tokens = Send-Http POST $TokenUrl @{} "grant_type=authorization_code&client_id=operasyon-ekrani&code=$code&redirect_uri=$redirect&code_verifier=$verifier" $form
-    $json = if ($tokens.Status -eq 200) { $tokens.Body | ConvertFrom-Json } else { $null }
-    Write-Line "  Giriş, scope '$Scope': HTTP $($tokens.Status), verilen scope '$($json.scope)' $(Get-Field $tokens.Body 'error_description')"
-    [pscustomobject]@{ Status = $tokens.Status; Refresh = $json.refresh_token; Type = $(if ($json) { (Get-TokenClaims $json.refresh_token).typ }) }
-}
 $refresh = { param($Token) Send-Http POST $TokenUrl @{} "grant_type=refresh_token&client_id=operasyon-ekrani&refresh_token=$Token" $form }
 
-$offline = Get-EkranTokens 'openid offline_access' $ekranUser 'gun21-ekran'
+$ekran = @{ ClientId = 'operasyon-ekrani'; Redirect = 'http://localhost:5100/'; UserName = 'gun21-ekran'; Password = $ekranUser.Password }
+$offline = Get-AuthCodeTokens @ekran -Scope 'openid offline_access'
 # Offline token verilmemesi iki yoldan olabilir: scope yok sayılır (200, normal refresh token) ya da Keycloak isteği
 # reddeder (nedeni satırda yazar).
 Check ($offline.Status -in 200, 'reddedildi' -and $offline.Type -ne 'Offline') "    offline_access istenince refresh token'ın türü (typ): $($offline.Type)"
-$normal = Get-EkranTokens 'openid' $ekranUser 'gun21-ekran'
+$normal = Get-AuthCodeTokens @ekran -Scope 'openid'
 Write-Line "    refresh token'ın türü (typ): $($normal.Type)"
 $first = & $refresh $normal.Refresh
 $second = & $refresh $normal.Refresh
@@ -146,8 +117,11 @@ foreach ($app in @(@{ Service = 'invoice-service'; Variable = 'ConnectionStrings
 
 Write-Line ''
 Write-Line 'O3, O10) Prometheus, Alertmanager, Jaeger: kimliksiz istek, token''la istek ve başka origin''den istek'
-$operator = Get-UserToken 'operator'
-$izleyici = Get-UserToken 'izleyici'
+# Giriş kapısının kendi client'ından (izleme-girisi) alınan token'lar; fatura-servisi audience'lı API token'ı geçmemeli.
+$izleme = @{ ClientId = 'izleme-girisi'; Redirect = 'http://localhost:9090/oauth2/callback'; Scope = 'openid'; ClientSecret = (Get-DotEnvValue 'MONITORING_CLIENT_SECRET') }
+$operator = (Get-AuthCodeTokens @izleme -UserName 'operator' -Password $TestUsers['operator']).Access
+$izleyici = (Get-AuthCodeTokens @izleme -UserName 'izleyici' -Password $TestUsers['izleyici']).Access
+$apiToken = Get-UserToken 'operator'
 $tools = [ordered]@{
     'Prometheus GET /api/v1/query?query=up' = 'http://localhost:9090/api/v1/query?query=up'
     'Alertmanager GET /api/v2/alerts'       = 'http://localhost:9093/api/v2/alerts'
@@ -160,6 +134,8 @@ foreach ($name in $tools.Keys) {
     Write-Line "    operator token'ıyla: HTTP $($op.Status)"
     $iz = Send-Http GET $tools[$name] @{ Authorization = "Bearer $izleyici" }
     Write-Line "    izleyici token'ıyla: HTTP $($iz.Status)"
+    $api = Send-Http GET $tools[$name] @{ Authorization = "Bearer $apiToken" }
+    Write-Line "    operator'ün Fatura Servisi token'ıyla (audience fatura-servisi): HTTP $($api.Status)"
 }
 $silenceBody = @{ matchers = @(@{ name = 'alertname'; value = 'Gun21Deneme'; isRegex = $false; isEqual = $true }); startsAt = (Get-Date).ToUniversalTime().ToString('o')
     endsAt = (Get-Date).AddMinutes(1).ToUniversalTime().ToString('o'); createdBy = 'gun21'; comment = 'önce/sonra denemesi' } | ConvertTo-Json -Depth 4

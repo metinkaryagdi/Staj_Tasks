@@ -43,18 +43,25 @@ Portlar yalnızca bu bilgisayara (`127.0.0.1`) açılır; aynı ağdaki başka m
 | Servis | Adres |
 |---|---|
 | ERP Simulator | http://localhost:5080 (Swagger: http://localhost:5080/swagger) |
-| ERP veritabanı | `localhost:5433` — db `erp_simulator`, kullanıcı `erp`, şifre `.env`'deki `ERP_DB_PASSWORD` |
+| ERP veritabanı | `localhost:5433` — db `erp_simulator`, sahibi `erp` (`.env`'deki `ERP_DB_PASSWORD`); simülatör `erp_app` ile bağlanır (`ERP_DB_APP_PASSWORD`) |
 | Invoice Service | http://localhost:5090 (Swagger: http://localhost:5090/swagger) |
-| Fatura veritabanı | `localhost:5434` — db `invoice_service`, kullanıcı `invoice`, şifre `.env`'deki `INVOICE_DB_PASSWORD` |
+| Fatura veritabanı | `localhost:5434` — db `invoice_service`, sahibi `invoice` (`.env`'deki `INVOICE_DB_PASSWORD`); servis `invoice_app` ile bağlanır (`INVOICE_DB_APP_PASSWORD`) |
 | Keycloak | http://localhost:8080 (yönetim konsolu `admin`, şifre `.env`'deki `KEYCLOAK_ADMIN_PASSWORD`; realm `fatura`) |
 | Operasyon Ekranı | http://localhost:5100 |
-| Grafana (pano) | http://localhost:3000 (giriş gerekmez; değiştirmek için `admin` / `admin`) |
+| Grafana (pano) | http://localhost:3000 (`admin`, şifre `.env`'deki `GRAFANA_ADMIN_PASSWORD`) |
 | Prometheus | http://localhost:9090 (alarmlar: http://localhost:9090/alerts) |
 | Alertmanager | http://localhost:9093 |
 | Jaeger (izler) | http://localhost:16686 |
 
+Prometheus, Alertmanager ve Jaeger'a Keycloak'ta giriş yapılarak ulaşılır; yalnız `fatura-operatoru` rolü geçer (önlerinde
+`izleme-girisi` ve `oauth2-proxy`, [İzleme](#i̇zleme)). Bir girişle üç adres de açılır.
+
 Her uygulamanın yalnızca kendi veritabanının bağlantı bilgisi vardır; iki uygulama birbirine yalnızca HTTP ile ulaşır.
-Şema EF Core migration ile açılışta oluşur. Docker içinde her uygulama `appsettings.json`'ın üzerine
+Şema EF Core migration'larıyla kurulur. Migration'ları uygulamalar değil, açılışta bir kez çalışıp kapanan `erp-migrate` ve
+`invoice-migrate` container'ları veritabanının sahibiyle uygular; ardından uygulamanın bağlandığı kullanıcıyı (`erp_app`,
+`invoice_app`) oluşturur ya da şifresini günceller ve ona yalnız satır okuma ve yazma yetkisi verir (tablo silemez, başka
+veritabanına bağlanamaz). Uygulamalar bu adım bitmeden açılmaz. Compose dışında aynı adım `dotnet run --project <Api projesi> --
+--migrate-only` ile çalışır (bağlantı dizesi sahibin kullanıcısıyla, `AppDatabaseUser__Password` ortamdan). Docker içinde her uygulama `appsettings.json`'ın üzerine
 `appsettings.Docker.json`'ı okur (veritabanı bağlantısı ve karşı uygulamanın adresi oradadır).
 
 ---
@@ -441,6 +448,7 @@ Jaeger'a iletir ([İzler](#i̇zler)). Hepsi `docker compose up -d --build` ile a
 | [`monitoring/prometheus/alert-rules.yml`](monitoring/prometheus/alert-rules.yml) | Yedi alarmın eşiği, süresi ve açıklaması; değişiklikten sonra `docker compose restart prometheus` |
 | [`monitoring/alertmanager/alertmanager.yml`](monitoring/alertmanager/alertmanager.yml) | Bütün alarmlar alıcıya; çözülen alarm da bildirilir |
 | [`monitoring/grafana/`](monitoring/grafana/) | Veri kaynağı ve pano provisioning'i, pano (`dashboards/fatura-servisi.json`) |
+| [`monitoring/izleme-girisi/`](monitoring/izleme-girisi/) | Prometheus, Alertmanager ve Jaeger'ın önündeki nginx: her istek `oauth2-proxy`'ye sorulur (Keycloak'ın `izleme-girisi` client'ı, yalnız `fatura-operatoru`), araçların `Access-Control-*` başlıkları silinir. oauth2-proxy'nin ayarları `docker-compose.yml`'da. Script'ler bu client'tan alınmış token'ı `Bearer` ile gönderir (`manual-tests/gun21/_common.ps1`, `Get-AuthCodeTokens`) |
 
 ### Metrikler
 
@@ -554,6 +562,7 @@ trace'idir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Gün 21 kontrol listesi: kapatılan bulguların önce/sonra istekleri (Grafana, kaba kuvvet ve şifre politikası, offline token ve refresh token'ın ikinci kullanımı, ekranın başlıkları, veritabanı kullanıcıları, izleme araçlarına kimliksiz ve başka origin'den istek), yük testi | [`manual-tests/gun21/`](manual-tests/gun21/) |
 | Gün 19 kontrol listesi (ekranda işlemsizlik süresi, kısaltılmış süreyle; rol ve audience kontrolü kaldırılınca kırılan testler; bütün testlerin 10 kez koşulması) ve Keycloak kapalıyken açılan servisin log satırı | [`manual-tests/gun19/`](manual-tests/gun19/) |
 | Gün 18 kontrol listesi (kayıtta kullanıcı adıyla `sub`; `/health` token'sız; varsayılan kurulumda `fatura-test` yok; süresi dolmuş token 30 sn sonra `401`; izleyicinin token'ıyla müdahale `403`; çıkıştan önce ve sonra Keycloak oturumu; Keycloak durdurma). Ekran maddeleri tarayıcıda yapılır | [`manual-tests/gun18/`](manual-tests/gun18/) |
 | Gün 17 kontrol listesi (compose sonrası realm; endpoint × durum tablosu; operator_actions'ta token'daki ad; token ömründen uzun yük testi; webhook HMAC; Keycloak durdurma) ve audience / issuer kontrolü | [`manual-tests/gun17/`](manual-tests/gun17/) |
@@ -576,7 +585,8 @@ trace'idir:
 | ERP Simulator bash script'leri | `./scripts/erp-simulator-checklist.sh`, `./scripts/erp-simulator-distribution.sh <adet>` |
 
 `manual-tests/gun2/` script'leri Gün 2'deki eşzamanlı gönderimi test eder ve [gun-2](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-2)
-tag'inde çalıştırılmalıdır. Gün 1-16 script'leri token göndermez: API'ye istek atanlar o günlerin tag'lerinde çalıştırılmalıdır.
+tag'inde çalıştırılmalıdır. Gün 1-16 script'leri token göndermez: API'ye istek atanlar o günlerin tag'lerinde çalıştırılmalıdır. Prometheus, Alertmanager ya
+da Jaeger'a istek atan Gün 11-20 script'leri de token göndermez; o günlerin tag'lerinde çalıştırılmalıdır.
 
 ### Entegrasyon testleri
 
@@ -617,6 +627,7 @@ token, ikinci realm, anahtar değişimi) client'ın ya da realm'in bir kopyasın
 | 15. Müdahale kaydında token'daki ad ve `sub`; `sub`'sız token'la müdahale `403`, kayıt yok | `InterventionRecordTests` (2 test) |
 | 16. Keycloak kapalıyken açılan servis token'ı reddeder ve logda uyarı satırı yazar; Keycloak açılınca yeniden başlatılmadan kabul eder | `KeycloakDownTests` (Keycloak aynı portta yeni container olarak açılır: Testcontainers durdurulan Keycloak container'ını yeniden hazır hale getirirken takılıyor; yeni container yeni anahtar ürettiği için kabul yeni token'la sınanır) |
 | 17. Servis listeyi okuduktan hemen sonra Keycloak'tan kaldırılan anahtar, `Keycloak:JwksRefreshMinutes`'tan önce reddedilmez, ardından en geç rastgele pay ve 6 sn içinde reddedilir | `KeyRefreshTests` (~5 dk 10 sn sürer; test realm'inde token ömrü 15 dk) |
+| 18. Realm'in giriş kuralları: art arda 5 yanlış şifreden sonra doğru şifre de reddedilir ve kullanıcı kilitli görünür; ekranın client'ı `offline_access` isteyince `invalid_scope`; bir refresh token ikinci kez kullanılınca `invalid_grant` | `RealmSecurityTests` (3 test; kilit testi realm'in bir kopyasında) |
 
 Özet sayısının yük altındaki ölçümü: [`manual-tests/gun9/1-ozet-yuk-altinda.ps1`](manual-tests/gun9/1-ozet-yuk-altinda.ps1)
 (yük testi sürerken çalıştırılır).

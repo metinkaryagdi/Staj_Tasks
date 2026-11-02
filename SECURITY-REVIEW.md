@@ -45,16 +45,16 @@ derecedeki sırasıdır. Derecesi sonradan değişen bulgunun numarası, önceki
 | Y3 | Yüksek | Sipariş sistemi client secret'ı repoda: fatura oluşturma yetkili token alınabiliyor | A07 | Düzeltildi |
 | Y4 | Yüksek | Test kullanıcılarının şifreleri repoda: operatör yetkisi alınabiliyor | A07 | Düzeltildi |
 | Y5 | Yüksek | ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor | A01, A06 | Kısmen: ağ erişimi kapatıldı; uygulamada kimlik doğrulaması yok, öneri |
-| O1 | Orta | Kaba kuvvet koruması ve şifre politikası yok; `admin-cli` şifreyle token veriyor | A07 | Öneri |
-| O2 | Orta | Grafana yönetici hesabı imajın varsayılanı (`admin/admin`) | A07 | Öneri |
-| O3 | Orta | Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor | A01 | Öneri |
-| O4 | Orta | Operasyon ekranında HTTP güvenlik başlıkları yok, nginx sürümü görünüyor | A02 | Öneri |
+| O1 | Orta | Kaba kuvvet koruması ve şifre politikası yok; `admin-cli` şifreyle token veriyor | A07 | Düzeltildi (kaba kuvvet, şifre politikası); `admin-cli` öneri |
+| O2 | Orta | Grafana yönetici hesabı imajın varsayılanı (`admin/admin`) | A07 | Düzeltildi |
+| O3 | Orta | Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor | A01 | Düzeltildi |
+| O4 | Orta | Operasyon ekranında HTTP güvenlik başlıkları yok, nginx sürümü görünüyor | A02 | Düzeltildi (ekran); API'nin `Server` başlığı öneri |
 | O5 | Orta | Bütün trafik HTTP üzerinden (TLS yok) | A04 | Öneri |
 | O6 | Orta | ERP'deki kayıt içeriği karşılaştırılmadan faturaya bağlanıyor | A06 | Öneri |
-| O7 | Orta | Tarayıcı client'ı offline token alabiliyor; refresh token tekrar kullanılabiliyor | A07 | Öneri |
+| O7 | Orta | Tarayıcı client'ı offline token alabiliyor; refresh token tekrar kullanılabiliyor | A07 | Düzeltildi |
 | O8 | Orta | Güvenlik olayları saklanmıyor ve izlenmiyor | A09 | Öneri |
-| O9 | Orta | Uygulamaların veritabanı kullanıcıları süper kullanıcı | A02 | Öneri |
-| O10 | Orta | Alertmanager ve Prometheus her web sitesine CORS izni veriyor | A01 | Öneri |
+| O9 | Orta | Uygulamaların veritabanı kullanıcıları süper kullanıcı | A02 | Düzeltildi |
+| O10 | Orta | Alertmanager ve Prometheus her web sitesine CORS izni veriyor | A01 | Düzeltildi |
 | D1 | Düşük | Geliştirme bağımlılığında (vitest) bilinen açıklar | A03 | Öneri |
 | D2 | Düşük | ERP Simülatörü'nün 409 cevabı mevcut ERP referansını söylüyor | A01 | Öneri |
 | D3 | Düşük | Uygulama container'ları root olarak çalışıyor | A02 | Öneri |
@@ -205,7 +205,7 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   Simülatör gerçek ERP'nin yerini tutuyor; gerçek ERP'ye geçildiğinde de Fatura Servisi'nin kimlik bilgisi göndermesi ve ERP
   cevabına içerik karşılaştırmadan güvenmemesi (O6) gerekir.
 
-### O1 — Kaba kuvvet koruması ve şifre politikası yok; `admin-cli` şifreyle token veriyor (Orta)
+### O1 — Kaba kuvvet koruması ve şifre politikası yok; `admin-cli` şifreyle token veriyor (Orta; kaba kuvvet ve şifre politikası düzeltildi)
 
 - **Ne:** Realm'de `bruteForceProtected: false`, `passwordPolicy` boş. `fatura` realm'inin `admin-cli` client'ı public ve
   şifreyle token veriyor (`directAccessGrantsEnabled`).
@@ -214,16 +214,35 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   (bu token'ın audience'ı olmadığı için API kabul etmez, ama doğru şifre öğrenilir).
 - **Etki:** Zayıf şifreli bir hesabın ele geçmesi kolaylaşır.
 - **Öneri:** `bruteForceProtected` ve bir şifre politikası açılsın; `fatura` realm'inde `admin-cli`'nin şifreyle token vermesi kapatılsın.
+- **Düzeltme:** Realm dosyasında `bruteForceProtected: true`, `failureFactor: 5`, `waitIncrementSeconds: 60`,
+  `maxFailureWaitSeconds: 900`, `permanentLockout: false`: art arda 5 yanlış şifreden sonra kullanıcı 60 sn kilitlenir, tekrar
+  ederse süre 15 dk'ya kadar uzar; kalıcı kilit yok (saldırgan gerçek kullanıcıyı bilerek kilitleyemesin).
+  `passwordPolicy: "length(12) and notUsername and notEmail"`. Keycloak içe aktarırken verilen şifreleri politikaya göre
+  denetlemiyor; politika şifre belirlenirken ve değiştirilirken uygulanıyor.
+- **Önce:** istek: geçici kullanıcıyla `fatura-test` client'ından 5 yanlış şifre (1,5 sn arayla), ardından doğru şifre → 200;
+  yönetim API'sinde `attack-detection` `disabled=false`, `numFailures=0`; yönetim API'siyle şifreyi `kisa1` yapma → 204
+  (`manual-tests/gun21/1-once-sonra.ps1` O1, `b-once.txt`).
+- **Sonra:** aynı istekler → doğru şifre 400 `invalid_grant`; `disabled=true`, `numFailures=5`; 65 sn sonra doğru şifre 200;
+  `kisa1` → 400 `Invalid password: minimum length 12.` (`c-sonra.txt`). Test:
+  `RealmSecurityTests.After_five_wrong_passwords_in_a_row_the_right_password_is_refused_and_the_user_is_locked` (realm'in bir
+  kopyasında; `bruteForceProtected` geri alınınca kırılıyor, `c-mutasyon-realm.txt`).
+- **Kalan (öneri):** `fatura` realm'inde `admin-cli` hâlâ şifreyle token veriyor; kilit bu yoldan gelen denemeleri de sayıyor.
 
-### O2 — Grafana yönetici hesabı imajın varsayılanı (Orta)
+### O2 — Grafana yönetici hesabı imajın varsayılanı (Orta, düzeltildi)
 
 - **Ne:** Grafana'nın yönetici şifresi değiştirilmemiş (`admin/admin`); anonim kullanıcı panoyu görüyor.
 - **Nerede:** `docker-compose.yml` (`grafana`; `GF_SECURITY_ADMIN_PASSWORD` yok).
 - **Nasıl istismar edilir:** Grafana'ya ulaşabilen biri `admin/admin` ile girer.
 - **Etki:** Pano ve veri kaynağı değiştirilir; Prometheus'taki metrikler okunur. Uygulama verisine yazma yok.
 - **Öneri:** `GF_SECURITY_ADMIN_PASSWORD` ortamdan verilsin.
+- **Düzeltme:** Şifre `.env`'deki `GRAFANA_ADMIN_PASSWORD`'den; değer yoksa compose açılmıyor. Anonim izleyici kapatıldı:
+  anonim izleyici Grafana'nın veri kaynağı üzerinden Prometheus'a istediği sorguyu gönderebiliyordu, bu da O3'te Prometheus'un
+  önüne konan girişi atlatırdı. Pano için artık giriş gerekiyor.
+- **Önce:** istek `POST http://localhost:3000/login` (`admin/admin`) → 200 (`1-once-sonra.ps1` O2, `b-once.txt`); girişsiz
+  `GET /api/datasources/proxy/uid/prometheus/api/v1/query?query=up` → 200, Prometheus'un cevabı (`b-grafana-anonim-once.txt`).
+- **Sonra:** `admin/admin` → 401; `.env`'deki şifreyle → 200; girişsiz veri kaynağı sorgusu → 401 (`c-sonra.txt`).
 
-### O3 — Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor (Orta)
+### O3 — Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor (Orta, düzeltildi)
 
 - **Ne:** Üçünün de arayüzü ve API'si kimliksiz.
 - **Nerede:** `docker-compose.yml`, `monitoring/`.
@@ -231,8 +250,24 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   ayarlar ve metrikler, Jaeger'dan fatura numaralı izler okunur.
 - **Etki:** Bir saldırı sırasında alarmlar sessizce kapatılabilir; iç yapı ve fatura numaraları okunur.
 - **Öneri:** Dışarıya açılacaksa önlerine kimlik doğrulayan bir reverse proxy konsun.
+- **Düzeltme (O10 ile birlikte):** Üç aracın portları artık yayımlanmıyor; önlerinde `izleme-girisi` (nginx) aynı adresleri
+  (9090, 9093, 16686) dinliyor ve her isteği `oauth2-proxy`'ye soruyor (`auth_request`). Giriş Keycloak'ın `izleme-girisi`
+  client'ıyla (Authorization Code + PKCE, confidential); yalnız `fatura-operatoru` rolü geçiyor. Script'ler bu client'tan
+  alınmış token'ı `Bearer` ile gönderebiliyor (audience `izleme-girisi`; Fatura Servisi'nin token'ı geçmiyor). Oturum çerezi
+  dakikada bir Keycloak'ta yenileniyor, en çok 10 saat (oauth2-proxy'nin varsayılanı 7 gün ve yenilemesizdi).
+  Ayar `monitoring/izleme-girisi/`, `docker-compose.yml`.
+  - **Neden bu yol:** Kimlik doğrulaması zaten Keycloak'ta; kişiye bağlı giriş, rol kontrolü ve O1'deki kilit buraya da
+    uygulanıyor, yeni bir ortak şifre yok. Ortak şifreli basic auth seçilmedi: herkes aynı şifreyi kullanır, şifre her istekte
+    HTTP üzerinden gider (O5) ve kilit koruması yoktur. Araçların kendi basic auth'u (Prometheus, Alertmanager `web.config`)
+    Jaeger'ı kapsamıyor ve Alertmanager'ın CORS başlığını kaldırmıyor.
+- **Önce:** istekler token'sız: `GET :9090/api/v1/query?query=up`, `GET :9093/api/v2/alerts`, `GET :16686/api/services` → 200;
+  `POST :9093/api/v2/silences` → 200, susturma kaydı yazıldı (hemen silindi) (`1-once-sonra.ps1` O3, `b-once.txt`).
+- **Sonra:** aynı istekler token'sız → 302 (Keycloak girişine); operator'ün `izleme-girisi` token'ıyla → 200; izleyicinin
+  token'ıyla (rol yok) ve operator'ün Fatura Servisi token'ıyla (audience farklı) → 302 (`c-sonra.txt`).
+- **Kalan:** compose ağının içinden araçlara doğrudan ulaşılıyor (Grafana → Prometheus, Prometheus → Alertmanager); bu,
+  compose ağındaki bir container'a erişim gerektiriyor (D11 ile aynı sınır).
 
-### O4 — Operasyon ekranında HTTP güvenlik başlıkları yok (Orta)
+### O4 — Operasyon ekranında HTTP güvenlik başlıkları yok (Orta; ekran düzeltildi)
 
 - **Ne:** `Content-Security-Policy`, `X-Frame-Options` (ya da `frame-ancestors`), `X-Content-Type-Options`, `Referrer-Policy`,
   `Permissions-Policy` yok; `Server: nginx/1.31.8` sürüm bilgisi veriyor; API'nin cevabında da `Server` başlığı var (Kestrel varsayılanı).
@@ -242,6 +277,18 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Etki:** Operatörün haberi olmadan müdahale; XSS durumunda bellekteki token'ın okunması.
 - **Öneri:** nginx'e `Content-Security-Policy` (`default-src 'self'`, `connect-src` API ve Keycloak, `frame-ancestors 'none'`),
   `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`; `server_tokens off`; Kestrel'de `AddServerHeader = false`.
+- **Düzeltme:** `operations-ui/security-headers.inc.template`: `Content-Security-Policy: default-src 'self'; script-src 'self';
+  style-src 'self'; img-src 'self' data:; connect-src 'self' <API> <Keycloak>; object-src 'none'; base-uri 'self';
+  form-action 'self'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`; her
+  location'a ve hata cevaplarına (`always`) ekleniyor. `connect-src`'deki adresler ekranın derlendiği `VITE_API_URL` ve
+  `VITE_KEYCLOAK_URL`'den geliyor (nginx imajının template özelliği). `server_tokens off`. Derlenen sayfada satır içi script ya
+  da stil yok; CSP `'unsafe-inline'` gerektirmiyor.
+- **Önce:** istek `GET http://localhost:5100/`, bir asset ve olmayan bir asset (404) → üçünde de bu başlıklar yok,
+  `Server: nginx/1.31.8` (`1-once-sonra.ps1` O4, `b-once.txt`).
+- **Sonra:** üçünde de başlıklar var, `Server: nginx` (`c-sonra.txt`). Ekran uygulama içi tarayıcıda: giriş, Özet, Fatura
+  Listesi, Fatura Detayı, Mutabakat (mutabakat başlatma POST'u dahil) çalıştı; sayfa içinden dinlenen
+  `securitypolicyviolation` olayı yok, konsolda CSP hatası yok.
+- **Kalan (öneri):** API'nin cevabındaki `Server: Kestrel` başlığı.
 
 ### O5 — Bütün trafik HTTP üzerinden (Orta)
 
@@ -262,7 +309,7 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Etki:** Faturanın ERP'deki karşılığı başka içerikli bir kayıt olur; durum o kayda göre değişir.
 - **Öneri:** Benimsemeden önce tutar, para birimi, müşteri ve tarih karşılaştırılsın; uyuşmazsa bulgu olsun.
 
-### O7 — Tarayıcı client'ı offline token alabiliyor; refresh token tekrar kullanılabiliyor (Orta)
+### O7 — Tarayıcı client'ı offline token alabiliyor; refresh token tekrar kullanılabiliyor (Orta, düzeltildi)
 
 - **Ne:** `offline_access` varsayılan rollerde ve `operasyon-ekrani`'nın isteğe bağlı scope'larında; offline oturum 30 gün boşta
   kalabiliyor, en uzun süre sınırı kapalı; `revokeRefreshToken: false`.
@@ -272,6 +319,22 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Etki:** Bu token SSO süreleri, ekranın 15 dk işlemsizlik kapanması ve çıkıştan bağımsız; çalınırsa uzun ömürlü kimlik bilgisi olur.
 - **Öneri:** `offline_access` varsayılan rollerden ve ekranın scope'larından çıkarılsın; offline oturuma en uzun süre ve
   `revokeRefreshToken` açılsın.
+- **Düzeltme:** `operasyon-ekrani`'nın isteğe bağlı scope'larından `offline_access` çıkarıldı (varsayılan scope'lar da açıkça
+  yazıldı: yalnız isteğe bağlılar yazılınca Keycloak varsayılanları boş bırakıyor). Realm'de `revokeRefreshToken: true`,
+  `refreshTokenMaxReuse: 0` (refresh token rotation): her yenilemede yeni refresh token veriliyor, kullanılmış olan ikinci kez
+  reddediliyor ve Keycloak oturumun bu client'taki kaydını kapatıyor; çalınmış bir token kullanılırsa meşru sahibinin token'ı
+  da geçersiz kalır.
+- **Önce:** istek: yönetim API'siyle açılan bir kullanıcıyla (varsayılan rollerden `offline_access`'i var) ekranın giriş akışı,
+  `scope=openid offline_access` → refresh token türü `Offline`; `scope=openid` ile alınan refresh token iki kez kullanıldı →
+  ikisi de 200 (`1-once-sonra.ps1` O7, `b-once.txt`). Realm dosyasıyla içe aktarılan test kullanıcılarında `offline_access`
+  rolü yok; onlara offline token zaten verilmiyordu.
+- **Sonra:** `offline_access` isteği → `invalid_scope`; aynı refresh token 1. kullanım 200, 2. kullanım 400 `invalid_grant`
+  (`Maximum allowed refresh token reuse exceeded`); 1. kullanımda verilen yeni token da ardından 400 (`c-sonra.txt`). Testler:
+  `RealmSecurityTests.The_operations_screen_asking_for_an_offline_token_is_refused`,
+  `RealmSecurityTests.A_refresh_token_used_once_is_refused_the_second_time` (ayar geri alınınca kırılıyor, `c-mutasyon-realm.txt`).
+- **Kalan (öneri):** `offline_access` realm'in varsayılan rollerinde duruyor (dosyadan çıkarıldığında Keycloak içe aktarırken
+  geri ekledi); ekranın client'ı onu isteyemiyor, ama başka bir client'a bu scope verilirse o client offline token alabilir.
+  Offline oturumun en uzun süresi.
 
 ### O8 — Güvenlik olayları saklanmıyor ve izlenmiyor (Orta)
 
@@ -284,7 +347,7 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Etki:** Saldırı fark edilmez, sonradan incelenemez.
 - **Öneri:** Keycloak olay kaydı açılsın; serviste 401/403 için bir log satırı ve metrik, yoğunlaşınca alarm.
 
-### O9 — Uygulamaların veritabanı kullanıcıları süper kullanıcı (Orta)
+### O9 — Uygulamaların veritabanı kullanıcıları süper kullanıcı (Orta, düzeltildi)
 
 - **Ne:** `invoice` ve `erp` kullanıcıları `rolsuper=t` (resmi PostgreSQL imajında `POSTGRES_USER` süper kullanıcı olur).
 - **Nerede:** `docker-compose.yml`, bağlantı dizeleri.
@@ -292,8 +355,23 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   `COPY … TO PROGRAM` ile veritabanı container'ında komut çalıştırma.
 - **Etki:** Başka bir açığın etkisini en üst düzeye çıkarır.
 - **Öneri:** Migration için yönetici kullanıcı, uygulama için yalnız gereken tablolarda yetkisi olan ayrı bir kullanıcı.
+- **Düzeltme:** Migration'ları artık uygulamalar açılışta değil, ayrı ve bir kez çalışıp kapanan `invoice-migrate` ve
+  `erp-migrate` container'ları çalıştırıyor (aynı imaj, `--migrate-only`), veritabanının sahibiyle (`invoice`, `erp`). Bu adım
+  migration'lardan sonra uygulama kullanıcısını (`invoice_app`, `erp_app`; şifreler `.env`'de) oluşturuyor ya da şifresini
+  güncelliyor ve yetkilerini veriyor: tablolarda `SELECT`, `INSERT`, `UPDATE` (uygulamalar satır silmiyor), sequence'larda
+  `USAGE`, `SELECT`, yalnız kendi veritabanına `CONNECT`; migration geçmişi tablosuna yetki yok, hiçbir tablonun sahibi değil.
+  `postgres` ve `template1`'in herkese açık `CONNECT` izni kaldırıldı. Uygulamalar migrate adımı başarıyla bitmeden açılmıyor.
+  - **Neden bu yol:** Uygulama açılışta kendisi migrate etseydi sahibin şifresini de taşımak zorunda kalırdı; o zaman
+    uygulamayı ele geçiren tablo silebilirdi. Adım her açılışta tekrar çalıştığı için yeni bir migration'ın tabloları da
+    yetkiye girer ve eski volume'larda elle bir şey yapmak gerekmez.
+- **Önce:** istek: uygulamanın kendi bağlantı dizesindeki kullanıcıyla (`invoice`, `erp`) `rolsuper` → `t`;
+  `BEGIN; DROP TABLE invoices CASCADE; ROLLBACK;` → silindi (geri alındı); aynı sunucudaki `postgres` veritabanına bağlantı →
+  bağlandı (`1-once-sonra.ps1` O9, `b-once.txt`).
+- **Sonra:** `invoice_app` ve `erp_app` ile → `rolsuper` `f`; `DROP TABLE` → `must be owner of table invoices`; `postgres` →
+  `User does not have CONNECT privilege`; diğer uygulamanın veritabanı sunucusu → `password authentication failed` (kullanıcı
+  orada yok) (`c-sonra.txt`).
 
-### O10 — Alertmanager ve Prometheus her web sitesine CORS izni veriyor (Orta)
+### O10 — Alertmanager ve Prometheus her web sitesine CORS izni veriyor (Orta, düzeltildi)
 
 - **Ne:** Alertmanager `Access-Control-Allow-Origin: *` ve preflight'ta `POST` + `content-type` izni; Prometheus
   `--web.cors.origin=.*` (varsayılan) ile her origin'i yansıtıyor.
@@ -303,6 +381,13 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   isteği kurbanın tarayıcısı atar.
 - **Etki:** Alarmların uzaktan susturulması; metriklerin okunması.
 - **Öneri:** Prometheus'a `--web.cors.origin` ile yalnız Grafana; Alertmanager'ın önüne kimlik doğrulayan bir proxy (O3).
+- **Düzeltme:** O3'teki giriş kapısı: oturumu olmayan istek (başka bir sitenin sayfasından gelen istek dahil; oturum çerezi
+  `SameSite=Lax`) araca ulaşmıyor; geçen isteklerin cevabından `Access-Control-*` başlıkları siliniyor. Grafana Prometheus'a
+  sunucu tarafından bağlandığı için (`access: proxy`) CORS'a ihtiyacı yok.
+- **Önce:** istek `GET :9090/api/v1/query?query=up`, `Origin: http://kotu-site.example` → 200,
+  `Access-Control-Allow-Origin: http://kotu-site.example`; Alertmanager'a `POST /api/v2/silences` preflight'ı → 204,
+  `Access-Control-Allow-Origin: *` (`1-once-sonra.ps1` O10, `b-once.txt`).
+- **Sonra:** token'sız → 302, başlık yok; operator token'ıyla → 200, başlık yok (iki araçta da) (`c-sonra.txt`).
 
 ### D1 — Geliştirme bağımlılığında bilinen açıklar (Düşük)
 
@@ -427,7 +512,7 @@ Görev mailinin saydığı konular, aynı sırayla.
 - **Nasıl bakıldı:** `CorsExtensions.cs`, ayar; canlıda Fatura Servisi'ne üç preflight; izleme araçlarına ve simülatöre başka origin'den istek.
 - **Sonuç:** Fatura Servisi'nde bulgu yok: tek origin `http://localhost:5100`; `*`, yol içeren ya da geçersiz origin servis açılırken
   reddediliyor; yalnız `GET`/`POST` ve `Content-Type`, `Authorization`; credentials kapalı; `http://kotu-site.example` ve `null`
-  origin'e izin dönmüyor. Bulgu: O10 (Alertmanager, Prometheus). Keycloak'ın discovery belgesinin CORS'u açık, ama belge herkese açık.
+  origin'e izin dönmüyor. Bulgu: O10 (Alertmanager, Prometheus; düzeltildi). Keycloak'ın discovery belgesinin CORS'u açık, ama belge herkese açık.
 
 ### Kodda ve ayar dosyalarında duran şifre ve secret'lar
 
@@ -435,7 +520,7 @@ Görev mailinin saydığı konular, aynı sırayla.
   anahtar, GitHub/AWS token biçimleri, `secret`, `password`, `Password=` araması.
 - **Sonuç:** Geçmişte yalnız "dev-only" değerler ve test şifreleri var, gerçek bir anahtar yok. K1, K2, Y2, Y3, Y4'in değerleri
   `.env`'e taşındı; eski değerler geçmişte duruyor, `1-canli-tarama.ps1` B2'de bu kurulumda geçersiz oldukları görüldü. Repoda
-  kalan: O2 (Grafana imajının varsayılanı); eski ve artık geçersiz değerler ERP Simülatörü'nün birim testlerinin sabitlerinde
+  kalan: O2 (Grafana imajının varsayılanı; düzeltildi, şifre `.env`'de); eski ve artık geçersiz değerler ERP Simülatörü'nün birim testlerinin sabitlerinde
   (`WebhookPlannerTests.cs:21`, `:132`, `WebhookSenderTests.cs:14`), `AdvisoryReconciliationLockTests.cs:8` (`Password=invoice`,
   testin kendi container'ı) ve eski değerlerin reddedildiğini sınayan `1-canli-tarama.ps1`'de (bilerek).
 
@@ -493,7 +578,7 @@ Görev mailinin saydığı konular, aynı sırayla.
 ### Ekranın HTTP güvenlik başlıkları
 
 - **Nasıl bakıldı:** `nginx.conf`; canlıda `GET http://localhost:5100/` ve API'nin başlıkları.
-- **Sonuç:** O4.
+- **Sonuç:** O4 (düzeltildi).
 
 ### Dışarıya açık portlar
 
