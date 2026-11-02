@@ -3,9 +3,13 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Server başlığında ve hata sayfalarında nginx'in sürümü yazılmaz.
+    server_tokens off;
+
     # Dosya adlarında içerik özeti var (index-AbC123.js): değişen dosyanın adı da değişir, bu yüzden uzun süre saklanabilir.
     # Olmayan bir dosya 404 olur; yoksa tarayıcı eski bir sayfanın aradığı dosya yerine index.html alıp bozuk açılırdı.
     location /assets/ {
+        include /etc/nginx/conf.d/security-headers.inc;
         add_header Cache-Control "public, max-age=31536000, immutable";
         try_files $uri =404;
     }
@@ -13,6 +17,7 @@ server {
     # Tek sayfa uygulama: bilinmeyen yollar index.html'e düşer, yönlendirmeyi tarayıcıdaki uygulama yapar.
     # index.html her açılışta sunucuya sorulur: yeni sürümde asset adları değişir ve tarayıcı eskisini kullanmamalı.
     location / {
+        include /etc/nginx/conf.d/security-headers.inc;
         add_header Cache-Control "no-cache";
         try_files $uri /index.html;
     }

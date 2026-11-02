@@ -1,0 +1,12 @@
+# Her cevaba eklenen güvenlik başlıkları; nginx.conf.template her location'da bunu ekler (bir location'da add_header varsa
+# server seviyesindeki add_header'lar o location'a geçmez). "always": 404 gibi hata cevaplarına da eklenir.
+# ${API_URL} ve ${KEYCLOAK_URL} container açılırken ekranın derlendiği adreslerle doldurulur (Dockerfile).
+#
+# Content-Security-Policy: tarayıcı sayfanın yalnız buradan yüklediği script ve stilleri çalıştırır, yalnız bu adreslere
+# istek atar. connect-src: Fatura Servisi'nin API'si ve Keycloak (token yenileme, discovery). frame-ancestors 'none':
+# ekran başka bir sitenin iframe'ine gömülemez (clickjacking).
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ${API_URL} ${KEYCLOAK_URL}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+# Tarayıcı dosyanın türünü içeriğine bakarak tahmin etmez, Content-Type'a uyar.
+add_header X-Content-Type-Options "nosniff" always;
+# Ekrandan başka bir adrese giderken (ör. Keycloak) ekranın adresi Referer'de gönderilmez.
+add_header Referrer-Policy "no-referrer" always;
