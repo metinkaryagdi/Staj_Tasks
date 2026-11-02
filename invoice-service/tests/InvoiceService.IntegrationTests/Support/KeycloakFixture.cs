@@ -28,7 +28,7 @@ public sealed class KeycloakFixture : IAsyncLifetime
     };
 
     /// <summary>A test user's password in the test Keycloak.</summary>
-    private static string TestPassword(string user) => $"test-only-{user}";
+    public static string TestPassword(string user) => $"test-only-{user}";
 
     private readonly KeycloakContainer _container;
     private readonly HttpClient _http = new();

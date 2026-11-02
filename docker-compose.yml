@@ -283,15 +283,17 @@ services:
     networks:
       - apps
 
-  # Pano ve veri kaynağı açılışta monitoring/grafana'dan yüklenir. Anonim kullanıcı panoyu yalnızca görebilir, giriş
-  # gerekmez; değiştirmek için admin / admin ile giriş yapılır.
+  # Pano ve veri kaynağı açılışta monitoring/grafana'dan yüklenir. Pano için giriş gerekir: admin, şifre .env'deki
+  # GRAFANA_ADMIN_PASSWORD. Grafana'nın verisi container'ın içindedir: şifre container her yaratıldığında bu değerden kurulur.
   grafana:
     image: grafana/grafana:12.1.0
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?.env dosyasında GRAFANA_ADMIN_PASSWORD yok (bkz. .env.example)}
+      # Anonymous viewers are off: a viewer can send any query to the Prometheus data source through Grafana, which would
+      # bypass the login in front of Prometheus.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fatura-servisi.json
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro

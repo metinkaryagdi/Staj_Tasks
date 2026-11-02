@@ -1,6 +1,15 @@
 {
   "realm": "fatura",
   "enabled": true,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "passwordPolicy": "length(12) and notUsername and notEmail",
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
   "roles": {
     "realm": [
       { "name": "fatura-izleyici", "description": "Faturaları ve mutabakatı okur" },
@@ -54,6 +63,8 @@
       "serviceAccountsEnabled": false,
       "redirectUris": [ "http://localhost:5100/*" ],
       "webOrigins": [ "http://localhost:5100" ],
+      "defaultClientScopes": [ "web-origins", "acr", "profile", "roles", "basic", "email" ],
+      "optionalClientScopes": [ "address", "phone", "organization", "microprofile-jwt" ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "http://localhost:5100/*"
