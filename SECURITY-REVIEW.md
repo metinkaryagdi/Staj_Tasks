@@ -27,6 +27,10 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
   - `3-ham-sql.ps1`: üretim kodunda ham SQL kullanılan her yeri bulur; EF logunda görülenleri logdan, görülmeyenleri koddan gösterir.
   - Keycloak yönetim API'sinden realm ayarlarının okunması, izleme araçlarına kimliksiz ve başka origin'den istekler; yan
     kontroller (Jaeger izleri, Keycloak discovery CORS'u, `text/plain` POST, ekran kodu) `manual-tests/output/gun20/b-ek-kontroller.txt`'de.
+- **Kapatılan Orta bulguların kontrolleri** (`manual-tests/gun21/`, çıktılar `manual-tests/output/gun21/`):
+  `1-once-sonra.ps1` her kapatılan bulgunun istismar isteğini gönderir; düzeltmelerden önce (`b-once.txt`) ve sonra
+  (`c-sonra.txt`) koşulmuştur. İz bırakmaz: geçici kullanıcılar silinir, `DROP TABLE` `ROLLBACK` ile geri alınır, alarm susturma
+  kaydı silinir. `2-yuk-testi.ps1` düzeltmelerden sonraki yük testidir (`c-yuk-testi.txt`).
 - **Bağımlılık taraması:** `dotnet list package --vulnerable --include-transitive`, `npm audit`.
 - **Bağımsız kontrol:** bulgular iki ayrı gözden geçirmeyle (biri dokümanı denetleyen, biri dokümanı okumadan bulgu arayan)
   karşılaştırıldı; bir bulgunun derecesi (Y5) ayrıca tarafsız bir değerlendirmeyle belirlendi.
