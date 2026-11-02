@@ -349,7 +349,8 @@ services:
       OAUTH2_PROXY_REDEEM_URL: http://keycloak:8080/realms/fatura/protocol/openid-connect/token
       OAUTH2_PROXY_OIDC_JWKS_URL: http://keycloak:8080/realms/fatura/protocol/openid-connect/certs
       OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
-      # Yalnız bu Keycloak rolü geçer; rolü olmayan kullanıcı ya da token 403 alır.
+      # Yalnız bu Keycloak rolü geçer: rolü olmayan kullanıcı girişten sonra 403 alır, rolü olmayan token'la gelen istek
+      # girişe yönlendirilir (302).
       OAUTH2_PROXY_ALLOWED_ROLES: fatura-operatoru
       # Kullanıcılar e-postayla değil rolle ayrılır; test kullanıcılarının e-postası doğrulanmamış.
       OAUTH2_PROXY_EMAIL_DOMAINS: "*"
@@ -359,15 +360,6 @@ services:
       # sayfasından gelen istekte çerez gönderilmez.
       OAUTH2_PROXY_COOKIE_SECURE: "false"
       OAUTH2_PROXY_COOKIE_SAMESITE: lax
-      # Oturum, son yenilemesinden 1 dk sonra gelen istekte Keycloak'ta yenilenir (refresh token). En uzun süre Keycloak'ın
-      # oturum sınırıyla aynı (ssoSessionMaxLifespan, 10 saat); varsayılan 7 gün olurdu.
-      OAUTH2_PROXY_COOKIE_REFRESH: 1m
-      OAUTH2_PROXY_COOKIE_EXPIRE: 10h
-      # Oturum Redis'te tutulur (tarayıcıdaki çerezde yalnız anahtarı): Redis deposu yenilemeyi kilitle tek seferde yapar.
-      # Çerez deposunda arayüzün aynı anda gelen istekleri aynı refresh token'la birlikte yenileme yapıyor, Keycloak ikinciyi
-      # kullanılmış token sayıp (refresh token rotation) oturumu kapatıyordu.
-      OAUTH2_PROXY_SESSION_STORE_TYPE: redis
-      OAUTH2_PROXY_REDIS_CONNECTION_URL: redis://izleme-oturumlari:6379
       OAUTH2_PROXY_REVERSE_PROXY: "true"
       OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
       # Girişten sonra yalnız bu bilgisayardaki adreslere dönülür (üç port).
@@ -376,17 +368,6 @@ services:
       OAUTH2_PROXY_UPSTREAMS: static://202
     networks:
       - apps
-      - izleme-oturum
-    depends_on:
-      - izleme-oturumlari
-
-  # oauth2-proxy'nin oturum deposu. Oturumlar şifreli yazılır, anahtarı tarayıcıdaki çerezdedir; Redis yalnız oauth2-proxy ile
-  # paylaşılan ayrı bir ağda, port yayımlanmaz. Veri bellekte: yeniden başlayınca oturumlar gider, kullanıcı yeniden giriş yapar.
-  izleme-oturumlari:
-    image: redis:7.4.6-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
-    networks:
-      - izleme-oturum
 
   # Alertmanager'ın webhook bildirimlerini alıp her alarmı loglar: docker compose logs -f alert-receiver
   alert-receiver:
@@ -422,8 +403,6 @@ networks:
   erp-data:
   invoice-data:
   apps:
-  # Yalnız oauth2-proxy ve oturum deposu (izleme-oturumlari).
-  izleme-oturum:
 
 volumes:
   erp-db-data:
