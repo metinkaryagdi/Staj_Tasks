@@ -3,6 +3,12 @@
 auth_request /oauth2/auth;
 error_page 401 =302 /oauth2/start?rd=$scheme://$http_host$request_uri;
 
+# oauth2-proxy oturumu Keycloak'ta yenileyince yeni refresh token'ı yeni bir çerezle (Set-Cookie) verir; auth_request bu
+# başlığı tarayıcıya kendiliğinden iletmez. İletilmezse tarayıcı eski çerezi göndermeye devam eder ve Keycloak kullanılmış
+# refresh token'ı reddeder (refresh token rotation), oturum yenilenemez.
+auth_request_set $auth_cookie $upstream_http_set_cookie;
+add_header Set-Cookie $auth_cookie;
+
 proxy_set_header Host $http_host;
 
 # Alertmanager her origin'e (Access-Control-Allow-Origin: *), Prometheus isteğin origin'ine izin veriyor: başka bir sitenin
