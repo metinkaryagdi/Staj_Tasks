@@ -10,3 +10,5 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style
 add_header X-Content-Type-Options "nosniff" always;
 # Ekrandan başka bir adrese giderken (ör. Keycloak) ekranın adresi Referer'de gönderilmez.
 add_header Referrer-Policy "no-referrer" always;
+# Ekranın kullanmadığı tarayıcı özellikleri (kamera, mikrofon, konum, ödeme, USB) sayfada ve gömülü içerikte kapalı.
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
