@@ -93,7 +93,25 @@ Check ($notAtErp -eq 0) "Serviste gönderimi tamamlanmış ama ERP'de kaydı olm
 Check ($dupes -eq 0) "ERP'de birden fazla kaydı olan fatura numarası: $dupes"
 
 Write-Line ''
-Write-Line '4) Pano ve metrikler'
+Write-Line '4) Mutabakat ve veritabanı yetkileri (uygulamalar invoice_app / erp_app ile)'
+$operatorApi = Get-UserToken 'operator'
+$run = Send-Api POST '/api/v1/reconciliation-runs' $operatorApi
+$reconciliationRunId = $run.Json.id
+$deadline = (Get-Date).AddMinutes(5)
+do {
+    $runState = (Send-Api GET "/api/v1/reconciliation-runs/$reconciliationRunId" $operatorApi).Json.run
+    if ($runState.status -eq 'Çalışıyor') { Start-Sleep -Seconds 3 }
+} while ($runState.status -eq 'Çalışıyor' -and (Get-Date) -lt $deadline)
+Check ($runState.status -eq 'Tamamlandı') "Mutabakat (POST /api/v1/reconciliation-runs, HTTP $($run.Status)): çalışma $reconciliationRunId $($runState.status); kontrol edilen $($runState.checkedCount), düzeltilen $($runState.fixedCount), raporlanan $($runState.reportedCount)"
+# PostgreSQL yetki hatasını "42501: permission denied" diye yazar; yalnız "42501" loglardaki rastgele kimliklerin içinde de geçer.
+Push-Location $RepoRoot
+$permissionErrors = @(docker compose logs --since 30m invoice-service erp-simulator 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'permission denied|42501:' })
+Pop-Location
+Check ($permissionErrors.Count -eq 0) "Son 30 dk'da invoice-service ve erp-simulator loglarında yetki hatası (permission denied / 42501): $($permissionErrors.Count)"
+
+Write-Line ''
+# Mutabakattan sonra: "Bulgular" paneli yalnız son bir saatte bulgu varsa veri gösterir.
+Write-Line '5) Pano ve metrikler'
 $createdAfter = Get-PromValue 'sum(invoices_created_total)'
 Check (($createdAfter - $createdBefore) -eq $created) "Prometheus (izleme-girisi üzerinden): invoices_created_total artışı $($createdAfter - $createdBefore), serviste $created"
 $down = @((Get-Monitoring 'http://localhost:9090/api/v1/targets').data.activeTargets | Where-Object { $_.health -ne 'up' })
@@ -102,15 +120,24 @@ $grafanaAuth = @{ Authorization = (Get-BasicAuth 'admin' (Get-DotEnvValue 'GRAFA
 $dashboards = (Send-Http GET 'http://localhost:3000/api/search?type=dash-db' $grafanaAuth).Body | ConvertFrom-Json
 $dashboard = (Send-Http GET "http://localhost:3000/api/dashboards/uid/$($dashboards[0].uid)" $grafanaAuth).Body | ConvertFrom-Json
 $panels = @($dashboard.dashboard.panels | Where-Object { $_.targets })
+# Her panelin her sorgusu; panel, sorgularından en az biri veri döndürüyorsa veri gösteriyor sayılır (bir paneldeki "hata"
+# serisi sorunsuz bir koşuda boş olabilir).
+$queries = 0; $failedQueries = @()
 $emptyPanels = @(foreach ($panel in $panels) {
-    $expr = $panel.targets[0].expr
-    $q = Send-Http GET "http://localhost:3000/api/datasources/proxy/uid/prometheus/api/v1/query_range?query=$([Uri]::EscapeDataString($expr))&start=$([DateTimeOffset]::UtcNow.AddMinutes(-15).ToUnixTimeSeconds())&end=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())&step=15" $grafanaAuth
-    if ($q.Status -ne 200 -or @(($q.Body | ConvertFrom-Json).data.result).Count -eq 0) { $panel.title }
+    $withData = 0
+    foreach ($target in @($panel.targets | Where-Object { $_.expr })) {
+        $queries++
+        $q = Send-Http GET "http://localhost:3000/api/datasources/proxy/uid/prometheus/api/v1/query_range?query=$([Uri]::EscapeDataString($target.expr))&start=$([DateTimeOffset]::UtcNow.AddMinutes(-15).ToUnixTimeSeconds())&end=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())&step=15" $grafanaAuth
+        if ($q.Status -ne 200) { $failedQueries += "$($panel.title) (HTTP $($q.Status))" }
+        elseif (@(($q.Body | ConvertFrom-Json).data.result).Count -gt 0) { $withData++ }
+    }
+    if ($withData -eq 0) { $panel.title }
 })
-Check ($emptyPanels.Count -eq 0) "Grafana panosu '$($dashboard.dashboard.title)' (admin girişiyle): $($panels.Count) panelin sorgusu son 15 dk için Grafana'nın veri kaynağından soruldu, verisiz panel $($emptyPanels.Count)$(if ($emptyPanels) { ': ' + ($emptyPanels -join ', ') })"
+Check ($failedQueries.Count -eq 0) "Grafana panosu '$($dashboard.dashboard.title)' (admin girişiyle): $($panels.Count) panelin $queries sorgusu Grafana'nın veri kaynağından soruldu, hata veren sorgu $($failedQueries.Count)$(if ($failedQueries) { ': ' + ($failedQueries -join ', ') })"
+Check ($emptyPanels.Count -eq 0) "  son 15 dk'da verisi olmayan panel: $($emptyPanels.Count)$(if ($emptyPanels) { ': ' + ($emptyPanels -join ', ') })"
 
 Write-Line ''
-Write-Line '5) Alarmlar'
+Write-Line '6) Alarmlar'
 $groups = (Get-Monitoring 'http://localhost:9090/api/v1/rules').data.groups
 $rules = @($groups | ForEach-Object { $_.rules })
 Check (@($rules | Where-Object { $_.health -ne 'ok' }).Count -eq 0) "Prometheus'taki alarm kuralları: $($rules.Count), sağlıksız $(@($rules | Where-Object { $_.health -ne 'ok' }).Count)"

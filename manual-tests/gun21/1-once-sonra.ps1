@@ -95,13 +95,16 @@ foreach ($path in $responses.Keys) {
     Check ($h['content-security-policy'] -match "frame-ancestors 'none'") "    Content-Security-Policy: $($h['content-security-policy'])"
     Check ($h['x-content-type-options'] -eq 'nosniff') "    X-Content-Type-Options: $($h['x-content-type-options'])"
     Check ([bool]$h['referrer-policy']) "    Referrer-Policy: $($h['referrer-policy'])"
+    Check ([bool]$h['permissions-policy']) "    Permissions-Policy: $($h['permissions-policy'])"
     Check ($h['server'] -notmatch '\d') "    Server: $($h['server'])"
 }
 
 Write-Line ''
 Write-Line 'O9) Uygulamaların veritabanı kullanıcısı (uygulamanın kendi bağlantı dizesindeki kullanıcı ve şifreyle)'
-foreach ($app in @(@{ Service = 'invoice-service'; Variable = 'ConnectionStrings__InvoiceDb'; Db = 'invoice-db'; Name = 'invoice_service'; Table = 'invoices'; Other = 'erp-db'; OtherName = 'erp_simulator' },
-                   @{ Service = 'erp-simulator'; Variable = 'ConnectionStrings__ErpDb'; Db = 'erp-db'; Name = 'erp_simulator'; Table = 'invoices'; Other = 'invoice-db'; OtherName = 'invoice_service' })) {
+foreach ($app in @(@{ Service = 'invoice-service'; Variable = 'ConnectionStrings__InvoiceDb'; Db = 'invoice-db'; Name = 'invoice_service'; Table = 'invoices'; Other = 'erp-db'; OtherName = 'erp_simulator'
+                      AppendOnly = @('operator_actions', 'reconciliation_findings'); AppendOnlyColumn = @{ operator_actions = 'result'; reconciliation_findings = 'details' } },
+                   @{ Service = 'erp-simulator'; Variable = 'ConnectionStrings__ErpDb'; Db = 'erp-db'; Name = 'erp_simulator'; Table = 'invoices'; Other = 'invoice-db'; OtherName = 'invoice_service'
+                      AppendOnly = @('invoices'); AppendOnlyColumn = @{ invoices = 'amount' } })) {
     $cred = Get-AppDbUser $app.Service $app.Variable
     Write-Line "  $($app.Service): kullanıcı $($cred.User)"
     $role = Invoke-Psql $app.Db $cred.User $cred.Password $app.Name 'SELECT rolsuper FROM pg_roles WHERE rolname = current_user'
@@ -112,7 +115,16 @@ foreach ($app in @(@{ Service = 'invoice-service'; Variable = 'ConnectionStrings
     $postgres = Invoke-Psql $app.Db $cred.User $cred.Password 'postgres' 'SELECT current_database()'
     Check (-not $postgres.Ok) "    aynı sunucuda postgres veritabanına bağlantı: $(if ($postgres.Ok) { 'bağlandı' } else { $postgres.Text })"
     $other = Invoke-Psql $app.Other $cred.User $cred.Password $app.OtherName 'SELECT current_database()'
-    Check (-not $other.Ok) "    $($app.Other)/$($app.OtherName) bağlantısı: $(if ($other.Ok) { 'bağlandı' } else { $other.Text })"
+    # Kullanıcı diğer sunucuda hiç yok (önce de yoktu): düzeltmeyi göstermez, yalnız durumu yazar.
+    Write-Line "    $($app.Other)/$($app.OtherName) bağlantısı: $(if ($other.Ok) { 'bağlandı' } else { $other.Text })"
+    $privileges = Invoke-Psql $app.Db $cred.User $cred.Password $app.Name ("SELECT string_agg(tablename || '=' || " +
+        "CASE WHEN has_table_privilege(current_user, quote_ident(tablename), 'UPDATE') THEN 'UPDATE' ELSE '-' END, ', ' ORDER BY tablename) " +
+        "FROM pg_tables WHERE schemaname = 'public'")
+    Write-Line "    tablolarda UPDATE yetkisi: $($privileges.Text)"
+    foreach ($table in $app.AppendOnly) {
+        $update = Invoke-Psql $app.Db $cred.User $cred.Password $app.Name "BEGIN; UPDATE $table SET $($app.AppendOnlyColumn[$table]) = $($app.AppendOnlyColumn[$table]) WHERE false; ROLLBACK;"
+        Check (-not $update.Ok) "    yalnız eklenen $table tablosunda UPDATE: $(if ($update.Ok) { 'yapılabildi' } else { $update.Text })"
+    }
 }
 
 Write-Line ''
@@ -129,22 +141,24 @@ $tools = [ordered]@{
 }
 foreach ($name in $tools.Keys) {
     $anon = Send-Http GET $tools[$name]
-    Check ($anon.Status -ne 200) "$name, token'sız: HTTP $($anon.Status)"
+    # Giriş kapısı oturumu ya da geçerli token'ı olmayan isteği Keycloak girişine yönlendirir (302); başka bir sonuç
+    # (bağlantı yok, 5xx) güvenli durumu göstermez.
+    Check ($anon.Status -eq 302) "$name, token'sız: HTTP $($anon.Status)"
     $op = Send-Http GET $tools[$name] @{ Authorization = "Bearer $operator" }
-    Write-Line "    operator token'ıyla: HTTP $($op.Status)"
+    Check ($op.Status -eq 200) "    operator'ün izleme-girisi token'ıyla: HTTP $($op.Status)"
     $iz = Send-Http GET $tools[$name] @{ Authorization = "Bearer $izleyici" }
-    Write-Line "    izleyici token'ıyla: HTTP $($iz.Status)"
+    Check ($iz.Status -eq 302) "    izleyicinin izleme-girisi token'ıyla (fatura-operatoru rolü yok): HTTP $($iz.Status)"
     $api = Send-Http GET $tools[$name] @{ Authorization = "Bearer $apiToken" }
-    Write-Line "    operator'ün Fatura Servisi token'ıyla (audience fatura-servisi): HTTP $($api.Status)"
+    Check ($api.Status -eq 302) "    operator'ün Fatura Servisi token'ıyla (audience fatura-servisi): HTTP $($api.Status)"
 }
 $silenceBody = @{ matchers = @(@{ name = 'alertname'; value = 'Gun21Deneme'; isRegex = $false; isEqual = $true }); startsAt = (Get-Date).ToUniversalTime().ToString('o')
     endsAt = (Get-Date).AddMinutes(1).ToUniversalTime().ToString('o'); createdBy = 'gun21'; comment = 'önce/sonra denemesi' } | ConvertTo-Json -Depth 4
 $silence = Send-Http POST 'http://localhost:9093/api/v2/silences' @{} $silenceBody
-Check ($silence.Status -ne 200) "Alertmanager POST /api/v2/silences (alarm susturma), token'sız: HTTP $($silence.Status)"
+Check ($silence.Status -eq 302) "Alertmanager POST /api/v2/silences (alarm susturma), token'sız: HTTP $($silence.Status)"
 $silenceId = Get-Field $silence.Body 'silenceID'
 if ($silenceId) { [void](Send-Http DELETE "http://localhost:9093/api/v2/silence/$silenceId") }
 $grafanaProxy = Send-Http GET 'http://localhost:3000/api/datasources/proxy/uid/prometheus/api/v1/query?query=up'
-Check ($grafanaProxy.Status -ne 200) "Grafana üzerinden Prometheus sorgusu (veri kaynağı proxy'si), girişsiz: HTTP $($grafanaProxy.Status)"
+Check ($grafanaProxy.Status -eq 401) "Grafana üzerinden Prometheus sorgusu (veri kaynağı proxy'si), girişsiz: HTTP $($grafanaProxy.Status)"
 $origin = @{ Origin = 'http://kotu-site.example' }
 $corsProm = Send-Http GET 'http://localhost:9090/api/v1/query?query=up' $origin
 Check (-not $corsProm.Headers['access-control-allow-origin']) "Prometheus, Origin: http://kotu-site.example, token'sız: HTTP $($corsProm.Status), Access-Control-Allow-Origin: $($corsProm.Headers['access-control-allow-origin'])"

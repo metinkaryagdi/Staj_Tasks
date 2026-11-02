@@ -448,7 +448,7 @@ Jaeger'a iletir ([İzler](#i̇zler)). Hepsi `docker compose up -d --build` ile a
 | [`monitoring/prometheus/alert-rules.yml`](monitoring/prometheus/alert-rules.yml) | Yedi alarmın eşiği, süresi ve açıklaması; değişiklikten sonra `docker compose restart prometheus` |
 | [`monitoring/alertmanager/alertmanager.yml`](monitoring/alertmanager/alertmanager.yml) | Bütün alarmlar alıcıya; çözülen alarm da bildirilir |
 | [`monitoring/grafana/`](monitoring/grafana/) | Veri kaynağı ve pano provisioning'i, pano (`dashboards/fatura-servisi.json`) |
-| [`monitoring/izleme-girisi/`](monitoring/izleme-girisi/) | Prometheus, Alertmanager ve Jaeger'ın önündeki nginx: her istek `oauth2-proxy`'ye sorulur (Keycloak'ın `izleme-girisi` client'ı, yalnız `fatura-operatoru`), araçların `Access-Control-*` başlıkları silinir. oauth2-proxy'nin ayarları `docker-compose.yml`'da; oturumlar Redis'te (`izleme-oturumlari`), yenileme kilitle tek seferde yapılır (refresh token rotation ile aynı anda gelen istekler oturumu bozmasın). Script'ler bu client'tan alınmış token'ı `Bearer` ile gönderir (`manual-tests/gun21/_common.ps1`, `Get-AuthCodeTokens`) |
+| [`monitoring/izleme-girisi/`](monitoring/izleme-girisi/) | Prometheus, Alertmanager ve Jaeger'ın önündeki nginx: her istek `oauth2-proxy`'ye sorulur (Keycloak'ın `izleme-girisi` client'ı, yalnız `fatura-operatoru`), araçların `Access-Control-*` başlıkları silinir. oauth2-proxy'nin ayarları `docker-compose.yml`'da. Script'ler bu client'tan alınmış token'ı `Bearer` ile gönderir (`manual-tests/gun21/_common.ps1`, `Get-AuthCodeTokens`) |
 
 ### Metrikler
 
@@ -664,15 +664,18 @@ Bugünün işi: [SECURITY-REVIEW.md](SECURITY-REVIEW.md)'deki bütün bulguları
 ve Orta bulgulardan O1, O2, O3, O4, O7, O9, O10'un kapatılması. Her bulgunun düzeltmesi, önce ve sonra isteği dokümanda kendi
 başlığında; kalan bulgular öneri olarak duruyor.
 
-- **Dereceler:** derece açığın kendisine ve düzeltmeden önceki duruma göre: Y1 Yüksek → Orta (portun açık olması tek başına veri
-  ya da yetki vermiyor, etkiler arkadaki bulgularda); Y5 Yüksek kaldı, "kalan risk Orta" ifadesi kaldırıldı, durumu "Kısmen".
-  Gerekçeler dokümanın "Derece değişiklikleri" tablosunda. Numaralar değişmedi.
+- **Dereceler:** derece açığın kendisine ve düzeltmeden önceki duruma göre, aynı türden açıklar aynı derecede: O2 (Grafana
+  `admin/admin`) Orta → Kritik, K1 ile aynı tür; O3 (kimliksiz Alertmanager, Prometheus, Jaeger) Orta → Kritik, aynı tür, hiç
+  kimlik bilgisi istemeden; Y5 Yüksek kaldı, "kalan risk Orta" ifadesi kaldırıldı, durumu "Kısmen". Gerekçeler dokümanın
+  "Derece değişiklikleri" tablosunda. Numaralar değişmedi.
 - **Grafana (O2):** yönetici şifresi `.env`'den; anonim izleyici kapatıldı (Prometheus'a Grafana üzerinden kimliksiz sorgu atabiliyordu).
 - **Keycloak (O1, O7):** 5 yanlış şifreden sonra 60 sn kilit (en çok 15 dk), en az 12 karakterlik şifre; ekranın client'ı
   `offline_access` isteyemiyor, refresh token yalnız bir kez kullanılabiliyor (refresh token rotation).
-- **Ekran (O4):** nginx `Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy` gönderiyor, sürümünü göstermiyor.
+- **Ekran (O4):** nginx `Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` gönderiyor,
+  sürümünü göstermiyor.
 - **Veritabanı (O9):** migration'ları ayrı `invoice-migrate` / `erp-migrate` adımı sahibin kullanıcısıyla çalıştırıyor; uygulamalar
-  yalnız satır okuyup yazabilen `invoice_app` / `erp_app` ile bağlanıyor ([Kurulum](#kurulum)).
+  yalnız satır okuyup yazabilen `invoice_app` / `erp_app` ile bağlanıyor; `UPDATE` yalnız satırı değiştirilen tablolarda, müdahale
+  kaydı ve mutabakat bulguları yalnız eklenebiliyor ([Kurulum](#kurulum)).
 - **İzleme araçları (O3, O10):** Prometheus, Alertmanager ve Jaeger'ın önünde `izleme-girisi` (nginx) ve `oauth2-proxy`; giriş
   Keycloak'ta, yalnız `fatura-operatoru`; araçların CORS başlıkları siliniyor ([İzleme](#i̇zleme)).
 
@@ -680,13 +683,13 @@ Kontrol listesi ([`manual-tests/gun21/`](manual-tests/gun21/)):
 
 | # | Madde | Sonuç |
 |---|---|---|
-| 1 | Derecesi değişen bulgular | SECURITY-REVIEW.md, "Derece değişiklikleri": Y1 Yüksek → Orta, Y5'in kalan risk derecesi kaldırıldı; ikisi de nedeniyle. Bulgu sayısı: 2 Kritik, 4 Yüksek, 11 Orta, 11 Düşük |
-| 2 | Önce ve sonra | `1-once-sonra.ps1` düzeltmelerden önce (`b-once`) ve sonra (`c-sonra`) koşuldu; her bulgunun istekleri ve sonuçları SECURITY-REVIEW.md'de kendi başlığında. Önce: 36 kontrol satırının 34'ü `FARKLI` (`TAMAM` olan ikisi: uygulamanın kullanıcısı diğer uygulamanın veritabanı sunucusunda zaten yoktu); sonra: 38 satırın hepsi `TAMAM` (iki satır yalnız düzeltmeden sonra var: `.env`'deki Grafana şifresi, kilidin 65 sn sonra kalkması). Tarayıcıdan ayrıca: Grafana girişsiz açılınca giriş sayfası, `admin/admin` reddediliyor; izleme araçlarında izleyici 403, operator tek girişle üç araca ulaşıyor, oturum eşzamanlı isteklerle iki kez yenilendi (`c-tarayici-izleme-girisi.txt`) |
+| 1 | Derecesi değişen bulgular | SECURITY-REVIEW.md, "Derece değişiklikleri": O2 Orta → Kritik, O3 Orta → Kritik, Y5'in kalan risk derecesi kaldırıldı; üçü de nedeniyle. Bulgu sayısı: 4 Kritik, 5 Yüksek, 8 Orta, 11 Düşük |
+| 2 | Önce ve sonra | `1-once-sonra.ps1` düzeltmelerden önce (`b-once`) ve sonra (`c-sonra`) koşuldu; her bulgunun istekleri ve sonuçları SECURITY-REVIEW.md'de kendi başlığında. Önce: 35 kontrolün 33'ü `FARKLI` (`TAMAM` olan ikisi: uygulamanın kullanıcısı diğer uygulamanın veritabanı sunucusunda zaten yoktu); sonra: 50 kontrolün hepsi `TAMAM` (sonraki koşuda kontroller sıkılaştırıldı ve eklendi: izleme araçlarında operator, izleyici ve API token'ının sonucu, `Permissions-Policy`, yalnız eklenen tablolarda `UPDATE`, `.env`'deki Grafana şifresi, kilidin 65 sn sonra kalkması). Tarayıcıdan ayrıca: Grafana girişsiz açılınca giriş sayfası, `admin/admin` reddediliyor (`c-tarayici-grafana.txt`); izleme araçlarında izleyici 403, operator tek girişle üç araca ulaşıyor (`c-tarayici-izleme-girisi.txt`); eski halde başka bir sitenin sayfası Alertmanager ve Prometheus'tan veri okuyabiliyordu, yeni halde okuyamıyor (`c-tarayici-cors.txt`) |
 | 3 | Kaba kuvvet koruması | 1,5 sn arayla 5 yanlış şifreden sonra doğru şifre `400 invalid_grant`, yönetim API'sinde `disabled=true`, `numFailures=5`; 65 sn sonra doğru şifre `200`. `RealmSecurityTests`'in kilit testi; ayar geri alınınca kırılıyor |
-| 4 | Refresh token'ın ikinci kullanımı | Ekranın client'ıyla alınan refresh token: 1. kullanım `200`, 2. kullanım `400 invalid_grant` (`Maximum allowed refresh token reuse exceeded`). `RealmSecurityTests`'in testi; ayar geri alınınca kırılıyor |
-| 5 | Ekran başlıklarla çalışıyor | Uygulama içi tarayıcıda giriş, Özet, Fatura Listesi, Fatura Detayı, Mutabakat (mutabakat başlatma dahil); iki sekme aynı anda, ikisinde de token yenilendi. Sayfa içinden dinlenen `securitypolicyviolation` olayı yok, konsolda CSP hatası yok |
+| 4 | Refresh token'ın ikinci kullanımı | Ekranın client'ıyla alınan refresh token: 1. kullanım `200`, 2. kullanım `400 invalid_grant` (`Maximum allowed refresh token reuse exceeded`) (`1-once-sonra.ps1`). `RealmSecurityTests`'in testi aynı kuralı test client'ıyla (`fatura-test`) sınıyor; kural realm düzeyinde, her client'a uygulanıyor; ayar geri alınınca test kırılıyor |
+| 5 | Ekran başlıklarla çalışıyor | Uygulama içi tarayıcıda giriş, Özet, Fatura Listesi, Fatura Detayı, Mutabakat (mutabakat başlatma dahil); iki sekme aynı anda, ikisinde de token yenilendi (Keycloak'ta yenileme hatası yok). Sayfa içinden dinlenen `securitypolicyviolation` olayı yok, konsolda hata yok (`c-tarayici-ekran.txt`, son hal 14:49–14:55) |
 | 6 | Veritabanı kullanıcısı | `invoice_app` ve `erp_app`: `DROP TABLE invoices` → `must be owner of table invoices`; aynı sunucudaki `postgres` veritabanı → `User does not have CONNECT privilege`; diğer uygulamanın veritabanı sunucusu → `password authentication failed`. İkinci servis kopyası da `invoice_app` ile bağlanıyor ve fatura gönderiyor; compose dışında `--migrate-only` deneme veritabanında çalıştı (`3-ikinci-kopya-ve-migrate.ps1`) |
-| 7 | Yük testi (50/sn, 2 dk) | `2-yuk-testi.ps1`: 6.000 istek, 6.000 kabul, p95 14,6 ms; serviste 6.000, ERP'de 6.000 kayıt; kayıp 0, çift kayıt 0. Prometheus'taki artış 6.000; Grafana panosunun 11 panelinin hepsinde veri; 7 alarm kuralı sağlıklı; yük sürerken gönderilen 25 yanlış imzalı haberle `CokSayida401` tetiklendi ve alert-receiver'ın logunda; 401'ler 5 dakikalık pencereden çıkınca çözüldü bildirimi de geldi (`c-alarm-tetiklendi-cozuldu.txt`) |
+| 7 | Yük testi (50/sn, 2 dk) | `2-yuk-testi.ps1`, son kurulumla (uygulamalar `invoice_app` / `erp_app` ile): 6.000 istek, 6.000 kabul, p95 6,3 ms; serviste 6.000, ERP'de 6.000 kayıt; kayıp 0, çift kayıt 0. Ardından mutabakat çalıştı (18.021 kontrol, 258 düzeltme), loglarda yetki hatası 0. Prometheus'taki artış 6.000; Grafana panosunun 11 panelinin 12 sorgusu hatasız, hepsinde veri; 7 alarm kuralı sağlıklı. Yük sürerken gönderilen yanlış imzalı haberlerle `CokSayida401` tetiklendi ve alert-receiver'ın logunda; 401'ler 5 dakikalık pencereden çıkınca çözüldü bildirimi geldi (`c-yuk-testi.txt`, `c-alarm-tetiklendi-cozuldu.txt`) |
 | 8 | Bütün testler | .NET birim testleri 532, Fatura Servisi entegrasyon testleri 84 (yeni `RealmSecurityTests` 3 test dahil), ekranın vitest testleri 27; hepsi geçti |
 
 ### Bilinen sınırlar
@@ -699,6 +702,8 @@ Kontrol listesi ([`manual-tests/gun21/`](manual-tests/gun21/)):
 - **Refresh token'ın ikinci kullanımı:** reddedilince Keycloak oturumun o client'taki kaydını kapatıyor; aynı oturumun yeni
   token'ı da geçersiz oluyor (kullanıcı yeniden yönlendirilir).
 - **Grafana:** tek hesap `admin`; panoya bakacak herkes bu şifreyle giriyor.
+- **İzleme araçlarındaki oturum:** girişten sonra oauth2-proxy'nin varsayılanıyla 7 gün geçerli, Keycloak'a yeniden sorulmuyor;
+  Keycloak'ta oturum kapatılsa da aynı çerezle erişim sürüyor.
 - **Eski script'ler:** izleme araçlarına istek atan Gün 11-20 script'leri token göndermez; o günlerin tag'lerinde çalıştırılır.
 
 ---

@@ -8,10 +8,11 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 
 - **Saldırgan:** repodaki compose olduğu gibi çalıştırılmışken (1) aynı ağdaki herhangi bir makine, (2) repoyu okuyabilen
   biri. Repo GitHub'da public olduğu için (2) internetteki herkestir. Derece açığın kendisine ve düzeltmeden önceki duruma
-  göre verilmiştir: bir açığın başka bir bulgu üzerinden yapılabilen etkisi o bulgunun derecesine yazılır, düzeltmeden
-  sonra kalan risk dereceyi değiştirmez. Bütün bulgular bu ölçütle yeniden gözden geçirildi; değişenler "Derece değişiklikleri"nde.
+  göre verilmiştir: port kapatıldıktan ya da düzeltildikten sonraki durum dereceyi değiştirmez, aynı türden açıklar aynı
+  derecededir. Bütün bulgular bu ölçütle yeniden gözden geçirildi; değişenler "Derece değişiklikleri"nde.
 - **Önem derecesi:** saldırganın açığı ne kadar kolay kullandığı ve etkisi:
-  - **Kritik:** kimlik bilgisi gerekmeden ya da herkesin bildiği bilgiyle sistemin tamamı (kimlik sağlayıcı, veri) ele geçer.
+  - **Kritik:** kimlik bilgisi gerekmeden ya da herkesin bildiği bilgiyle sistemin tamamı (kimlik sağlayıcı, veri) ya da bir
+    bileşenin yönetici hesabı ele geçer.
   - **Yüksek:** faturaların durumu, verisi ya da yetkiler değiştirilebilir ya da doğrudan okunabilir.
   - **Orta:** etki sınırlı ya da başka bir açığın yanında anlam kazanır.
   - **Düşük:** bilgi sızıntısı, yalnız geliştirmede etkili olan ya da istismarı zor durumlar.
@@ -44,14 +45,14 @@ derecedeki sırasıdır. Derecesi sonradan değişen bulgunun numarası, önceki
 |---|---|---|---|---|
 | K1 | Kritik | Keycloak yönetici hesabı `admin/admin`, Keycloak portu ağa açık | A07, A02 | Düzeltildi |
 | K2 | Kritik | Veritabanı şifreleri repoda, veritabanı portları ağa açık | A07, A02 | Düzeltildi |
-| Y1 | Orta (önce Yüksek) | compose'daki bütün portlar bütün ağ arayüzlerine açık | A02 | Düzeltildi |
+| Y1 | Yüksek | compose'daki bütün portlar bütün ağ arayüzlerine açık | A02 | Düzeltildi |
 | Y2 | Yüksek | Webhook HMAC secret'ı repoda: sahte ERP haberiyle fatura durumu değiştirilebiliyor | A04, A08 | Düzeltildi |
 | Y3 | Yüksek | Sipariş sistemi client secret'ı repoda: fatura oluşturma yetkili token alınabiliyor | A07 | Düzeltildi |
 | Y4 | Yüksek | Test kullanıcılarının şifreleri repoda: operatör yetkisi alınabiliyor | A07 | Düzeltildi |
 | Y5 | Yüksek | ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor | A01, A06 | Kısmen: ağ erişimi kapatıldı; uygulamada kimlik doğrulaması yok, öneri |
 | O1 | Orta | Kaba kuvvet koruması ve şifre politikası yok; `admin-cli` şifreyle token veriyor | A07 | Düzeltildi (kaba kuvvet, şifre politikası); `admin-cli` öneri |
-| O2 | Orta | Grafana yönetici hesabı imajın varsayılanı (`admin/admin`) | A07 | Düzeltildi |
-| O3 | Orta | Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor | A01 | Düzeltildi |
+| O2 | Kritik (önce Orta) | Grafana yönetici hesabı imajın varsayılanı (`admin/admin`) | A07 | Düzeltildi |
+| O3 | Kritik (önce Orta) | Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor | A01 | Düzeltildi |
 | O4 | Orta | Operasyon ekranında HTTP güvenlik başlıkları yok, nginx sürümü görünüyor | A02 | Düzeltildi (ekran); API'nin `Server` başlığı öneri |
 | O5 | Orta | Bütün trafik HTTP üzerinden (TLS yok) | A04 | Öneri |
 | O6 | Orta | ERP'deki kayıt içeriği karşılaştırılmadan faturaya bağlanıyor | A06 | Öneri |
@@ -75,13 +76,15 @@ derecedeki sırasıdır. Derecesi sonradan değişen bulgunun numarası, önceki
 
 | # | Eski | Yeni | Neden |
 |---|---|---|---|
-| Y1 | Yüksek | Orta | Portun ağa açık olması tek başına veri ya da yetki vermiyor: ağdan yapılabilen her şey portun arkasındaki bulguda (K1, K2, Y5, O2, O3) yazılı ve o bulguların derecesi ağ erişimini zaten hesaba katıyor. Tanımda "başka bir açığın yanında anlam kazanır" Orta'dır. |
+| O2 | Orta | Kritik | K1 ile aynı türden açık: düzeltmeden önce ağa açık bir yönetim arayüzü, herkesin bildiği `admin/admin` yönetici hesabıyla. Grafana yöneticisi panoları değiştirir, veri kaynağı ekleyerek Grafana'nın ulaştığı başka sistemlere istek attırır; düzeltmesi K1'deki gibi tek satır. Önceki derece port kapatıldıktan sonraki duruma göre verilmişti. |
+| O3 | Orta | Kritik | O2 ve K1 ile aynı türden: düzeltmeden önce ağa açık yönetim arayüzleri, üstelik hiç kimlik bilgisi istemeden. Alertmanager'da alarmlar susturulur (bileşenin yönetimi; tanımdaki "kimlik bilgisi gerekmeden bir bileşenin yönetici hesabı"), Jaeger'dan fatura numaraları ve ERP referansları okunur (ERP referansı Y2'deki sahte haberin ön koşulu). Önceki derece içeriğin okunmadığına bakılarak verilmişti. |
 | Y5 | Yüksek; kalan risk Orta | Yüksek | Derece düzeltmeden sonra kalan riske göre verilmez. Açığın kendisi (simülatörün API'sinin kimlik doğrulaması istememesi) kapanmadı, yalnız ona ağdan ulaşılması kapandı; durum "Kısmen" olarak düzeltildi. |
 
-Diğer bulguların derecesi aynı kaldı. Gözden geçirmede ayrıca bakılanlar: O3'te Jaeger'dan kimliksiz istekle fatura numaraları ve
+Diğer bulguların derecesi aynı kaldı. Gözden geçirmede ayrıca ölçülenler: O3'te Jaeger'dan kimliksiz istekle fatura numaraları ve
 ERP referansları okunuyor, tutar ve müşteri izlerde yok (`manual-tests/gun21/0-jaeger-fatura-verisi.ps1`,
-`a0-jaeger-fatura-verisi.txt`: 20 faturanın numarası, 5 ERP referansı); faturanın içeriği okunmadığı için Orta kaldı. O10'da
-Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, `type`), fatura verisi yok; Orta kaldı.
+`a0-jaeger-fatura-verisi.txt`: 20 faturanın numarası, 5 ERP referansı). O10'da Prometheus'tan okunan metrikler toplam sayılar
+(etiketleri `result`, `status`, `type`), fatura verisi yok. O10 Orta kaldı: istismar için kurbanın, yığın çalışırken saldırganın
+sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğrudan istek atıyordu).
 
 ## Bulgular
 
@@ -120,7 +123,7 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   → `password authentication failed` (B2) (`c-canli-sonra.txt`). Test:
   `ShippedSettingsTests.Shipped_settings_hold_no_secret_or_password`, gönderilen ayar dosyasının bağlantı dizesinde şifre yok.
 
-### Y1 — compose'daki bütün portlar bütün ağ arayüzlerine açık (Orta, önce Yüksek; düzeltildi)
+### Y1 — compose'daki bütün portlar bütün ağ arayüzlerine açık (Yüksek, düzeltildi)
 
 - **Ne:** Yayımlanan 10 port (`iki-kopya` profilindeki 5091 ile 11) `"PORT:PORT"` biçimindeydi; Docker bunları bütün arayüzlere bağlıyor: veritabanları (5433, 5434),
   ERP Simülatörü (5080), Fatura Servisi (5090), operasyon ekranı (5100), Keycloak (8080), Jaeger (16686), Prometheus (9090),
@@ -233,22 +236,27 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   kopyasında; `bruteForceProtected` geri alınınca kırılıyor, `c-mutasyon-realm.txt`).
 - **Kalan (öneri):** `fatura` realm'inde `admin-cli` hâlâ şifreyle token veriyor.
 
-### O2 — Grafana yönetici hesabı imajın varsayılanı (Orta, düzeltildi)
+### O2 — Grafana yönetici hesabı imajın varsayılanı (Kritik, önce Orta; düzeltildi)
 
 - **Ne:** Grafana'nın yönetici şifresi değiştirilmemiş (`admin/admin`); anonim kullanıcı panoyu görüyor.
 - **Nerede:** `docker-compose.yml` (`grafana`; `GF_SECURITY_ADMIN_PASSWORD` yok).
-- **Nasıl istismar edilir:** Grafana'ya ulaşabilen biri `admin/admin` ile girer.
-- **Etki:** Pano ve veri kaynağı değiştirilir; Prometheus'taki metrikler okunur. Uygulama verisine yazma yok.
+- **Nasıl istismar edilir:** Grafana'ya ulaşabilen biri (düzeltmeden önce aynı ağdaki herkes) `admin/admin` ile girer, adresi
+  compose ağındaki bir servis olan bir veri kaynağı ekler ve Grafana'nın veri kaynağı proxy'si üzerinden o servise istek attırır.
+- **Etki:** Panolar ve veri kaynakları değiştirilir; Grafana'nın ulaştığı servislere onun adına istek gönderilir. Denemede
+  ERP Simülatörü'nü gösteren bir veri kaynağı eklendi ve onun üzerinden fatura listesi (müşteri kodu, tutar, ERP referansı)
+  okundu: HTTP 200, `totalCount` 6.021 (`a0-grafana-yonetici-ssrf.txt`, düzeltmeden önceki ayarlarla geçici container).
 - **Öneri:** `GF_SECURITY_ADMIN_PASSWORD` ortamdan verilsin.
 - **Düzeltme:** Şifre `.env`'deki `GRAFANA_ADMIN_PASSWORD`'den; değer yoksa compose açılmıyor. Anonim izleyici kapatıldı:
   anonim izleyici Grafana'nın veri kaynağı üzerinden Prometheus'a istediği sorguyu gönderebiliyordu, bu da O3'te Prometheus'un
   önüne konan girişi atlatırdı. Pano için artık giriş gerekiyor.
 - **Önce:** istek `POST http://localhost:3000/login` (`admin/admin`) → 200 (`1-once-sonra.ps1` O2, `b-once.txt`); girişsiz
   `GET /api/datasources/proxy/uid/prometheus/api/v1/query?query=up` → 200, Prometheus'un cevabı (`b-grafana-anonim-once.txt`).
+- **Kalan:** Grafana'da tek hesap `admin`; panoya bakan herkes bu şifreyle giriyor (kişiye bağlı giriş yok).
 - **Sonra:** `admin/admin` → 401; `.env`'deki şifreyle → 200; girişsiz veri kaynağı sorgusu → 401 (`c-sonra.txt`). Tarayıcıda:
-  girişsiz açılış giriş sayfasına gidiyor, sayfanın `/api/search` isteği 401; giriş formunda `admin/admin` → "Invalid username or password".
+  girişsiz açılış giriş sayfasına gidiyor, sayfanın `/api/search` isteği 401; giriş formunda `admin/admin` → "Invalid username or password"; `.env`'deki şifreyle giriş Fatura Servisi panosunu
+  verisiyle açıyor (`c-tarayici-grafana.txt`).
 
-### O3 — Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor (Orta, düzeltildi)
+### O3 — Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor (Kritik, önce Orta; düzeltildi)
 
 - **Ne:** Üçünün de arayüzü ve API'si kimliksiz.
 - **Nerede:** `docker-compose.yml`, `monitoring/`.
@@ -259,13 +267,8 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Düzeltme (O10 ile birlikte):** Üç aracın portları artık yayımlanmıyor; önlerinde `izleme-girisi` (nginx) aynı adresleri
   (9090, 9093, 16686) dinliyor ve her isteği `oauth2-proxy`'ye soruyor (`auth_request`). Giriş Keycloak'ın `izleme-girisi`
   client'ıyla (Authorization Code + PKCE, confidential); yalnız `fatura-operatoru` rolü geçiyor. Script'ler bu client'tan
-  alınmış token'ı `Bearer` ile gönderebiliyor (audience `izleme-girisi`; Fatura Servisi'nin token'ı geçmiyor). Oturum son
-  yenilemesinden 1 dk sonra gelen istekte Keycloak'ta yenileniyor, en çok 10 saat (oauth2-proxy'nin varsayılanı 7 gün ve
-  yenilemesizdi). Refresh token rotation (O7) ile birlikte çalışması için iki ayar gerekti: nginx yenilenen oturumun çerezini
-  (`Set-Cookie`) tarayıcıya iletiyor; oturum Redis'te (`izleme-oturumlari`, yalnız oauth2-proxy ile paylaşılan ağda) tutuluyor ve
-  yenileme kilitle tek seferde yapılıyor. İkisi olmadan tarayıcıda oturum bir yenilemeden sonra bozuluyordu: arayüzün aynı anda
-  gelen istekleri aynı refresh token'la yenileme yapıyor, Keycloak ikinciyi reddedip oturumu kapatıyordu
-  (`c-tarayici-izleme-girisi.txt`). Ayar `monitoring/izleme-girisi/`, `docker-compose.yml`.
+  alınmış token'ı `Bearer` ile gönderebiliyor (audience `izleme-girisi`; Fatura Servisi'nin token'ı geçmiyor). Oturum
+  şifreli bir çerezde tutuluyor. Ayar `monitoring/izleme-girisi/`, `docker-compose.yml`.
   - **Neden bu yol:** Kimlik doğrulaması zaten Keycloak'ta; kişiye bağlı giriş, rol kontrolü ve O1'deki kilit buraya da
     uygulanıyor, yeni bir ortak şifre yok. Ortak şifreli basic auth seçilmedi: herkes aynı şifreyi kullanır, şifre her istekte
     HTTP üzerinden gider (O5) ve kilit koruması yoktur. Araçların kendi basic auth'u (Prometheus, Alertmanager `web.config`)
@@ -275,10 +278,11 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Sonra:** aynı istekler token'sız → 302 (Keycloak girişine); operator'ün `izleme-girisi` token'ıyla → 200; izleyicinin
   token'ıyla (rol yok) ve operator'ün Fatura Servisi token'ıyla (audience farklı) → 302 (`c-sonra.txt`). Tarayıcıda:
   `localhost:9090` Keycloak'ın giriş sayfasına gidiyor; izleyici girişten sonra 403; operator girişten sonra Prometheus, aynı
-  oturumla Alertmanager ve Jaeger giriş sorulmadan açılıyor; iki yenileme turunda 5'er eşzamanlı istek 200, Keycloak'ta yenileme
-  hatası yok (`c-tarayici-izleme-girisi.txt`).
+  oturumla Alertmanager ve Jaeger giriş sorulmadan açılıyor (`c-tarayici-izleme-girisi.txt`).
 - **Kalan:** compose ağının içinden araçlara doğrudan ulaşılıyor (Grafana → Prometheus, Prometheus → Alertmanager); bu,
-  compose ağındaki bir container'a erişim gerektiriyor (D11 ile aynı sınır).
+  compose ağındaki bir container'a erişim gerektiriyor (D11 ile aynı sınır). Girişten sonraki oturum oauth2-proxy'nin
+  varsayılanıyla 7 gün geçerli ve Keycloak'a yeniden sorulmuyor: Keycloak'ta oturum kapatıldıktan sonra da aynı çerezle erişim
+  sürüyor (`c-tarayici-izleme-girisi.txt`).
 
 ### O4 — Operasyon ekranında HTTP güvenlik başlıkları yok (Orta; ekran düzeltildi)
 
@@ -292,7 +296,8 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`; `server_tokens off`; Kestrel'de `AddServerHeader = false`.
 - **Düzeltme:** `operations-ui/security-headers.inc.template`: `Content-Security-Policy: default-src 'self'; script-src 'self';
   style-src 'self'; img-src 'self' data:; connect-src 'self' <API> <Keycloak>; object-src 'none'; base-uri 'self';
-  form-action 'self'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`; her
+  form-action 'self'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+  `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()` (ekran bunları kullanmıyor); her
   location'a ve hata cevaplarına (`always`) ekleniyor. `connect-src`'deki adresler ekranın derlendiği `VITE_API_URL` ve
   `VITE_KEYCLOAK_URL`'den geliyor (nginx imajının template özelliği). `server_tokens off`. Derlenen sayfada satır içi script ya
   da stil yok; CSP `'unsafe-inline'` gerektirmiyor.
@@ -300,7 +305,8 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   `Server: nginx/1.31.8` (`1-once-sonra.ps1` O4, `b-once.txt`).
 - **Sonra:** üçünde de başlıklar var, `Server: nginx` (`c-sonra.txt`). Ekran uygulama içi tarayıcıda: giriş, Özet, Fatura
   Listesi, Fatura Detayı, Mutabakat (mutabakat başlatma POST'u dahil) çalıştı; sayfa içinden dinlenen
-  `securitypolicyviolation` olayı yok, konsolda CSP hatası yok.
+  `securitypolicyviolation` olayı yok, konsolda hata yok; iki sekme aynı anda açıkken ikisinde de token yenilendi
+  (`c-tarayici-ekran.txt`).
 - **Kalan (öneri):** API'nin cevabındaki `Server: Kestrel` başlığı.
 
 ### O5 — Bütün trafik HTTP üzerinden (Orta)
@@ -370,8 +376,12 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Düzeltme:** Migration'ları artık uygulamalar açılışta değil, ayrı ve bir kez çalışıp kapanan `invoice-migrate` ve
   `erp-migrate` container'ları çalıştırıyor (aynı imaj, `--migrate-only`), veritabanının sahibiyle (`invoice`, `erp`). Bu adım
   migration'lardan sonra uygulama kullanıcısını (`invoice_app`, `erp_app`; şifreler `.env`'de) oluşturuyor ya da şifresini
-  güncelliyor ve yetkilerini veriyor: tablolarda `SELECT`, `INSERT`, `UPDATE` (uygulamalar satır silmiyor), sequence'larda
-  `USAGE`, `SELECT`, yalnız kendi veritabanına `CONNECT`; migration geçmişi tablosuna yetki yok, hiçbir tablonun sahibi değil.
+  güncelliyor ve yetkilerini veriyor: bütün tablolarda `SELECT`, `INSERT`; `UPDATE` yalnız uygulamanın satırını değiştirdiği
+  tablolarda (Fatura Servisi: `invoices`, `erp_outbox`, `erp_webhook_events`, `invoice_follow_ups`, `reconciliation_runs`,
+  `erp_send_pace`; simülatör: `webhook_deliveries`). Yalnız eklenen tablolarda (`operator_actions`, `reconciliation_findings`,
+  simülatörün `invoices`'ı) `UPDATE` yok: yazılmış bir müdahale kaydı sonradan değiştirilemez. `DELETE` hiçbir tabloda yok
+  (uygulamalar satır silmiyor). Sequence'larda `USAGE`, `SELECT`, yalnız kendi veritabanına `CONNECT`; migration geçmişi
+  tablosuna yetki yok, hiçbir tablonun sahibi değil.
   `postgres` ve `template1`'in herkese açık `CONNECT` izni kaldırıldı. Uygulamalar migrate adımı başarıyla bitmeden açılmıyor.
   - **Neden bu yol:** Uygulama açılışta kendisi migrate etseydi sahibin şifresini de taşımak zorunda kalırdı; o zaman
     uygulamayı ele geçiren tablo silebilirdi. Adım her açılışta tekrar çalıştığı için yeni bir migration'ın tabloları da
@@ -402,7 +412,10 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Önce:** istek `GET :9090/api/v1/query?query=up`, `Origin: http://kotu-site.example` → 200,
   `Access-Control-Allow-Origin: http://kotu-site.example`; Alertmanager'a `POST /api/v2/silences` preflight'ı → 204,
   `Access-Control-Allow-Origin: *` (`1-once-sonra.ps1` O10, `b-once.txt`).
-- **Sonra:** token'sız → 302, başlık yok; operator token'ıyla → 200, başlık yok (iki araçta da) (`c-sonra.txt`).
+- **Sonra:** token'sız → 302, başlık yok; operator token'ıyla → 200, başlık yok (iki araçta da) (`c-sonra.txt`). Tarayıcıda,
+  başka bir sitenin sayfasından (`localhost:18080`) çerezsiz ve çerezli `fetch`: eski ayarlı Alertmanager ve Prometheus'un
+  cevabı çerezsiz istekte okundu (HTTP 200), giriş kapısının arkasındakilerin dört isteğinin hiçbiri okunamadı
+  (`c-tarayici-cors.txt`, `c-tarayici-cors.jpg`).
 
 ### D1 — Geliştirme bağımlılığında bilinen açıklar (Düşük)
 
@@ -560,8 +573,9 @@ Görev mailinin saydığı konular, aynı sırayla.
   veritabanı kullanıcılarının yetkileri.
 - **Sonuç:** Fatura isteği (müşteri kodu ≤ 64, para birimi `^[A-Z]{3}\z`, tutar > 0, en çok 2 ondalık, üst sınır), webhook alanları,
   takip notu (1–500), sayfa boyutu ve taşma (`page=2147483647` → 400), toplu yeniden gönderme (en çok 100) doğrulanıyor; aramada
-  LIKE özel karakterleri kaçışlı. Ham SQL kullanılan 16 üretim yerinin hepsinde istekten gelen değer parametre olarak gidiyor
-  (testlerdeki ham SQL saldırı yüzeyi olmadığı için dışarıda). Bulgular: D10, O9.
+  LIKE özel karakterleri kaçışlı. Ham SQL kullanılan 18 üretim yerinin hepsinde istekten gelen değer parametre olarak gidiyor
+  ya da istekten değer gelmiyor (testlerdeki ham SQL saldırı yüzeyi olmadığı için dışarıda; son iki satır Gün 21'de O9 ile
+  eklendi). Bulgular: D10, O9.
 
 | Yer | Komut | Nasıl gösterildi |
 |---|---|---|
@@ -580,6 +594,8 @@ Görev mailinin saydığı konular, aynı sırayla.
 | `ErpSimulator.Infrastructure/Persistence/ErpInvoiceStore.cs:13` | `SELECT pg_advisory_xact_lock(hashtextextended(…, 0))` | Koddan: `ExecuteSqlInterpolatedAsync` (FormattableString) |
 | `Migrations/20261002161003_ProcessedAtOnlyWhenApplied.cs:14` | `UPDATE erp_webhook_events SET processed_at = NULL …` (DML) | Sabit metin, yalnız migration'da |
 | `Migrations/20261008070347_AddErpSendPace.cs:14`, `:26` | `CREATE TABLE` / `DROP TABLE` (DDL) | Sabit metin, yalnız migration'da |
+| `InvoiceService.Api/Startup/DatabaseMigrator.cs:71` | `CREATE ROLE` / `ALTER ROLE … PASSWORD` / `GRANT` (DDL) | Koddan: yalnız `--migrate-only` adımında; değerler istekten değil ayardan (`AppDatabaseUser`); kullanıcı adı `^[a-z_][a-z0-9_]*$` ile denetleniyor, şifre tırnakları kaçışlı literal (DDL parametre almaz) |
+| `ErpSimulator.Api/Startup/DatabaseMigrator.cs:70` | aynı | aynı |
 
 ("Logda": `2-log-arama.ps1 -AyrintiliLog` koşusunun EF logunda komut metninde parametre adı var, değer yok.)
 
