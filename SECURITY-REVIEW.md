@@ -221,8 +221,9 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Düzeltme:** Realm dosyasında `bruteForceProtected: true`, `failureFactor: 5`, `waitIncrementSeconds: 60`,
   `maxFailureWaitSeconds: 900`, `permanentLockout: false`: art arda 5 yanlış şifreden sonra kullanıcı 60 sn kilitlenir, tekrar
   ederse süre 15 dk'ya kadar uzar; kalıcı kilit yok (saldırgan gerçek kullanıcıyı bilerek kilitleyemesin).
-  `passwordPolicy: "length(12) and notUsername and notEmail"`. Keycloak içe aktarırken verilen şifreleri politikaya göre
-  denetlemiyor; politika şifre belirlenirken ve değiştirilirken uygulanıyor.
+  `passwordPolicy: "length(12) and notUsername and notEmail"`. Politika test kullanıcılarının içe aktarılan şifrelerine de
+  uygulanıyor: `.env`'deki bir test şifresi uymuyorsa Keycloak açılmıyor (4 karakterlik şifreyle açılış içe aktarması
+  `invalidPasswordMinLengthMessage` ile durdu, `c-sifre-politikasi-ice-aktarma.txt`).
 - **Önce:** istek: geçici kullanıcıyla `fatura-test` client'ından 5 yanlış şifre (1,5 sn arayla), ardından doğru şifre → 200;
   yönetim API'sinde `attack-detection` `disabled=false`, `numFailures=0`; yönetim API'siyle şifreyi `kisa1` yapma → 204
   (`manual-tests/gun21/1-once-sonra.ps1` O1, `b-once.txt`).
@@ -230,7 +231,7 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   `kisa1` → 400 `Invalid password: minimum length 12.` (`c-sonra.txt`). Test:
   `RealmSecurityTests.After_five_wrong_passwords_in_a_row_the_right_password_is_refused_and_the_user_is_locked` (realm'in bir
   kopyasında; `bruteForceProtected` geri alınınca kırılıyor, `c-mutasyon-realm.txt`).
-- **Kalan (öneri):** `fatura` realm'inde `admin-cli` hâlâ şifreyle token veriyor; kilit bu yoldan gelen denemeleri de sayıyor.
+- **Kalan (öneri):** `fatura` realm'inde `admin-cli` hâlâ şifreyle token veriyor.
 
 ### O2 — Grafana yönetici hesabı imajın varsayılanı (Orta, düzeltildi)
 
@@ -345,8 +346,7 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   `RealmSecurityTests.The_operations_screen_asking_for_an_offline_token_is_refused`,
   `RealmSecurityTests.A_refresh_token_used_once_is_refused_the_second_time` (ayar geri alınınca kırılıyor, `c-mutasyon-realm.txt`).
 - **Kalan (öneri):** `offline_access` realm'in varsayılan rollerinde duruyor (dosyadan çıkarıldığında Keycloak içe aktarırken
-  geri ekledi); ekranın client'ı onu isteyemiyor, ama başka bir client'a bu scope verilirse o client offline token alabilir.
-  Offline oturumun en uzun süresi.
+  geri ekledi); ekranın client'ı onu isteyemiyor, diğer client'ların scope listeleri değiştirilmedi. Offline oturumun en uzun süresi.
 
 ### O8 — Güvenlik olayları saklanmıyor ve izlenmiyor (Orta)
 
@@ -396,8 +396,8 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   isteği kurbanın tarayıcısı atar.
 - **Etki:** Alarmların uzaktan susturulması; metriklerin okunması.
 - **Öneri:** Prometheus'a `--web.cors.origin` ile yalnız Grafana; Alertmanager'ın önüne kimlik doğrulayan bir proxy (O3).
-- **Düzeltme:** O3'teki giriş kapısı: oturumu olmayan istek (başka bir sitenin sayfasından gelen istek dahil; oturum çerezi
-  `SameSite=Lax`) araca ulaşmıyor; geçen isteklerin cevabından `Access-Control-*` başlıkları siliniyor. Grafana Prometheus'a
+- **Düzeltme:** O3'teki giriş kapısı: oturumu ya da token'ı olmayan istek araca ulaşmıyor; geçen isteklerin cevabından
+  `Access-Control-*` başlıkları siliniyor. Oturum çerezi `SameSite=Lax`. Grafana Prometheus'a
   sunucu tarafından bağlandığı için (`access: proxy`) CORS'a ihtiyacı yok.
 - **Önce:** istek `GET :9090/api/v1/query?query=up`, `Origin: http://kotu-site.example` → 200,
   `Access-Control-Allow-Origin: http://kotu-site.example`; Alertmanager'a `POST /api/v2/silences` preflight'ı → 204,
