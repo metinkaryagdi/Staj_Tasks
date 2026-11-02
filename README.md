@@ -658,45 +658,48 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 20 — Güvenlik Gözden Geçirmesi
+## Gün 21 — Güvenlik Bulgularını Kapatmak
 
-Bugünün işi: anahtar listesinin yenilenme süresinin ayara bağlanması ve projenin tamamının güvenlik gözden geçirmesi. Bulgular,
-nasıl bakıldığı ve öneriler [SECURITY-REVIEW.md](SECURITY-REVIEW.md)'de.
+Bugünün işi: [SECURITY-REVIEW.md](SECURITY-REVIEW.md)'deki bütün bulguların derecelerinin aynı ölçütle yeniden gözden geçirilmesi
+ve Orta bulgulardan O1, O2, O3, O4, O7, O9, O10'un kapatılması. Her bulgunun düzeltmesi, önce ve sonra isteği dokümanda kendi
+başlığında; kalan bulgular öneri olarak duruyor.
 
-- **Anahtar yenileme:** servis Keycloak'ın anahtar listesini `Keycloak:JwksRefreshMinutes` (5) dakikada bir okur; en uzun kabul
-  süresinin hesabı ve koşulları [Kimlik doğrulama](#kimlik-doğrulama)'da.
-- **Düzeltilen Kritik ve Yüksek bulgular:** compose'daki portlar yalnızca `127.0.0.1`'e açılır; Keycloak yönetici şifresi, veritabanı
-  şifreleri, webhook secret'ı, sipariş sisteminin client secret'ı ve test kullanıcılarının şifreleri repodan çıkarılıp `.env`'e
-  alındı ([Kurulum](#kurulum)). ERP Simülatörü'nün kimlik doğrulaması olmaması için ağ erişimi kapatıldı; uygulama katmanındaki
-  kimlik doğrulama öneri olarak duruyor. Orta ve Düşük bulgular dokümanda öneri olarak duruyor.
+- **Dereceler:** derece açığın kendisine ve düzeltmeden önceki duruma göre: Y1 Yüksek → Orta (portun açık olması tek başına veri
+  ya da yetki vermiyor, etkiler arkadaki bulgularda); Y5 Yüksek kaldı, "kalan risk Orta" ifadesi kaldırıldı, durumu "Kısmen".
+  Gerekçeler dokümanın "Derece değişiklikleri" tablosunda. Numaralar değişmedi.
+- **Grafana (O2):** yönetici şifresi `.env`'den; anonim izleyici kapatıldı (Prometheus'a Grafana üzerinden kimliksiz sorgu atabiliyordu).
+- **Keycloak (O1, O7):** 5 yanlış şifreden sonra 60 sn kilit (en çok 15 dk), en az 12 karakterlik şifre; ekranın client'ı
+  `offline_access` isteyemiyor, refresh token yalnız bir kez kullanılabiliyor (refresh token rotation).
+- **Ekran (O4):** nginx `Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy` gönderiyor, sürümünü göstermiyor.
+- **Veritabanı (O9):** migration'ları ayrı `invoice-migrate` / `erp-migrate` adımı sahibin kullanıcısıyla çalıştırıyor; uygulamalar
+  yalnız satır okuyup yazabilen `invoice_app` / `erp_app` ile bağlanıyor ([Kurulum](#kurulum)).
+- **İzleme araçları (O3, O10):** Prometheus, Alertmanager ve Jaeger'ın önünde `izleme-girisi` (nginx) ve `oauth2-proxy`; giriş
+  Keycloak'ta, yalnız `fatura-operatoru`; araçların CORS başlıkları siliniyor ([İzleme](#i̇zleme)).
 
-Kontrol listesi ([`manual-tests/gun20/`](manual-tests/gun20/)):
+Kontrol listesi ([`manual-tests/gun21/`](manual-tests/gun21/)):
 
 | # | Madde | Sonuç |
 |---|---|---|
-| 1 | Anahtar yenileme süresi | Ayar `Keycloak:JwksRefreshMinutes` = 5. `KeyRefreshTests`: liste en geç 0,1 sn'de okundu, anahtar en geç 0,4 sn'de kaldırıldı; son kabul 310,1 sn, ilk ret 311,1 sn. `AuthExtensions.cs`'teki `AutomaticRefreshInterval` satırı geçici kaldırılınca (kütüphane varsayılanı 12 saat) test kırıldı: 351,3 sn'de hâlâ kabul. En kötü durum (istek geliyor, Keycloak'a ulaşılıyor): 300 sn + en çok 14 sn rastgele pay + okuma süresi; Keycloak yavaş ama zaman aşımından önce cevap veriyorsa en çok 300 + 14 + 2 × 60 sn (hesap, ölçülmedi). Servis boştayken: repoya girmeyen tek seferlik bir testte ilk istek 334,6 sn'de kabul, sonraki 337,6 sn'de ret |
-| 2 | Konuların hepsi | `SECURITY-REVIEW.md`: 28 bulgu (2 Kritik, 5 Yüksek, 10 Orta, 11 Düşük). Mailin dokuz konusu ayrı başlıklarda, her birinde nasıl bakıldığı ve sonuç; bulgu çıkmayan kısımlar (webhook imza doğrulaması, Fatura Servisi'nin CORS'u, ham SQL) "bulgu yok" diye. OWASP Top 10:2025 kategorileriyle eşleştirme tablosu |
-| 3 | Bağımlılık taraması | .NET (16 proje, `dotnet list package --vulnerable --include-transitive`): bilinen açık yok. Operasyon ekranı (`npm audit`): üretim bağımlılıklarında 0, geliştirme bağımlılıklarında 2 moderate (vitest). 27 Ekim 2026 tarihli tarama |
-| 4 | Ham SQL | Üretim kodunda 16 yer (`3-ham-sql.ps1`): 11'i parametreli (7'si EF logunda, 4'ü koddan gösterildi); 5'i dışarıdan değer almayan sabit metin (`nextval`, ayardan gelen sayıyla `SET LOCAL`, 3 migration komutu) |
-| 5 | Düzeltmeden önce ve sonra | `1-canli-tarama.ps1` önce/sonra (Y4'ün öncesi hariç): varsayılan profildeki portlardan yerel ağdan açık olan 10 → 0 (ERP Simülatörü'nün token'sız listesi dahil; `iki-kopya` profilindeki 5091 denenmedi, compose satırı aynı biçimde değişti); repodaki değerlerle giriş: Keycloak yöneticisi ve client secret kabul → ret (`invalid_grant`, `unauthorized_client`); önce `invoice/invoice` ile veritabanına girildi, sonra iki veritabanında da eski şifre `password authentication failed`; test kullanıcılarının eski şifreleri sonra `invalid_grant`; repodaki secret'la sahte ret haberi faturayı Reddedildi yaptı → `401`, fatura Gönderildi kaldı. Test kullanıcılarının "önce"si Gün 17'nin çıktısında (`gun17-1-hazir.txt`) |
-| 6 | Loglarda token, şifre, secret | `2-log-arama.ps1`: dört token'lı, token'sız ve bozuk istekler, yanlış şifre, imzalı ve yanlış imzalı webhook; bütün container loglarında 23 arama (alınan token'lar, JWT biçimi, `Bearer`, `Authorization`, `.env`'deki sekiz değerin her biri, yanlış şifre, Basic, `Password=`, `client_secret=`). İsteklerden sonraki loglarda ve şu anki container'ların açılışından bu yana bütün loglarda, gönderilen ve ayrıntılı log seviyesinde 0 |
-
-`1-canli-tarama.ps1 -Etiket <ad>` portları bilgisayarın yerel ağ adresinden dener; `2-log-arama.ps1 -AyrintiliLog` aynı aramayı
-kimlik doğrulama Debug ve EF SQL logu açıkken yapar, bu koşunun logunu `3-ham-sql.ps1` okur.
+| 1 | Derecesi değişen bulgular | SECURITY-REVIEW.md, "Derece değişiklikleri": Y1 Yüksek → Orta, Y5'in kalan risk derecesi kaldırıldı; ikisi de nedeniyle. Bulgu sayısı: 2 Kritik, 4 Yüksek, 11 Orta, 11 Düşük |
+| 2 | Önce ve sonra | `1-once-sonra.ps1` düzeltmelerden önce (`b-once`) ve sonra (`c-sonra`) koşuldu; her bulgunun istekleri ve sonuçları SECURITY-REVIEW.md'de kendi başlığında. Önce: 36 kontrol satırının 34'ü `FARKLI` (`TAMAM` olan ikisi: uygulamanın kullanıcısı diğer uygulamanın veritabanı sunucusunda zaten yoktu); sonra: 38 satırın hepsi `TAMAM` (iki satır yalnız düzeltmeden sonra var: `.env`'deki Grafana şifresi, kilidin 65 sn sonra kalkması) |
+| 3 | Kaba kuvvet koruması | 1,5 sn arayla 5 yanlış şifreden sonra doğru şifre `400 invalid_grant`, yönetim API'sinde `disabled=true`, `numFailures=5`; 65 sn sonra doğru şifre `200`. `RealmSecurityTests`'in kilit testi; ayar geri alınınca kırılıyor |
+| 4 | Refresh token'ın ikinci kullanımı | Ekranın client'ıyla alınan refresh token: 1. kullanım `200`, 2. kullanım `400 invalid_grant` (`Maximum allowed refresh token reuse exceeded`). `RealmSecurityTests`'in testi; ayar geri alınınca kırılıyor |
+| 5 | Ekran başlıklarla çalışıyor | Uygulama içi tarayıcıda giriş, Özet, Fatura Listesi, Fatura Detayı, Mutabakat (mutabakat başlatma dahil); iki sekme aynı anda, ikisinde de token yenilendi. Sayfa içinden dinlenen `securitypolicyviolation` olayı yok, konsolda CSP hatası yok |
+| 6 | Veritabanı kullanıcısı | `invoice_app` ve `erp_app`: `DROP TABLE invoices` → `must be owner of table invoices`; aynı sunucudaki `postgres` veritabanı → `User does not have CONNECT privilege`; diğer uygulamanın veritabanı sunucusu → `password authentication failed` |
+| 7 | Yük testi (50/sn, 2 dk) | `2-yuk-testi.ps1`: 6.000 istek, 6.000 kabul, p95 14,6 ms; serviste 6.000, ERP'de 6.000 kayıt; kayıp 0, çift kayıt 0. Prometheus'taki artış 6.000; Grafana panosunun 11 panelinin hepsinde veri; 7 alarm kuralı sağlıklı; yük sürerken gönderilen 25 yanlış imzalı haberle `CokSayida401` tetiklendi ve alert-receiver'ın logunda |
+| 8 | Bütün testler | .NET birim testleri 532, Fatura Servisi entegrasyon testleri 84 (yeni `RealmSecurityTests` 3 test dahil), ekranın vitest testleri 27; hepsi geçti |
 
 ### Bilinen sınırlar
 
-- **Anahtar değişiminden sonraki istekler:** servis yeni anahtarı listeyi yeniden okuyunca öğrenir; okumayı yeni anahtarla gelen
-  istek başlatır ve o istek `401` alır. Okuma bitene kadar gelen başka istekler de `401` alabilir. Gün 19'daki bir denemede
-  (istekler ~0,3 sn arayla) yalnızca ilk istek `401` aldı.
-- **Keycloak'a ulaşılamazken kaldırılan anahtar:** listenin yeniden okunması başarısız olursa servis eski listeyi kullanmaya devam
-  eder; bu sürede kaldırılan anahtarın kabul süresinin üst sınırı yoktur.
-- **Boştaki servisin ilk isteği:** süre dolduktan sonra gelen ilk istek eski listeyle doğrulanır; servis uzun süre istek almadıysa
-  kaldırılan anahtarla imzalı bir token bu istekte kabul edilebilir.
-- **ERP Simülatörü'ne yerelden erişim:** simülatör hâlâ kimlik doğrulaması istemiyor; bu bilgisayardan ya da compose ağındaki bir
-  container'dan ulaşılabilir (SECURITY-REVIEW.md, Y5).
-- **`KeyRefreshTests`'in süresi:** test ayardaki süre kadar bekler (5 dk için ~5 dk 10 sn); ayar büyütülürse entegrasyon testlerinin
-  toplam süresi CI'daki 15 dk sınırını geçebilir.
+- **Compose ağının içi:** izleme araçlarına compose ağındaki bir container'dan kimliksiz ulaşılıyor (Grafana → Prometheus,
+  Prometheus → Alertmanager); ERP Simülatörü'nün API'si hâlâ kimlik doğrulaması istemiyor (SECURITY-REVIEW.md, Y5, D11).
+- **Kısmen kapatılan bulgular:** O1'de `admin-cli`'nin şifreyle token vermesi, O4'te API'nin `Server: Kestrel` başlığı, O7'de
+  realm'in varsayılan rollerindeki `offline_access` (Keycloak içe aktarırken geri ekliyor; yalnız ekranın client'ı isteyemiyor)
+  öneri olarak duruyor.
+- **Refresh token'ın ikinci kullanımı:** reddedilince Keycloak oturumun o client'taki kaydını kapatıyor; aynı oturumun yeni
+  token'ı da geçersiz oluyor (kullanıcı yeniden yönlendirilir).
+- **Grafana:** tek hesap `admin`; panoya bakacak herkes bu şifreyle giriyor.
+- **Eski script'ler:** izleme araçlarına istek atan Gün 11-20 script'leri token göndermez; o günlerin tag'lerinde çalıştırılır.
 
 ---
 
@@ -724,3 +727,4 @@ kimlik doğrulama Debug ve EF SQL logu açıkken yapar, bu koşunun logunu `3-ha
 | `gun-18` | Operasyon Ekranına Giriş | [tree/gun-18](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-18) |
 | `gun-19` | Kimlik Doğrulamanın Otomatik Testleri | [tree/gun-19](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-19) |
 | `gun-20` | Güvenlik Gözden Geçirmesi | [tree/gun-20](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-20) |
+| `gun-21` | Güvenlik Bulgularını Kapatmak | [tree/gun-21](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-21) |
