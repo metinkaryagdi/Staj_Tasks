@@ -7,7 +7,9 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 ## Yöntem
 
 - **Saldırgan:** repodaki compose olduğu gibi çalıştırılmışken (1) aynı ağdaki herhangi bir makine, (2) repoyu okuyabilen
-  biri. Repo GitHub'da public olduğu için (2) internetteki herkestir. Dereceler düzeltmeden önceki duruma göre verilmiştir.
+  biri. Repo GitHub'da public olduğu için (2) internetteki herkestir. Derece açığın kendisine ve düzeltmeden önceki duruma
+  göre verilmiştir: bir açığın başka bir bulgu üzerinden yapılabilen etkisi o bulgunun derecesine yazılır, düzeltmeden
+  sonra kalan risk dereceyi değiştirmez. Bütün bulgular bu ölçütle yeniden gözden geçirildi; değişenler "Derece değişiklikleri"nde.
 - **Önem derecesi:** saldırganın açığı ne kadar kolay kullandığı ve etkisi:
   - **Kritik:** kimlik bilgisi gerekmeden ya da herkesin bildiği bilgiyle sistemin tamamı (kimlik sağlayıcı, veri) ele geçer.
   - **Yüksek:** faturaların durumu, verisi ya da yetkiler değiştirilebilir ya da doğrudan okunabilir.
@@ -31,17 +33,18 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
 
 ## Özet
 
-Bulgu numarasındaki harf önem derecesinin baş harfidir (K Kritik, Y Yüksek, O Orta, D Düşük), rakam o derecedeki sırasıdır.
+Bulgu numarasındaki harf önem derecesinin ilk verildiği halin baş harfidir (K Kritik, Y Yüksek, O Orta, D Düşük), rakam o
+derecedeki sırasıdır. Derecesi sonradan değişen bulgunun numarası, önceki raporlardaki atıflar kopmasın diye aynı kalır.
 
 | # | Önem | Bulgu | OWASP | Durum |
 |---|---|---|---|---|
 | K1 | Kritik | Keycloak yönetici hesabı `admin/admin`, Keycloak portu ağa açık | A07, A02 | Düzeltildi |
 | K2 | Kritik | Veritabanı şifreleri repoda, veritabanı portları ağa açık | A07, A02 | Düzeltildi |
-| Y1 | Yüksek | compose'daki bütün portlar bütün ağ arayüzlerine açık | A02 | Düzeltildi |
+| Y1 | Orta (önce Yüksek) | compose'daki bütün portlar bütün ağ arayüzlerine açık | A02 | Düzeltildi |
 | Y2 | Yüksek | Webhook HMAC secret'ı repoda: sahte ERP haberiyle fatura durumu değiştirilebiliyor | A04, A08 | Düzeltildi |
 | Y3 | Yüksek | Sipariş sistemi client secret'ı repoda: fatura oluşturma yetkili token alınabiliyor | A07 | Düzeltildi |
 | Y4 | Yüksek | Test kullanıcılarının şifreleri repoda: operatör yetkisi alınabiliyor | A07 | Düzeltildi |
-| Y5 | Yüksek | ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor | A01, A06 | Düzeltildi (ağ erişimi); kalan risk Orta, öneri |
+| Y5 | Yüksek | ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor | A01, A06 | Kısmen: ağ erişimi kapatıldı; uygulamada kimlik doğrulaması yok, öneri |
 | O1 | Orta | Kaba kuvvet koruması ve şifre politikası yok; `admin-cli` şifreyle token veriyor | A07 | Öneri |
 | O2 | Orta | Grafana yönetici hesabı imajın varsayılanı (`admin/admin`) | A07 | Öneri |
 | O3 | Orta | Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor | A01 | Öneri |
@@ -63,6 +66,18 @@ Bulgu numarasındaki harf önem derecesinin baş harfidir (K Kritik, Y Yüksek, 
 | D9 | Düşük | ERP cevaplarına üst sınır yok | A06, A10 | Öneri |
 | D10 | Düşük | ERP Simülatörü'nün para birimi kuralı sondaki satır sonunu kabul ediyor | A05 | Öneri |
 | D11 | Düşük | Collector'lar compose ağında kimliksiz veri kabul ediyor | A08 | Öneri |
+
+### Derece değişiklikleri
+
+| # | Eski | Yeni | Neden |
+|---|---|---|---|
+| Y1 | Yüksek | Orta | Portun ağa açık olması tek başına veri ya da yetki vermiyor: ağdan yapılabilen her şey portun arkasındaki bulguda (K1, K2, Y5, O2, O3) yazılı ve o bulguların derecesi ağ erişimini zaten hesaba katıyor. Tanımda "başka bir açığın yanında anlam kazanır" Orta'dır. |
+| Y5 | Yüksek; kalan risk Orta | Yüksek | Derece düzeltmeden sonra kalan riske göre verilmez. Açığın kendisi (simülatörün API'sinin kimlik doğrulaması istememesi) kapanmadı, yalnız ona ağdan ulaşılması kapandı; durum "Kısmen" olarak düzeltildi. |
+
+Diğer bulguların derecesi aynı kaldı. Gözden geçirmede ayrıca bakılanlar: O3'te Jaeger'dan kimliksiz istekle fatura numaraları ve
+ERP referansları okunuyor, tutar ve müşteri izlerde yok (`manual-tests/gun21/0-jaeger-fatura-verisi.ps1`,
+`a0-jaeger-fatura-verisi.txt`: 20 faturanın numarası, 5 ERP referansı); faturanın içeriği okunmadığı için Orta kaldı. O10'da
+Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, `type`), fatura verisi yok; Orta kaldı.
 
 ## Bulgular
 
@@ -101,7 +116,7 @@ Bulgu numarasındaki harf önem derecesinin baş harfidir (K Kritik, Y Yüksek, 
   → `password authentication failed` (B2) (`c-canli-sonra.txt`). Test:
   `ShippedSettingsTests.Shipped_settings_hold_no_secret_or_password`, gönderilen ayar dosyasının bağlantı dizesinde şifre yok.
 
-### Y1 — compose'daki bütün portlar bütün ağ arayüzlerine açık (Yüksek, düzeltildi)
+### Y1 — compose'daki bütün portlar bütün ağ arayüzlerine açık (Orta, önce Yüksek; düzeltildi)
 
 - **Ne:** Yayımlanan 10 port (`iki-kopya` profilindeki 5091 ile 11) `"PORT:PORT"` biçimindeydi; Docker bunları bütün arayüzlere bağlıyor: veritabanları (5433, 5434),
   ERP Simülatörü (5080), Fatura Servisi (5090), operasyon ekranı (5100), Keycloak (8080), Jaeger (16686), Prometheus (9090),
@@ -164,7 +179,7 @@ Bulgu numarasındaki harf önem derecesinin baş harfidir (K Kritik, Y Yüksek, 
 - **Sonra:** aynı istek eski şifrelerle → üçünde 400 `invalid_grant` (`1-canli-tarama.ps1` B2, `c-canli-sonra.txt`); `.env`'deki
   şifrelerle token alınıyor (`2-log-arama.ps1`, `b-log-arama.txt`).
 
-### Y5 — ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor (Yüksek; ağ erişimi düzeltildi, kalan risk Orta)
+### Y5 — ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor (Yüksek; kısmen: ağ erişimi kapatıldı)
 
 - **Ne:** Fatura oluşturma, listeleme ve sorgulama token istemiyor; Swagger her ortamda açık. Fatura Servisi de ERP'ye hiçbir
   kimlik bilgisi göndermiyor.
@@ -184,9 +199,8 @@ Bulgu numarasındaki harf önem derecesinin baş harfidir (K Kritik, Y Yüksek, 
 - **Önce:** istek `GET http://<yerel ağ adresi>:5080/api/v1/invoices?from=…&to=…`, token'sız → 200 (`1-canli-tarama.ps1` C,
   `b-canli-once.txt`).
 - **Sonra:** aynı istek → bağlantı kurulamıyor (C, `c-canli-sonra.txt`).
-- **Kalan risk (Orta):** Uygulama katmanında kimlik doğrulaması hâlâ yok. Bu bilgisayardan ya da compose ağındaki bir
-  container'dan simülatöre ulaşan biri yukarıdakilerin hepsini yapabilir; yani bulgu artık başka bir açığın (bu makineye ya da
-  compose ağına erişim) yanında anlam kazanıyor.
+- **Kalan:** Uygulama katmanında kimlik doğrulaması hâlâ yok. Bu bilgisayardan ya da compose ağındaki bir container'dan
+  simülatöre ulaşan biri yukarıdakilerin hepsini yapabilir.
 - **Öneri:** Simülatör kimlik doğrulaması istesin (ör. `.env`'den gelen bir API anahtarı) ve Fatura Servisi bunu göndersin.
   Simülatör gerçek ERP'nin yerini tutuyor; gerçek ERP'ye geçildiğinde de Fatura Servisi'nin kimlik bilgisi göndermesi ve ERP
   cevabına içerik karşılaştırmadan güvenmemesi (O6) gerekir.
