@@ -34,7 +34,9 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
   kaydı silinir. `2-yuk-testi.ps1` düzeltmelerden sonraki yük testidir (`c-yuk-testi.txt`).
 - **Bağımlılık taraması:** `dotnet list package --vulnerable --include-transitive`, `npm audit`.
 - **Bağımsız kontrol:** bulgular iki ayrı gözden geçirmeyle (biri dokümanı denetleyen, biri dokümanı okumadan bulgu arayan)
-  karşılaştırıldı; bir bulgunun derecesi (Y5) ayrıca tarafsız bir değerlendirmeyle belirlendi.
+  karşılaştırıldı; bir bulgunun derecesi (Y5) ayrıca tarafsız bir değerlendirmeyle belirlendi. Gün 21'de dereceler,
+  kapatılan bulgular ve kanıtları iki ayrı bağımsız denetimle (biri bütün iddiaları, biri izleme girişinin oturum davranışını
+  kaynak koddan ve canlıda sınayan) kontrol edildi; bulgularına göre düzeltildi.
 
 ## Özet
 
@@ -201,8 +203,8 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
     bulgusu olarak tekrar yazılır.
 - **Etki:** Fatura verisi okunur; faturanın durumu ve hangi ERP kaydına bağlı olduğu dışarıdan değiştirilir; mutabakat belirli
   bir faturayı düzeltemez hale gelir.
-- **Düzeltme:** Bulguyu Yüksek yapan, düzeltmeden önceki compose'da aynı ağdaki herkesin simülatöre ulaşabilmesiydi; port
-  yalnız `127.0.0.1`'e açıldı (Y1).
+- **Düzeltme:** Simülatöre ağdan erişim kapatıldı; port yalnız `127.0.0.1`'e açık (Y1). Açığın kendisi, API'nin kimlik
+  doğrulaması istememesi, duruyor (Kalan).
 - **Önce:** istek `GET http://<yerel ağ adresi>:5080/api/v1/invoices?from=…&to=…`, token'sız → 200 (`1-canli-tarama.ps1` C,
   `b-canli-once.txt`).
 - **Sonra:** aynı istek → bağlantı kurulamıyor (C, `c-canli-sonra.txt`).
@@ -251,10 +253,10 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
   önüne konan girişi atlatırdı. Pano için artık giriş gerekiyor.
 - **Önce:** istek `POST http://localhost:3000/login` (`admin/admin`) → 200 (`1-once-sonra.ps1` O2, `b-once.txt`); girişsiz
   `GET /api/datasources/proxy/uid/prometheus/api/v1/query?query=up` → 200, Prometheus'un cevabı (`b-grafana-anonim-once.txt`).
-- **Kalan:** Grafana'da tek hesap `admin`; panoya bakan herkes bu şifreyle giriyor (kişiye bağlı giriş yok).
 - **Sonra:** `admin/admin` → 401; `.env`'deki şifreyle → 200; girişsiz veri kaynağı sorgusu → 401 (`c-sonra.txt`). Tarayıcıda:
-  girişsiz açılış giriş sayfasına gidiyor, sayfanın `/api/search` isteği 401; giriş formunda `admin/admin` → "Invalid username or password"; `.env`'deki şifreyle giriş Fatura Servisi panosunu
-  verisiyle açıyor (`c-tarayici-grafana.txt`).
+  girişsiz açılış giriş sayfasına gidiyor, sayfanın `/api/search` isteği 401; giriş formunda `admin/admin` → "Invalid username
+  or password"; `.env`'deki şifreyle giriş Fatura Servisi panosunu verisiyle açıyor (`c-tarayici-grafana.txt`).
+- **Kalan:** Grafana'da tek hesap `admin`; panoya bakan herkes bu şifreyle giriyor (kişiye bağlı giriş yok).
 
 ### O3 — Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor (Kritik, önce Orta; düzeltildi)
 
@@ -262,7 +264,8 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
 - **Nerede:** `docker-compose.yml`, `monitoring/`.
 - **Nasıl istismar edilir:** Alertmanager'a `POST /api/v2/silences` ile alarmları susturan bir kayıt yazılır; Prometheus'tan
   ayarlar ve metrikler, Jaeger'dan fatura numaralı izler okunur.
-- **Etki:** Bir saldırı sırasında alarmlar sessizce kapatılabilir; iç yapı ve fatura numaraları okunur.
+- **Etki:** Bir saldırı sırasında alarmlar sessizce kapatılabilir; iç yapı, fatura numaraları ve ERP referansları okunur
+  (ERP referansı Y2'deki sahte haberin ön koşulu; `a0-jaeger-fatura-verisi.txt`).
 - **Öneri:** Dışarıya açılacaksa önlerine kimlik doğrulayan bir reverse proxy konsun.
 - **Düzeltme (O10 ile birlikte):** Üç aracın portları artık yayımlanmıyor; önlerinde `izleme-girisi` (nginx) aynı adresleri
   (9090, 9093, 16686) dinliyor ve her isteği `oauth2-proxy`'ye soruyor (`auth_request`). Giriş Keycloak'ın `izleme-girisi`
@@ -526,7 +529,7 @@ Görev mailinin saydığı konular, aynı sırayla.
   Kural yazılmamış yeni bir endpoint de token ister. Operatör adı ve `sub` token'dan okunuyor. Rol ve audience kurallarının her
   biri entegrasyon testleriyle sınanıyor. Bulgular: K1, Y3, Y4, Y5, O1, O2, O7, D4, D7.
   Anahtar listesinin (JWKS) yenilenme sıklığı görevin "Önce bir düzeltme" bölümünde ayara bağlandı ve testle gösterildi;
-  kaldırılan bir anahtarın en kötü durumdaki kabul süresi hesabıyla README'de (Kimlik doğrulama, Gün 20).
+  kaldırılan bir anahtarın en kötü durumdaki kabul süresi hesabıyla README'de (Kimlik doğrulama).
 
 ### Webhook imzası
 
