@@ -12,7 +12,7 @@ Bulgular [OWASP Top 10:2025](https://top10.owasp.org/2025/) kategorileriyle eşl
   derecededir. Bütün bulgular bu ölçütle yeniden gözden geçirildi; değişenler "Derece değişiklikleri"nde.
 - **Önem derecesi:** saldırganın açığı ne kadar kolay kullandığı ve etkisi:
   - **Kritik:** kimlik bilgisi gerekmeden ya da herkesin bildiği bilgiyle sistemin tamamı (kimlik sağlayıcı, veri) ya da bir
-    bileşenin yönetici hesabı ele geçer.
+    bileşen ele geçer (yönetici hesabıyla ya da kimlik doğrulaması olmayan bütün API'siyle).
   - **Yüksek:** faturaların durumu, verisi ya da yetkiler değiştirilebilir ya da doğrudan okunabilir.
   - **Orta:** etki sınırlı ya da başka bir açığın yanında anlam kazanır.
   - **Düşük:** bilgi sızıntısı, yalnız geliştirmede etkili olan ya da istismarı zor durumlar.
@@ -51,14 +51,14 @@ derecedeki sırasıdır. Derecesi sonradan değişen bulgunun numarası, önceki
 | Y2 | Yüksek | Webhook HMAC secret'ı repoda: sahte ERP haberiyle fatura durumu değiştirilebiliyor | A04, A08 | Düzeltildi |
 | Y3 | Yüksek | Sipariş sistemi client secret'ı repoda: fatura oluşturma yetkili token alınabiliyor | A07 | Düzeltildi |
 | Y4 | Yüksek | Test kullanıcılarının şifreleri repoda: operatör yetkisi alınabiliyor | A07 | Düzeltildi |
-| Y5 | Yüksek | ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor | A01, A06 | Kısmen: ağ erişimi kapatıldı; uygulamada kimlik doğrulaması yok, öneri |
+| Y5 | Kritik (önce Yüksek) | ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor | A01, A06 | Kısmen: ağ erişimi kapatıldı; uygulamada kimlik doğrulaması yok, öneri |
 | O1 | Orta | Kaba kuvvet koruması ve şifre politikası yok; `admin-cli` şifreyle token veriyor | A07 | Düzeltildi (kaba kuvvet, şifre politikası); `admin-cli` öneri |
 | O2 | Kritik (önce Orta) | Grafana yönetici hesabı imajın varsayılanı (`admin/admin`) | A07 | Düzeltildi |
 | O3 | Kritik (önce Orta) | Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor | A01 | Düzeltildi |
 | O4 | Orta | Operasyon ekranında HTTP güvenlik başlıkları yok, nginx sürümü görünüyor | A02 | Düzeltildi (ekran); API'nin `Server` başlığı öneri |
 | O5 | Orta | Bütün trafik HTTP üzerinden (TLS yok) | A04 | Öneri |
 | O6 | Orta | ERP'deki kayıt içeriği karşılaştırılmadan faturaya bağlanıyor | A06 | Öneri |
-| O7 | Orta | Tarayıcı client'ı offline token alabiliyor; refresh token tekrar kullanılabiliyor | A07 | Düzeltildi |
+| O7 | Orta | Tarayıcı client'ı offline token alabiliyor; refresh token tekrar kullanılabiliyor | A07 | Düzeltildi (ekranın client'ı, refresh token); varsayılan roldeki `offline_access` öneri |
 | O8 | Orta | Güvenlik olayları saklanmıyor ve izlenmiyor | A09 | Öneri |
 | O9 | Orta | Uygulamaların veritabanı kullanıcıları süper kullanıcı | A02 | Düzeltildi |
 | O10 | Orta | Alertmanager ve Prometheus her web sitesine CORS izni veriyor | A01 | Düzeltildi |
@@ -79,10 +79,13 @@ derecedeki sırasıdır. Derecesi sonradan değişen bulgunun numarası, önceki
 | # | Eski | Yeni | Neden |
 |---|---|---|---|
 | O2 | Orta | Kritik | K1 ile aynı türden açık: düzeltmeden önce ağa açık bir yönetim arayüzü, herkesin bildiği `admin/admin` yönetici hesabıyla. Grafana yöneticisi panoları değiştirir, veri kaynağı ekleyerek Grafana'nın ulaştığı başka sistemlere istek attırır; düzeltmesi K1'deki gibi tek satır. Önceki derece port kapatıldıktan sonraki duruma göre verilmişti. |
-| O3 | Orta | Kritik | O2 ve K1 ile aynı türden: düzeltmeden önce ağa açık yönetim arayüzleri, üstelik hiç kimlik bilgisi istemeden. Alertmanager'da alarmlar susturulur (bileşenin yönetimi; tanımdaki "kimlik bilgisi gerekmeden bir bileşenin yönetici hesabı"), Jaeger'dan fatura numaraları ve ERP referansları okunur (ERP referansı Y2'deki sahte haberin ön koşulu). Önceki derece içeriğin okunmadığına bakılarak verilmişti. |
-| Y5 | Yüksek; kalan risk Orta | Yüksek | Derece düzeltmeden sonra kalan riske göre verilmez. Açığın kendisi (simülatörün API'sinin kimlik doğrulaması istememesi) kapanmadı, yalnız ona ağdan ulaşılması kapandı; durum "Kısmen" olarak düzeltildi. |
+| O3 | Orta | Kritik | O2 ve K1 ile aynı türden: düzeltmeden önce ağa açık yönetim arayüzleri, üstelik hiç kimlik bilgisi istemeden. Alertmanager'da alarmlar susturulur (bileşenin yönetimi; tanımdaki "kimlik bilgisi gerekmeden bir bileşen ele geçer"), Jaeger'dan fatura numaraları ve ERP referansları okunur (ERP referansı Y2'deki sahte haberin ön koşulu). Önceki derece içeriğin okunmadığına bakılarak verilmişti. |
+| Y5 | Yüksek; kalan risk Orta | Kritik | O3 ile aynı türden: ağa açık, hiç kimlik bilgisi istemeyen bir servis. Saldırgan bütün faturaların müşteri kodunu, tutarını ve ERP referansını okur, kayıt açıp faturanın hangi ERP kaydına bağlı olduğunu değiştirir (O6), mutabakatı bozar; O3'tekinden fazlası. Derece düzeltmeden sonra kalan riske göre de verilmez: açığın kendisi kapanmadı, yalnız ona ağdan ulaşılması kapandı; durum "Kısmen". |
 
-Diğer bulguların derecesi aynı kaldı. Gözden geçirmede ayrıca ölçülenler: O3'te Jaeger'dan kimliksiz istekle fatura numaraları ve
+Kritik tanımı bu gözden geçirmede genişletildi. Gün 20'de "sistemin tamamı ele geçer" idi; aynı türden açıkların aynı derecede
+olması için "ya da bir bileşen ele geçer (yönetici hesabıyla ya da kimlik doğrulaması olmayan bütün API'siyle)" eklendi:
+herkesin bildiği yönetici şifresi (K1, O2) ve kimlik doğrulaması olmayan servis (O3, Y5). Diğer bulguların derecesi aynı
+kaldı. Gözden geçirmede ayrıca ölçülenler: O3'te Jaeger'dan kimliksiz istekle fatura numaraları ve
 ERP referansları okunuyor, tutar ve müşteri izlerde yok (`manual-tests/gun21/0-jaeger-fatura-verisi.ps1`,
 `a0-jaeger-fatura-verisi.txt`: 20 faturanın numarası, 5 ERP referansı). O10'da Prometheus'tan okunan metrikler toplam sayılar
 (etiketleri `result`, `status`, `type`), fatura verisi yok. O10 Orta kaldı: istismar için kurbanın, yığın çalışırken saldırganın
@@ -178,6 +181,9 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
 - **Nerede:** `keycloak/fatura-realm.json` (`users`); ayrıca `InvoiceService.Api.http` ve test script'leri.
 - **Nasıl istismar edilir:** Keycloak'a ulaşabilen biri operasyon ekranının giriş sayfasından `operator/operator123` ile girer.
 - **Etki:** Operatör yetkisiyle yeniden gönderme, toplu yeniden gönderme, mutabakat başlatma; izleyiciyle bütün faturalar okunur.
+- **Önem gerekçesi:** Şifreler herkesin bildiği bilgi, ama alınan şey bir bileşenin tamamı değil, Fatura Servisi'nin bir rolü:
+  operatör faturalara müdahale eder, kullanıcı, rol ya da ayar değiştiremez. Tanımda "yetkiler ve faturaların durumu
+  değiştirilebilir" Yüksek'tir.
 - **Öneri:** Şifreler realm dosyasında olmasın, içe aktarılırken ortamdan verilsin (Y3 ile aynı yol).
 - **Düzeltme:** Realm dosyasında `${TEST_IZLEYICI_PASSWORD}`, `${TEST_OPERATOR_PASSWORD}`, `${TEST_ROLSUZ_PASSWORD}`; compose
   `.env`'deki değerleri Keycloak'a veriyor, testlerin Keycloak'ı kendi test değerlerini veriyor; script'ler şifreleri `.env`'den
@@ -188,7 +194,7 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
 - **Sonra:** aynı istek eski şifrelerle → üçünde 400 `invalid_grant` (`1-canli-tarama.ps1` B2, `c-canli-sonra.txt`); `.env`'deki
   şifrelerle token alınıyor (`2-log-arama.ps1`, `b-log-arama.txt`).
 
-### Y5 — ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor (Yüksek; kısmen: ağ erişimi kapatıldı)
+### Y5 — ERP Simülatörü'nün API'si kimlik doğrulaması istemiyor (Kritik, önce Yüksek; kısmen: ağ erişimi kapatıldı)
 
 - **Ne:** Fatura oluşturma, listeleme ve sorgulama token istemiyor; Swagger her ortamda açık. Fatura Servisi de ERP'ye hiçbir
   kimlik bilgisi göndermiyor.
@@ -229,7 +235,7 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
   `passwordPolicy: "length(12) and notUsername and notEmail"`. Politika test kullanıcılarının içe aktarılan şifrelerine de
   uygulanıyor: `.env`'deki bir test şifresi uymuyorsa Keycloak açılmıyor (4 karakterlik şifreyle açılış içe aktarması
   `invalidPasswordMinLengthMessage` ile durdu, `c-sifre-politikasi-ice-aktarma.txt`).
-- **Önce:** istek: geçici kullanıcıyla `fatura-test` client'ından 5 yanlış şifre (1,5 sn arayla), ardından doğru şifre → 200;
+- **Önce:** istek: geçici kullanıcıyla `fatura-test` client'ından 5 yanlış şifre, ardından doğru şifre → 200;
   yönetim API'sinde `attack-detection` `disabled=false`, `numFailures=0`; yönetim API'siyle şifreyi `kisa1` yapma → 204
   (`manual-tests/gun21/1-once-sonra.ps1` O1, `b-once.txt`).
 - **Sonra:** aynı istekler → doğru şifre 400 `invalid_grant`; `disabled=true`, `numFailures=5`; 65 sn sonra doğru şifre 200;
@@ -304,8 +310,8 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
   location'a ve hata cevaplarına (`always`) ekleniyor. `connect-src`'deki adresler ekranın derlendiği `VITE_API_URL` ve
   `VITE_KEYCLOAK_URL`'den geliyor (nginx imajının template özelliği). `server_tokens off`. Derlenen sayfada satır içi script ya
   da stil yok; CSP `'unsafe-inline'` gerektirmiyor.
-- **Önce:** istek `GET http://localhost:5100/`, bir asset ve olmayan bir asset (404) → üçünde de bu başlıklar yok,
-  `Server: nginx/1.31.8` (`1-once-sonra.ps1` O4, `b-once.txt`).
+- **Önce:** istek `GET http://localhost:5100/`, bir asset ve olmayan bir asset (404) → üçünde de `Content-Security-Policy`,
+  `X-Content-Type-Options`, `Referrer-Policy` yok, `Server: nginx/1.31.8` (`1-once-sonra.ps1` O4, `b-once.txt`).
 - **Sonra:** üçünde de başlıklar var, `Server: nginx` (`c-sonra.txt`). Ekran uygulama içi tarayıcıda: giriş, Özet, Fatura
   Listesi, Fatura Detayı, Mutabakat (mutabakat başlatma POST'u dahil) çalıştı; sayfa içinden dinlenen
   `securitypolicyviolation` olayı yok, konsolda hata yok; iki sekme aynı anda açıkken ikisinde de token yenilendi
@@ -331,7 +337,7 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
 - **Etki:** Faturanın ERP'deki karşılığı başka içerikli bir kayıt olur; durum o kayda göre değişir.
 - **Öneri:** Benimsemeden önce tutar, para birimi, müşteri ve tarih karşılaştırılsın; uyuşmazsa bulgu olsun.
 
-### O7 — Tarayıcı client'ı offline token alabiliyor; refresh token tekrar kullanılabiliyor (Orta, düzeltildi)
+### O7 — Tarayıcı client'ı offline token alabiliyor; refresh token tekrar kullanılabiliyor (Orta; ekranın client'ı ve refresh token düzeltildi)
 
 - **Ne:** `offline_access` varsayılan rollerde ve `operasyon-ekrani`'nın isteğe bağlı scope'larında; offline oturum 30 gün boşta
   kalabiliyor, en uzun süre sınırı kapalı; `revokeRefreshToken: false`.
@@ -476,8 +482,11 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
 
 - **Ne:** Test script'lerinin eklediği `fatura-test` client'ı (public, şifreyle token, audience mapper'lı) çalışan Keycloak'ta duruyor.
 - **Nerede:** `manual-tests/keycloak/test-client-ekle.ps1` ile eklenen client.
-- **Nasıl istismar edilir:** Bu bilgisayardan giriş sayfasına uğramadan, şifre denenip API'nin kabul ettiği token alınır.
+- **Nasıl istismar edilir:** Keycloak'a ulaşabilen biri (düzeltmeden önce aynı ağdaki herkes) giriş sayfasına uğramadan şifre
+  dener ve API'nin kabul ettiği token'ı alır.
 - **Etki:** O1 ve Y4 ile birlikte şifre denemesini kolaylaştırır.
+- **Önem gerekçesi:** O1'deki `admin-cli` ile aynı türden (şifreyle token veren public client), ama bu client varsayılan kurulumda
+  yok; yalnız test script'leri çalıştırılınca ekleniyor. Tanımda "yalnız geliştirmede etkili" Düşük'tür.
 - **Öneri:** Testlerden sonra client silinsin ya da container yeniden oluşturulsun.
 
 ### D8 — İmzası doğrulanmamış webhook başlığı loga olduğu gibi yazılıyor (Düşük)
