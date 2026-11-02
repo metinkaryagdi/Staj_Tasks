@@ -23,6 +23,22 @@ services:
     networks:
       - erp-data
 
+  # Migrations run here, once, as the database's owner (erp); then the step creates erp_app, the user the simulator
+  # connects as, which can only read and write rows. The simulator starts after this step has finished successfully.
+  erp-migrate:
+    build: ./erp-simulator
+    command: ["--migrate-only"]
+    restart: "no"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__ErpDb: "Host=erp-db;Database=erp_simulator;Username=erp;Password=${ERP_DB_PASSWORD:?};GSS Encryption Mode=Disable"
+      AppDatabaseUser__Password: ${ERP_DB_APP_PASSWORD:?.env dosyasında ERP_DB_APP_PASSWORD yok (bkz. .env.example)}
+    networks:
+      - erp-data
+    depends_on:
+      erp-db:
+        condition: service_healthy
+
   erp-simulator:
     build: ./erp-simulator
     ports:
@@ -31,8 +47,9 @@ services:
       # Container settings (database, invoice service address) are in appsettings.Docker.json, read on top of
       # appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
-      # The database password and the webhook secret come from .env, not from a file in the repository.
-      ConnectionStrings__ErpDb: "Host=erp-db;Database=erp_simulator;Username=erp;Password=${ERP_DB_PASSWORD:?};GSS Encryption Mode=Disable"
+      # The database password and the webhook secret come from .env, not from a file in the repository. The simulator
+      # connects as erp_app (rows only), not as the database's owner.
+      ConnectionStrings__ErpDb: "Host=erp-db;Database=erp_simulator;Username=erp_app;Password=${ERP_DB_APP_PASSWORD:?};GSS Encryption Mode=Disable"
       Webhooks__Secret: ${ERP_WEBHOOK_SECRET:?.env dosyasında ERP_WEBHOOK_SECRET yok (bkz. .env.example)}
       # Optional overrides, passed through from the shell only when set there (e.g.
       # `Simulator__Rates__Success=0 Simulator__Rates__Busy=100 ... docker compose up -d erp-simulator`; rates must
@@ -75,8 +92,8 @@ services:
       - erp-data
       - apps
     depends_on:
-      erp-db:
-        condition: service_healthy
+      erp-migrate:
+        condition: service_completed_successfully
 
   # Fatura Servisi'nin kendi veritabanı: ayrı container, ayrı kullanıcı/şifre, ayrı ağ.
   # Simülatör bu veritabanının bağlantı bilgisini bilmez (Fatura Servisi de erp-db'ninkini).
@@ -98,6 +115,23 @@ services:
     networks:
       - invoice-data
 
+  # Migrations run here, once, as the database's owner (invoice); then the step creates invoice_app, the user both
+  # service copies connect as, which can only read and write rows. The service starts after this step has finished
+  # successfully.
+  invoice-migrate:
+    build: ./invoice-service
+    command: ["--migrate-only"]
+    restart: "no"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__InvoiceDb: "Host=invoice-db;Database=invoice_service;Username=invoice;Password=${INVOICE_DB_PASSWORD:?};GSS Encryption Mode=Disable"
+      AppDatabaseUser__Password: ${INVOICE_DB_APP_PASSWORD:?.env dosyasında INVOICE_DB_APP_PASSWORD yok (bkz. .env.example)}
+    networks:
+      - invoice-data
+    depends_on:
+      invoice-db:
+        condition: service_healthy
+
   invoice-service:
     build: ./invoice-service
     ports:
@@ -106,8 +140,9 @@ services:
       # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of
       # appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
-      # The database password and the webhook secret come from .env, not from a file in the repository.
-      ConnectionStrings__InvoiceDb: "Host=invoice-db;Database=invoice_service;Username=invoice;Password=${INVOICE_DB_PASSWORD:?};GSS Encryption Mode=Disable"
+      # The database password and the webhook secret come from .env, not from a file in the repository. The service
+      # connects as invoice_app (rows only), not as the database's owner.
+      ConnectionStrings__InvoiceDb: "Host=invoice-db;Database=invoice_service;Username=invoice_app;Password=${INVOICE_DB_APP_PASSWORD:?};GSS Encryption Mode=Disable"
       ErpWebhooks__Secret: ${ERP_WEBHOOK_SECRET:?}
       # Optional overrides of the reconciliation settings, passed through from the shell only when set there
       # (e.g. IntervalMinutes=1 to see the scheduled runs quickly).
@@ -122,8 +157,8 @@ services:
       - apps
     # No depends_on erp-simulator on purpose: the service must start (and record failures) even when the ERP is down.
     depends_on:
-      invoice-db:
-        condition: service_healthy
+      invoice-migrate:
+        condition: service_completed_successfully
 
   # Operasyon ekranı: tarayıcıda çalışan statik uygulama (nginx). Yalnızca Fatura Servisi'nin API'siyle konuşur; istekleri
   # kullanıcının tarayıcısı yaptığı için servise host üzerindeki adresinden gider (VITE_API_URL), container ağından değil.
@@ -157,6 +192,8 @@ services:
       TEST_IZLEYICI_PASSWORD: ${TEST_IZLEYICI_PASSWORD:?.env dosyasında TEST_IZLEYICI_PASSWORD yok (bkz. .env.example)}
       TEST_OPERATOR_PASSWORD: ${TEST_OPERATOR_PASSWORD:?.env dosyasında TEST_OPERATOR_PASSWORD yok (bkz. .env.example)}
       TEST_ROLSUZ_PASSWORD: ${TEST_ROLSUZ_PASSWORD:?.env dosyasında TEST_ROLSUZ_PASSWORD yok (bkz. .env.example)}
+      # The monitoring gateway's client secret (izleme-girisi), read the same way.
+      MONITORING_CLIENT_SECRET: ${MONITORING_CLIENT_SECRET:?.env dosyasında MONITORING_CLIENT_SECRET yok (bkz. .env.example)}
       # Token'lara yazılan issuer, isteğin hangi adresten geldiğine bakılmaksızın hep bu. Bilgisayardaki script'ler
       # localhost:8080'den, servisler ağın içinden keycloak:8080'den ulaşır; iki adres iki farklı issuer üretmesin.
       KC_HOSTNAME: http://localhost:8080
@@ -182,7 +219,7 @@ services:
       # Container settings (database, ERP simulator address) are in appsettings.Docker.json, read on top of
       # appsettings.json.
       ASPNETCORE_ENVIRONMENT: Docker
-      ConnectionStrings__InvoiceDb: "Host=invoice-db;Database=invoice_service;Username=invoice;Password=${INVOICE_DB_PASSWORD:?};GSS Encryption Mode=Disable"
+      ConnectionStrings__InvoiceDb: "Host=invoice-db;Database=invoice_service;Username=invoice_app;Password=${INVOICE_DB_APP_PASSWORD:?};GSS Encryption Mode=Disable"
       ErpWebhooks__Secret: ${ERP_WEBHOOK_SECRET:?}
       # Optional overrides of the reconciliation settings, passed through from the shell only when set there
       # (e.g. IntervalMinutes=1 to see the scheduled runs quickly).
@@ -196,8 +233,8 @@ services:
       - invoice-data
       - apps
     depends_on:
-      invoice-db:
-        condition: service_healthy
+      invoice-migrate:
+        condition: service_completed_successfully
 
   # Yük testi (load-test/invoices.js): k6, sabit sürümlü imajla ve bu ağın içinden çalışır, kurulum gerekmez. Profilde
   # olduğu için `docker compose up` başlatmaz; tek komut:
@@ -250,19 +287,16 @@ services:
     networks:
       - apps
 
-  # İzler: Collector izleri Jaeger'a iletir. Arayüz http://localhost:16686; servis, fatura numarası (invoice.number) ya da
-  # trace_id ile aranır. İzler bellekte tutulur: Jaeger yeniden başlayınca silinir.
+  # İzler: Collector izleri Jaeger'a iletir. Arayüz http://localhost:16686 (izleme-girisi üzerinden); servis, fatura
+  # numarası (invoice.number) ya da trace_id ile aranır. İzler bellekte tutulur: Jaeger yeniden başlayınca silinir.
+  # Prometheus, Alertmanager ve Jaeger'ın portları yayımlanmaz: bilgisayardan yalnız izleme-girisi'nden ulaşılır.
   jaeger:
     image: jaegertracing/jaeger:2.10.0
-    ports:
-      - "127.0.0.1:16686:16686"
     networks:
       - apps
 
   prometheus:
     image: prom/prometheus:v3.5.0
-    ports:
-      - "127.0.0.1:9090:9090"
     volumes:
       - ./monitoring/prometheus:/etc/prometheus:ro
     networks:
@@ -270,10 +304,72 @@ services:
 
   alertmanager:
     image: prom/alertmanager:v0.28.1
-    ports:
-      - "127.0.0.1:9093:9093"
     volumes:
       - ./monitoring/alertmanager:/etc/alertmanager:ro
+    networks:
+      - apps
+
+  # Prometheus (9090), Alertmanager (9093) ve Jaeger'ın (16686) önündeki giriş kapısı: adresler aynı, her istek önce
+  # oauth2-proxy'ye sorulur, yalnız Keycloak'ta fatura-operatoru rolü olan geçer. Araçların CORS başlıkları cevaptan
+  # silinir. Ayar monitoring/izleme-girisi/.
+  izleme-girisi:
+    image: nginx:1.31.8-alpine
+    ports:
+      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:9093:9093"
+      - "127.0.0.1:16686:16686"
+    volumes:
+      - ./monitoring/izleme-girisi/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./monitoring/izleme-girisi/snippets:/etc/nginx/snippets:ro
+    networks:
+      - apps
+    depends_on:
+      - oauth2-proxy
+      - prometheus
+      - alertmanager
+      - jaeger
+
+  # izleme-girisi'nin sorduğu oturum kontrolü (auth_request). Giriş Keycloak'ın izleme-girisi client'ıyla yapılır
+  # (Authorization Code + PKCE); oturum şifreli bir çerezde tutulur. Script'ler bu client'tan alınmış token'ı Bearer ile
+  # gönderebilir (audience izleme-girisi; API'nin token'ı burada geçmez).
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.9.0
+    environment:
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_PROVIDER: keycloak-oidc
+      OAUTH2_PROXY_CLIENT_ID: izleme-girisi
+      OAUTH2_PROXY_CLIENT_SECRET: ${MONITORING_CLIENT_SECRET:?}
+      # Oturum çerezini şifreleyen anahtar: 32 karakter.
+      OAUTH2_PROXY_COOKIE_SECRET: ${MONITORING_COOKIE_SECRET:?.env dosyasında MONITORING_COOKIE_SECRET yok (bkz. .env.example)}
+      # Tarayıcı Keycloak'a localhost:8080'den, oauth2-proxy compose ağından keycloak:8080'den ulaşır; token'daki issuer
+      # her durumda localhost:8080 (KC_HOSTNAME). Keşif belgesi bu yüzden okunmaz, adresler tek tek verilir.
+      OAUTH2_PROXY_OIDC_ISSUER_URL: http://localhost:8080/realms/fatura
+      OAUTH2_PROXY_SKIP_OIDC_DISCOVERY: "true"
+      OAUTH2_PROXY_LOGIN_URL: http://localhost:8080/realms/fatura/protocol/openid-connect/auth
+      OAUTH2_PROXY_REDEEM_URL: http://keycloak:8080/realms/fatura/protocol/openid-connect/token
+      OAUTH2_PROXY_OIDC_JWKS_URL: http://keycloak:8080/realms/fatura/protocol/openid-connect/certs
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      # Yalnız bu Keycloak rolü geçer; rolü olmayan kullanıcı ya da token 403 alır.
+      OAUTH2_PROXY_ALLOWED_ROLES: fatura-operatoru
+      # Kullanıcılar e-postayla değil rolle ayrılır; test kullanıcılarının e-postası doğrulanmamış.
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL: "true"
+      OAUTH2_PROXY_SKIP_JWT_BEARER_TOKENS: "true"
+      # Bütün trafik HTTP (O5): çerez Secure olursa tarayıcı onu geri göndermez. SameSite=Lax: başka bir sitenin
+      # sayfasından gelen istekte çerez gönderilmez.
+      OAUTH2_PROXY_COOKIE_SECURE: "false"
+      OAUTH2_PROXY_COOKIE_SAMESITE: lax
+      # Oturum dakikada bir Keycloak'ta yenilenir: Keycloak oturumu kapanınca (çıkış, kullanıcı kapatılması) en geç 1 dk
+      # sonra buradaki oturum da biter. En uzun süre Keycloak'ın oturum sınırıyla aynı (ssoSessionMaxLifespan, 10 saat);
+      # varsayılan 7 gün olurdu.
+      OAUTH2_PROXY_COOKIE_REFRESH: 1m
+      OAUTH2_PROXY_COOKIE_EXPIRE: 10h
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      # Girişten sonra yalnız bu bilgisayardaki adreslere dönülür (üç port).
+      OAUTH2_PROXY_WHITELIST_DOMAINS: "localhost:*"
+      # Yalnız oturum kontrolü yapar; isteği araca nginx iletir.
+      OAUTH2_PROXY_UPSTREAMS: static://202
     networks:
       - apps
 

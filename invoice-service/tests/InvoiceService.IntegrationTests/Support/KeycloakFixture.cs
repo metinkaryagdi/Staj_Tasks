@@ -17,14 +17,15 @@ public sealed class KeycloakFixture : IAsyncLifetime
     // The order system client's secret in the test Keycloak.
     public const string OrderSystemSecret = "test-only-siparis-sistemi-secret";
 
-    // fatura-realm.json reads these from the environment (${NAME}) when the realm is imported: the order system's secret and
-    // the test users' passwords.
+    // fatura-realm.json reads these from the environment (${NAME}) when the realm is imported: the order system's secret,
+    // the test users' passwords and the monitoring gateway's secret.
     private static readonly Dictionary<string, string> RealmEnvironment = new()
     {
         ["ORDER_SYSTEM_CLIENT_SECRET"] = OrderSystemSecret,
         ["TEST_IZLEYICI_PASSWORD"] = TestPassword("izleyici"),
         ["TEST_OPERATOR_PASSWORD"] = TestPassword("operator"),
-        ["TEST_ROLSUZ_PASSWORD"] = TestPassword("rolsuz")
+        ["TEST_ROLSUZ_PASSWORD"] = TestPassword("rolsuz"),
+        ["MONITORING_CLIENT_SECRET"] = "test-only-izleme-girisi-secret"
     };
 
     /// <summary>A test user's password in the test Keycloak.</summary>

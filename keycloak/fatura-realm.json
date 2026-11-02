@@ -83,6 +83,36 @@
       ]
     },
     {
+      "clientId": "izleme-girisi",
+      "description": "Prometheus, Alertmanager ve Jaeger'ın önündeki giriş (oauth2-proxy): kullanıcı Keycloak'ta giriş yapar, yalnız fatura-operatoru geçer. Secret sunucuda durur (confidential client)",
+      "publicClient": false,
+      "secret": "${MONITORING_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:9090/oauth2/callback",
+        "http://localhost:9093/oauth2/callback",
+        "http://localhost:16686/oauth2/callback"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "izleme-girisi-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "izleme-girisi",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "siparis-sistemi",
       "description": "Faturaları oluşturan sipariş sistemi: kullanıcı değil, servis (client credentials)",
       "publicClient": false,

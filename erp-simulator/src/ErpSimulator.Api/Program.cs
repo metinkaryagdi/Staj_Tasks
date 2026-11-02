@@ -44,7 +44,14 @@ builder.Services.AddSimulatorOpenApi();
 
 var app = builder.Build();
 
-await app.MigrateDatabaseAsync();
+// Migrations run in a step of their own, as the database's owner; the simulator connects as a user that can only read
+// and write rows (Startup/DatabaseMigrator.cs).
+if (args.Contains("--migrate-only"))
+{
+    await app.MigrateAndGrantAsync();
+    return;
+}
+
 app.LogSimulatorSettings();
 // Once the app has started OpenTelemetry listens: only then are the counters' 0s recorded, so they are exported at 0 before
 // anything is counted.
