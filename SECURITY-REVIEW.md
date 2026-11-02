@@ -244,7 +244,8 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   önüne konan girişi atlatırdı. Pano için artık giriş gerekiyor.
 - **Önce:** istek `POST http://localhost:3000/login` (`admin/admin`) → 200 (`1-once-sonra.ps1` O2, `b-once.txt`); girişsiz
   `GET /api/datasources/proxy/uid/prometheus/api/v1/query?query=up` → 200, Prometheus'un cevabı (`b-grafana-anonim-once.txt`).
-- **Sonra:** `admin/admin` → 401; `.env`'deki şifreyle → 200; girişsiz veri kaynağı sorgusu → 401 (`c-sonra.txt`).
+- **Sonra:** `admin/admin` → 401; `.env`'deki şifreyle → 200; girişsiz veri kaynağı sorgusu → 401 (`c-sonra.txt`). Tarayıcıda:
+  girişsiz açılış giriş sayfasına gidiyor, sayfanın `/api/search` isteği 401; giriş formunda `admin/admin` → "Invalid username or password".
 
 ### O3 — Alertmanager, Prometheus ve Jaeger kimlik doğrulaması istemiyor (Orta, düzeltildi)
 
@@ -257,9 +258,13 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Düzeltme (O10 ile birlikte):** Üç aracın portları artık yayımlanmıyor; önlerinde `izleme-girisi` (nginx) aynı adresleri
   (9090, 9093, 16686) dinliyor ve her isteği `oauth2-proxy`'ye soruyor (`auth_request`). Giriş Keycloak'ın `izleme-girisi`
   client'ıyla (Authorization Code + PKCE, confidential); yalnız `fatura-operatoru` rolü geçiyor. Script'ler bu client'tan
-  alınmış token'ı `Bearer` ile gönderebiliyor (audience `izleme-girisi`; Fatura Servisi'nin token'ı geçmiyor). Oturum çerezi
-  dakikada bir Keycloak'ta yenileniyor, en çok 10 saat (oauth2-proxy'nin varsayılanı 7 gün ve yenilemesizdi).
-  Ayar `monitoring/izleme-girisi/`, `docker-compose.yml`.
+  alınmış token'ı `Bearer` ile gönderebiliyor (audience `izleme-girisi`; Fatura Servisi'nin token'ı geçmiyor). Oturum son
+  yenilemesinden 1 dk sonra gelen istekte Keycloak'ta yenileniyor, en çok 10 saat (oauth2-proxy'nin varsayılanı 7 gün ve
+  yenilemesizdi). Refresh token rotation (O7) ile birlikte çalışması için iki ayar gerekti: nginx yenilenen oturumun çerezini
+  (`Set-Cookie`) tarayıcıya iletiyor; oturum Redis'te (`izleme-oturumlari`, yalnız oauth2-proxy ile paylaşılan ağda) tutuluyor ve
+  yenileme kilitle tek seferde yapılıyor. İkisi olmadan tarayıcıda oturum bir yenilemeden sonra bozuluyordu: arayüzün aynı anda
+  gelen istekleri aynı refresh token'la yenileme yapıyor, Keycloak ikinciyi reddedip oturumu kapatıyordu
+  (`c-tarayici-izleme-girisi.txt`). Ayar `monitoring/izleme-girisi/`, `docker-compose.yml`.
   - **Neden bu yol:** Kimlik doğrulaması zaten Keycloak'ta; kişiye bağlı giriş, rol kontrolü ve O1'deki kilit buraya da
     uygulanıyor, yeni bir ortak şifre yok. Ortak şifreli basic auth seçilmedi: herkes aynı şifreyi kullanır, şifre her istekte
     HTTP üzerinden gider (O5) ve kilit koruması yoktur. Araçların kendi basic auth'u (Prometheus, Alertmanager `web.config`)
@@ -267,7 +272,10 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
 - **Önce:** istekler token'sız: `GET :9090/api/v1/query?query=up`, `GET :9093/api/v2/alerts`, `GET :16686/api/services` → 200;
   `POST :9093/api/v2/silences` → 200, susturma kaydı yazıldı (hemen silindi) (`1-once-sonra.ps1` O3, `b-once.txt`).
 - **Sonra:** aynı istekler token'sız → 302 (Keycloak girişine); operator'ün `izleme-girisi` token'ıyla → 200; izleyicinin
-  token'ıyla (rol yok) ve operator'ün Fatura Servisi token'ıyla (audience farklı) → 302 (`c-sonra.txt`).
+  token'ıyla (rol yok) ve operator'ün Fatura Servisi token'ıyla (audience farklı) → 302 (`c-sonra.txt`). Tarayıcıda:
+  `localhost:9090` Keycloak'ın giriş sayfasına gidiyor; izleyici girişten sonra 403; operator girişten sonra Prometheus, aynı
+  oturumla Alertmanager ve Jaeger giriş sorulmadan açılıyor; iki yenileme turunda 5'er eşzamanlı istek 200, Keycloak'ta yenileme
+  hatası yok (`c-tarayici-izleme-girisi.txt`).
 - **Kalan:** compose ağının içinden araçlara doğrudan ulaşılıyor (Grafana → Prometheus, Prometheus → Alertmanager); bu,
   compose ağındaki bir container'a erişim gerektiriyor (D11 ile aynı sınır).
 
@@ -373,7 +381,10 @@ Prometheus'tan okunan metrikler toplam sayılar (etiketleri `result`, `status`, 
   bağlandı (`1-once-sonra.ps1` O9, `b-once.txt`).
 - **Sonra:** `invoice_app` ve `erp_app` ile → `rolsuper` `f`; `DROP TABLE` → `must be owner of table invoices`; `postgres` →
   `User does not have CONNECT privilege`; diğer uygulamanın veritabanı sunucusu → `password authentication failed` (kullanıcı
-  orada yok) (`c-sonra.txt`).
+  orada yok) (`c-sonra.txt`). İkinci servis kopyası (`invoice-service-2`, `iki-kopya` profili) de `invoice_app` ile bağlanıyor,
+  ona gönderilen fatura ERP'ye ulaştı, logunda yetki hatası yok; compose dışında `dotnet run -- --migrate-only` boş bir deneme
+  veritabanında migration'ları uyguladı ve kullanıcıyı oluşturdu, o kullanıcıyla `DROP TABLE` → `must be owner`
+  (`3-ikinci-kopya-ve-migrate.ps1`, `c-ikinci-kopya-ve-migrate.txt`).
 
 ### O10 — Alertmanager ve Prometheus her web sitesine CORS izni veriyor (Orta, düzeltildi)
 
