@@ -41,11 +41,15 @@ public static partial class DatabaseMigrator
         }
     }
 
+    // Tables whose rows the simulator changes. The others are only added to and read (invoices: a record never changes once
+    // written). A new table the simulator updates goes here.
+    private static readonly string[] UpdatedTables = ["webhook_deliveries"];
+
     /// <summary>
-    /// Creates the application's user (or updates its password) and grants it rows only: SELECT, INSERT and UPDATE on the
-    /// tables, the sequences for new numbers, and a connection to this database alone. It owns nothing, so it cannot drop or
-    /// alter a table, and it cannot connect to the server's other databases. Run after every migration, so new tables are
-    /// covered too.
+    /// Creates the application's user (or updates its password) and grants it rows only: SELECT and INSERT on the tables,
+    /// UPDATE on <see cref="UpdatedTables"/>, the sequences for new numbers, and a connection to this database alone. It owns
+    /// nothing, so it cannot drop or alter a table, and it cannot connect to the server's other databases. Run after every
+    /// migration, so new tables are covered too.
     /// </summary>
     private static async Task GrantAppUserAsync(ErpDbContext db, IConfiguration configuration, ILogger logger)
     {
@@ -61,6 +65,7 @@ public static partial class DatabaseMigrator
             throw new InvalidOperationException($"AppDatabaseUser:Name '{user}' is not a plain PostgreSQL name (a-z, 0-9, _).");
         var database = new NpgsqlConnectionStringBuilder(db.Database.GetConnectionString()).Database!;
         var literal = "'" + password.Replace("'", "''") + "'";
+        var updated = string.Join(", ", UpdatedTables.Select(t => $"\"{t}\""));
 
         await db.Database.ExecuteSqlRawAsync($"""
             DO $$ BEGIN
@@ -71,7 +76,9 @@ public static partial class DatabaseMigrator
             REVOKE ALL ON DATABASE "{database}" FROM PUBLIC;
             GRANT CONNECT ON DATABASE "{database}" TO "{user}";
             GRANT USAGE ON SCHEMA public TO "{user}";
-            GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO "{user}";
+            REVOKE ALL ON ALL TABLES IN SCHEMA public FROM "{user}";
+            GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA public TO "{user}";
+            GRANT UPDATE ON {updated} TO "{user}";
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{user}";
             REVOKE ALL ON "__EFMigrationsHistory" FROM "{user}";
             """);
