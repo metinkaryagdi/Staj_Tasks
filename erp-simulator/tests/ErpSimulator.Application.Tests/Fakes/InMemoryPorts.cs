@@ -64,6 +64,19 @@ public sealed class FakeErpInvoiceStore : IErpInvoiceStore
         var range = Records.Where(r => r.ReceivedAt >= from && r.ReceivedAt < to).OrderBy(r => r.ReceivedAt).ThenBy(r => r.Id).ToList();
         return Task.FromResult(new InvoicePage(range.Skip(skip).Take(take).ToList(), range.Count));
     }
+
+    public List<ErpCancellation> Cancellations { get; } = [];
+
+    public Task<ErpCancellation?> FindCancellationAsync(string invoiceNumber, CancellationToken ct) =>
+        Task.FromResult(Cancellations.SingleOrDefault(c => c.InvoiceNumber == invoiceNumber));
+
+    public Task SaveCancellationAsync(ErpCancellation cancellation)
+    {
+        cancellation.Id = Cancellations.Count + 1;
+        cancellation.CancelReference = $"IPT-{cancellation.Id:D8}";
+        Cancellations.Add(cancellation);
+        return Task.CompletedTask;
+    }
 }
 
 public sealed class FakeDeliveryStore : IWebhookDeliveryStore

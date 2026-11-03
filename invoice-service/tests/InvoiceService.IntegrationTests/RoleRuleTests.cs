@@ -62,6 +62,10 @@ public class RoleRuleTests(PostgresFixture postgres, KeycloakFixture keycloak) :
     [InlineData("mutabakat başlatma", "operator", 202)]
     [InlineData("mutabakat başlatma", "rolsuz", 403)]
     [InlineData("mutabakat başlatma", "siparis-sistemi", 403)]
+    [InlineData("iptal", "izleyici", 403)]
+    [InlineData("iptal", "operator", 404)]
+    [InlineData("iptal", "rolsuz", 403)]
+    [InlineData("iptal", "siparis-sistemi", 403)]
     // Invoice creation: the order system only.
     [InlineData("fatura oluşturma", "izleyici", 403)]
     [InlineData("fatura oluşturma", "operator", 403)]
@@ -97,6 +101,7 @@ public class RoleRuleTests(PostgresFixture postgres, KeycloakFixture keycloak) :
                 new { note = "kontrol" }),
             "takibi kapatma" => await SendAsync(HttpMethod.Post, "/api/v1/invoices/FTR-999999/follow-up/close", token),
             "mutabakat başlatma" => await SendAsync(HttpMethod.Post, "/api/v1/reconciliation-runs", token),
+            "iptal" => await SendAsync(HttpMethod.Post, "/api/v1/invoices/FTR-999999/cancel", token),
             "fatura oluşturma" => await SendAsync(HttpMethod.Post, "/api/v1/invoices", token,
                 new CreateInvoiceBody("C1", 10m, "TRY", "2026-10-26")),
             "webhook" => await SendWebhookAsync(token),

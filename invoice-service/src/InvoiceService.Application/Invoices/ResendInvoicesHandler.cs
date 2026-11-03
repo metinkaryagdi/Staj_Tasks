@@ -17,6 +17,9 @@ public enum BulkResendOutcome
     /// <summary>The invoice exists but is not Başarısız (for example somebody else just queued it again).</summary>
     NotFailed,
 
+    /// <summary>The invoice has a cancellation, so it is not sent again.</summary>
+    Cancelled,
+
     /// <summary>The resend itself failed (for example the database was unreachable); nothing was changed.</summary>
     Error
 }
@@ -59,7 +62,7 @@ public sealed class ResendInvoicesHandler(
         _logger.LogInformation(
             "Bulk resend operator={Operator} sub={OperatorSub} requested={Requested} queued={Queued} refused={Refused} errors={Errors}",
             by.Name, by.Sub, distinct.Count, items.Count(i => i.Outcome == BulkResendOutcome.Queued),
-            items.Count(i => i.Outcome is BulkResendOutcome.NotFound or BulkResendOutcome.NotFailed),
+            items.Count(i => i.Outcome is BulkResendOutcome.NotFound or BulkResendOutcome.NotFailed or BulkResendOutcome.Cancelled),
             items.Count(i => i.Outcome == BulkResendOutcome.Error));
         return new BulkResendResult(null, items);
     }
@@ -73,6 +76,7 @@ public sealed class ResendInvoicesHandler(
             {
                 ResendStatus.Queued => new BulkResendItem(number, BulkResendOutcome.Queued),
                 ResendStatus.NotFound => new BulkResendItem(number, BulkResendOutcome.NotFound),
+                ResendStatus.Cancelled => new BulkResendItem(number, BulkResendOutcome.Cancelled),
                 _ => new BulkResendItem(number, BulkResendOutcome.NotFailed, result.CurrentStatus)
             };
         }

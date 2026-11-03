@@ -213,7 +213,7 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
 
                     b.ToTable("operator_actions", null, t =>
                         {
-                            t.HasCheckConstraint("ck_operator_actions_action", "action IN ('Yeniden Gönderme', 'Toplu Yeniden Gönderme', 'Mutabakat Başlatma', 'Takibe Alma', 'Takibi Kapatma')");
+                            t.HasCheckConstraint("ck_operator_actions_action", "action IN ('Yeniden Gönderme', 'Toplu Yeniden Gönderme', 'Mutabakat Başlatma', 'Takibe Alma', 'Takibi Kapatma', 'İptal')");
 
                             t.HasCheckConstraint("ck_operator_actions_invoice_number", "(action = 'Mutabakat Başlatma') = (invoice_number IS NULL)");
 
@@ -247,6 +247,14 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
                         .HasColumnName("invoice_number");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Gönderim")
+                        .HasColumnName("kind");
 
                     b.Property<string>("LastError")
                         .HasColumnType("text")
@@ -282,13 +290,15 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("InvoiceNumber")
+                    b.HasIndex("InvoiceNumber", "Kind")
                         .IsUnique();
 
                     b.HasIndex("Status", "NextAttemptAt");
 
                     b.ToTable("erp_outbox", null, t =>
                         {
+                            t.HasCheckConstraint("ck_erp_outbox_kind", "kind IN ('Gönderim', 'İptal')");
+
                             t.HasCheckConstraint("ck_erp_outbox_status", "status IN ('Bekliyor', 'Tamamlandı', 'Başarısız')");
                         });
                 });

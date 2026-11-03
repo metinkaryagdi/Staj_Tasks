@@ -2,6 +2,7 @@ using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Tracing;
 using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Operators;
+using InvoiceService.Domain.Outbox;
 
 namespace InvoiceService.Application.Invoices;
 
@@ -14,7 +15,11 @@ public enum ResendStatus
     NotFound,
 
     /// <summary>The invoice exists but is not Başarısız (409).</summary>
-    NotFailed
+    NotFailed,
+
+    /// <summary>The invoice has a cancellation (409): sending it again could take it to the ERP after the
+    /// cancellation.</summary>
+    Cancelled
 }
 
 /// <param name="Invoice">The invoice after it was queued again; set only for <see cref="ResendStatus.Queued"/>.</param>
@@ -38,6 +43,16 @@ public sealed class ResendInvoiceHandler(
     {
         var now = time.GetUtcNow();
         await using var transaction = await unitOfWork.BeginAsync(CancellationToken.None);
+
+        // A cancelled invoice is not queued again. The row lock orders this against a cancellation queued at the same
+        // moment (CancelInvoiceHandler locks the row first): one of them waits and then sees the other.
+        if (await invoices.LockAsync(invoiceNumber, CancellationToken.None) is not null
+            && await outbox.FindAsync(invoiceNumber, CancellationToken.None, OutboxKind.Cancel) is not null)
+        {
+            await actions.RecordAsync(Record(by, action, invoiceNumber, OperatorActionResult.CancelAlreadyRequested, now), CancellationToken.None);
+            await transaction.CommitAsync(CancellationToken.None);
+            return new ResendInvoiceResult(ResendStatus.Cancelled);
+        }
 
         // Conditional: only a Başarısız invoice moves to Bekliyor. Two resends at the same time cannot both queue it;
         // the second finds it Bekliyor and is refused.

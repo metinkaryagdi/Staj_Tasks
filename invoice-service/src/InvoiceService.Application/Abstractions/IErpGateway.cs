@@ -55,10 +55,11 @@ public sealed record ErpDecision(string Kind, string? Reason = null, DateTimeOff
 /// (<see cref="ErpDecision.None"/> when the ERP has not decided or did not say); only set when <see cref="Lookup"/>
 /// is Found. <see cref="Records"/> are the ERP's records of the number (more than one if it has duplicates); null when
 /// the answer did not carry them in a readable form. <see cref="NoAnswer"/> says why no answer came; null when one did.
+/// <see cref="CancelReference"/>: the ERP's cancellation of the invoice; null when it is not cancelled.
 /// </summary>
 public sealed record ErpLookupResult(
     ErpLookup Lookup, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed, ErpDecision? Decision = null,
-    IReadOnlyList<ErpRecord>? Records = null, ErpNoAnswer? NoAnswer = null);
+    IReadOnlyList<ErpRecord>? Records = null, ErpNoAnswer? NoAnswer = null, string? CancelReference = null);
 
 /// <summary>One record the ERP has; an invoice number with duplicates has one per record.</summary>
 public sealed record ErpRecord(
@@ -77,6 +78,12 @@ public interface IErpGateway
 {
     /// <summary>Sends the invoice with a single request. Only a 202 with an ERP reference counts as accepted.</summary>
     Task<ErpSendResult> SendAsync(Invoice invoice, CancellationToken ct);
+
+    /// <summary>
+    /// Cancels the invoice with a single request. Only a 202 with a cancel reference counts as accepted; the reference
+    /// is returned as <see cref="ErpSendResult.ErpReference"/>.
+    /// </summary>
+    Task<ErpSendResult> CancelAsync(string invoiceNumber, CancellationToken ct);
 
     /// <summary>
     /// Asks the ERP whether it already has the invoice, without sending it. Only a 404 means "not there"; anything that

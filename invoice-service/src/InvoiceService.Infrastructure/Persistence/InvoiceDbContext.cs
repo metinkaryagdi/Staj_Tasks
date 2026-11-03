@@ -57,14 +57,19 @@ public sealed class InvoiceDbContext(DbContextOptions<InvoiceDbContext> options)
 
         modelBuilder.Entity<ErpOutboxEntry>(entity =>
         {
-            entity.ToTable("erp_outbox", t => t.HasCheckConstraint("ck_erp_outbox_status",
-                $"status IN ('{OutboxStatus.Pending}', '{OutboxStatus.Completed}', '{OutboxStatus.Failed}')"));
+            entity.ToTable("erp_outbox", t =>
+            {
+                t.HasCheckConstraint("ck_erp_outbox_status",
+                    $"status IN ('{OutboxStatus.Pending}', '{OutboxStatus.Completed}', '{OutboxStatus.Failed}')");
+                t.HasCheckConstraint("ck_erp_outbox_kind", $"kind IN ('{OutboxKind.Send}', '{OutboxKind.Cancel}')");
+            });
 
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
 
             entity.Property(e => e.InvoiceNumber).HasColumnName("invoice_number").HasMaxLength(32);
-            entity.HasIndex(e => e.InvoiceNumber).IsUnique();
+            entity.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(16).HasDefaultValue(OutboxKind.Send);
+            entity.HasIndex(e => new { e.InvoiceNumber, e.Kind }).IsUnique();
             entity.HasOne<Invoice>().WithMany().HasForeignKey(e => e.InvoiceNumber).OnDelete(DeleteBehavior.Restrict);
 
             entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(16);

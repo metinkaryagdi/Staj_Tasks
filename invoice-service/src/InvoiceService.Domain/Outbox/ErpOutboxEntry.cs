@@ -1,15 +1,20 @@
 namespace InvoiceService.Domain.Outbox;
 
 /// <summary>
-/// One pending ERP send of an invoice (erp_outbox). Written in the same transaction as the invoice, then picked up
-/// and sent by the background worker. One row per invoice: a resend resets this row instead of adding a new one.
+/// One pending ERP request of an invoice (erp_outbox): its send or its cancellation. Written in the same transaction as
+/// the change that asks for it, then picked up and sent by the background worker. One row per invoice and kind: a
+/// resend resets the send row instead of adding a new one.
 /// </summary>
 public sealed class ErpOutboxEntry
 {
     public long Id { get; set; }
 
-    /// <summary>The invoice to send; unique, so an invoice can never be queued twice.</summary>
+    /// <summary>The invoice; unique with <see cref="Kind"/>, so an invoice can never be queued twice for the same
+    /// request.</summary>
     public required string InvoiceNumber { get; set; }
+
+    /// <summary>One of <see cref="OutboxKind"/>, enforced by a check constraint.</summary>
+    public string Kind { get; set; } = OutboxKind.Send;
 
     /// <summary>One of <see cref="OutboxStatus"/>, enforced by a check constraint.</summary>
     public required string Status { get; set; }
@@ -54,6 +59,16 @@ public sealed class ErpOutboxEntry
     /// the queue on is one trace. A resend does not change it.
     /// </summary>
     public string? TraceParent { get; set; }
+}
+
+public static class OutboxKind
+{
+    /// <summary>Sends the invoice.</summary>
+    public const string Send = "Gönderim";
+
+    /// <summary>Cancels the invoice at the ERP; taken only once the invoice's send row is done (Tamamlandı or
+    /// Başarısız), so it never reaches the ERP before the invoice.</summary>
+    public const string Cancel = "İptal";
 }
 
 public static class OutboxStatus

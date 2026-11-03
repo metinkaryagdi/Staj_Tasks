@@ -30,4 +30,11 @@ public interface IErpInvoiceStore
     /// page does not change while records are added later), not tracked.
     /// </summary>
     Task<InvoicePage> ListReceivedAsync(DateTimeOffset from, DateTimeOffset to, int skip, int take, CancellationToken ct);
+
+    /// <summary>The invoice number's cancellation, not tracked; null if it is not cancelled.</summary>
+    Task<ErpCancellation?> FindCancellationAsync(string invoiceNumber, CancellationToken ct);
+
+    /// <summary>Saves the cancellation and commits the invoice number lock's transaction. Not cancellable, like
+    /// <see cref="SaveAsync"/>.</summary>
+    Task SaveCancellationAsync(ErpCancellation cancellation);
 }

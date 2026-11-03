@@ -44,14 +44,15 @@ public sealed class OutboxProcessor(
 
         var invoice = await invoices.GetAsync(entry.InvoiceNumber, CancellationToken.None);
 
-        logger.LogInformation("ERP send start invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim}{OnlyCheck}",
-            entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim,
+        span?.SetTag("outbox.kind", entry.Kind);
+        logger.LogInformation("ERP send start kind={Kind} invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim}{OnlyCheck}",
+            entry.Kind, entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim,
             entry.AttemptsUsedUp ? " (last attempt was cut off: only asking the ERP)" : "");
 
         var held = startedTrace is null
             || await outbox.StartTraceAsync(entry.Id, entry.ClaimToken, startedTrace, CancellationToken.None);
         var outcome = !held ? null
-            : entry.AttemptsUsedUp ? await ConfirmCutOffAttemptAsync(invoice)
+            : entry.AttemptsUsedUp ? await ConfirmCutOffAttemptAsync(invoice, entry)
             : await AttemptAsync(invoice, entry);
 
         if (outcome is null)
@@ -69,9 +70,9 @@ public sealed class OutboxProcessor(
         TagOutcome(span, outcome);
 
         logger.LogInformation(
-            "ERP send invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim} check={Check} outcome={Outcome} http={HttpStatus} " +
+            "ERP send kind={Kind} invoice={InvoiceNumber} attempt={Attempt}/{MaxAttempts} worker={Worker} claim={Claim} check={Check} outcome={Outcome} http={HttpStatus} " +
             "retryAfter={RetryAfter} wait={WaitSeconds}s reason={Reason} erpReference={ErpReference} elapsed={ElapsedMs}ms error={Error}{NotWritten}",
-            entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim, outcome.Check, decision.Outcome,
+            entry.Kind, entry.InvoiceNumber, entry.Attempt, policy.MaxAttempts, workerId, entry.Claim, outcome.Check, decision.Outcome,
             outcome.HttpStatus?.ToString() ?? "-",
             result.RetryAfter?.ToString() ?? "-", decision.Delay.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture),
             decision.Reason, result.ErpReference ?? "-", (long)result.Elapsed.TotalMilliseconds, result.Error ?? "-",
@@ -79,22 +80,22 @@ public sealed class OutboxProcessor(
     }
 
     /// <summary>
-    /// Sends once and decides what the result means. With no attempts left, the ERP is asked before giving up.
-    /// Null when the entry is no longer held: nothing was sent.
+    /// Sends (or cancels) once and decides what the result means. With no attempts left, the ERP is asked before giving
+    /// up. Null when the entry is no longer held: nothing was sent. Only an invoice send is counted in the send metrics.
     /// </summary>
     private async Task<AttemptOutcome?> AttemptAsync(Invoice invoice, ClaimedEntry entry)
     {
-        var sent = await strategy.SendOnceAsync(invoice, entry);
+        var sent = entry.IsCancel ? await strategy.CancelOnceAsync(entry) : await strategy.SendOnceAsync(invoice, entry);
         if (sent.Path == SendPath.NotHeld)
             return null;
-        if (SendAttemptResult.Of(sent) is { } result)
+        if (!entry.IsCancel && SendAttemptResult.Of(sent) is { } result)
             metrics.SendAttempt(result);
 
         var decision = policy.Decide(sent.Result, entry.Attempt, time.GetUtcNow(), Random.Shared.NextDouble());
         if (!decision.AttemptsUsedUp)
             return new AttemptOutcome(sent.Result, decision, sent.Check, sent.Result.HttpStatus);
 
-        var final = await strategy.ConfirmAsync(invoice, sent.Result.Error);
+        var final = await ConfirmAsync(invoice, entry, sent.Result.Error);
         return new AttemptOutcome(
             final.Result, FinalDecision(final.Result, $"all {policy.MaxAttempts} attempts used; ERP asked before giving up"),
             $"{sent.Check},final:{final.Check}", sent.Result.HttpStatus);
@@ -103,13 +104,17 @@ public sealed class OutboxProcessor(
     /// <summary>
     /// The last attempt was cut off before its outcome was written: the ERP is only asked, not sent to again.
     /// </summary>
-    private async Task<AttemptOutcome> ConfirmCutOffAttemptAsync(Invoice invoice)
+    private async Task<AttemptOutcome> ConfirmCutOffAttemptAsync(Invoice invoice, ClaimedEntry entry)
     {
-        var final = await strategy.ConfirmAsync(invoice, "Son deneme yarıda kaldı (servis durdu).");
+        var final = await ConfirmAsync(invoice, entry, "Son deneme yarıda kaldı (servis durdu).");
         return new AttemptOutcome(
             final.Result, FinalDecision(final.Result, "last attempt was cut off; ERP asked, not sent again"),
             $"final:{final.Check}", final.Result.HttpStatus);
     }
+
+    private Task<SendAttempt> ConfirmAsync(Invoice invoice, ClaimedEntry entry, string? lastError) => entry.IsCancel
+        ? strategy.ConfirmCancelAsync(entry.InvoiceNumber, lastError)
+        : strategy.ConfirmAsync(invoice, lastError);
 
     /// <summary>
     /// The attempt's number, result and wait on its span. A Bekliyor (retry) or Başarısız outcome is an error span, so

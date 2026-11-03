@@ -171,8 +171,22 @@ public sealed class FakeOutboxStore : IOutboxStore
     /// <summary>The entries <see cref="FindAsync"/> knows, by invoice number.</summary>
     public Dictionary<string, ErpOutboxEntry> Entries { get; } = [];
 
-    public Task<ErpOutboxEntry?> FindAsync(string invoiceNumber, CancellationToken ct) =>
-        Task.FromResult(Entries.GetValueOrDefault(invoiceNumber));
+    /// <summary>The cancellation entries, by invoice number.</summary>
+    public Dictionary<string, ErpOutboxEntry> CancelEntries { get; } = [];
+
+    public Task<ErpOutboxEntry?> FindAsync(string invoiceNumber, CancellationToken ct, string kind = OutboxKind.Send) =>
+        Task.FromResult((kind == OutboxKind.Cancel ? CancelEntries : Entries).GetValueOrDefault(invoiceNumber));
+
+    public Task<bool> AddCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
+    {
+        if (CancelEntries.ContainsKey(invoiceNumber))
+            return Task.FromResult(false);
+        CancelEntries[invoiceNumber] = new ErpOutboxEntry
+        {
+            InvoiceNumber = invoiceNumber, Kind = OutboxKind.Cancel, Status = OutboxStatus.Pending, NextAttemptAt = now, CreatedAt = now
+        };
+        return Task.FromResult(true);
+    }
 
     public Task<OutboxQueueStats> QueueStatsAsync(DateTimeOffset completedSince, CancellationToken ct)
     {
@@ -306,6 +320,14 @@ public sealed class FakeErpGateway : IErpGateway
     {
         Calls.Add($"POST {invoice.InvoiceNumber}");
         return Task.FromResult(SendResults.Dequeue());
+    }
+
+    public Queue<ErpSendResult> CancelResults { get; } = new();
+
+    public Task<ErpSendResult> CancelAsync(string invoiceNumber, CancellationToken ct)
+    {
+        Calls.Add($"CANCEL {invoiceNumber}");
+        return Task.FromResult(CancelResults.Dequeue());
     }
 
     public Task<ErpLookupResult> FindAsync(string invoiceNumber, CancellationToken ct)

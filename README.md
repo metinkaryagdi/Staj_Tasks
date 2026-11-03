@@ -75,7 +75,8 @@ veritabanına bağlanamaz). Uygulamalar bu adım bitmeden açılmaz. Compose dı
 | Endpoint | Davranış |
 |---|---|
 | `POST /api/v1/invoices` | Body: `invoiceNumber`, `customerCode`, `amount`, `currency`, `invoiceDate`. Saniyede en fazla 20 istek kabul edilir ([Hız sınırı](#hız-sınırı)); kabul edilen istek seçilen davranışa göre cevap verir (aşağıda) ve cevabı 50–200 ms sonra döner. Eksik/geçersiz alan `400`; tutarda virgülden sonra en fazla iki basamak. |
-| `GET /api/v1/invoices/{invoiceNumber}` | `200` + `registered`, `erpReference` (ilk kayıt), `recordCount`, `records[]`, `decision` (`none` / `received` / `approved` / `rejected`), `reason` (yalnızca `rejected`), `decided_at`. Karar ilk kaydın event'lerinden türetilir; event'i hiç gönderilmemiş olsa bile zamanı gelince görünür. Kayıt yoksa `404`. Hata üretmez. |
+| `GET /api/v1/invoices/{invoiceNumber}` | `200` + `registered`, `erpReference` (ilk kayıt), `recordCount`, `records[]`, `decision` (`none` / `received` / `approved` / `rejected`), `reason` (yalnızca `rejected`), `decided_at`, `cancelReference` ve `cancelled_at` (fatura iptal edildiyse). Karar ilk kaydın event'lerinden türetilir; event'i hiç gönderilmemiş olsa bile zamanı gelince görünür. Kayıt yoksa `404`. Hata üretmez. |
+| `POST /api/v1/invoices/{invoiceNumber}/cancel` | Faturayı iptal eder. Kayıtlı olmayan fatura `404`, reddedilmiş fatura `409`. Bir fatura bir kez iptal edilir: aynı iptal tekrar gelirse yeni kayıt açılmaz, `202` + ilk iptalin referansı döner (`cancellations` tablosunda fatura numarası unique). Bu üç durumda davranış seçilmez. Yeni bir iptal fatura POST'uyla aynı hız sınırından ve aynı davranışlardan geçer (`Success`, `Busy`, `ServerError`, `SaveThenError`, `LateResponse`); cevap `202` + `cancelReference` (`IPT-00000001`). |
 | `GET /api/v1/invoices?from=…&to=…&page=1&pageSize=100` | `receivedAt`'i `[from, to)` içinde kalan kayıtlar, `(receivedAt, id)` sıralı ve sayfalı: `{page, pageSize, totalCount, items[]}`. `from` ve `to` zorunlu, `from < to`; `pageSize` en çok 500 (üstü `400`). Çift kayıtlar ayrı satırdır. |
 
 ```json
@@ -170,18 +171,19 @@ da başka nedenle ERP'den ayrışan faturalar için mutabakat işi servisin içi
 | Tablo | İçerik |
 |---|---|
 | `invoices` | Fatura ve durumu. Numarayı servis üretir (sequence → `FTR-000001`; body'deki `invoiceNumber` yok sayılır). `send_attempt_count` ömür boyu sayaçtır, resend'de sıfırlanmaz. `reject_reason` yalnızca `Reddedildi`'de dolu. `erp_checked_at` / `erp_check_result`: mutabakatın ERP'ye bu faturayı en son ne zaman sorduğu ve cevabı (`Kayıt yok`, `Kayıtlı, karar: …`); yazılması `updated_at`'i değiştirmez |
-| `erp_outbox` | Faturanın Outbox kaydı (fatura başına bir satır). `locked_until` / `locked_by` / `claim_token` sahipliği ve eski alımın sonucunun yenisini ezmesini önler. `trace_parent`: faturanın trace'inin W3C traceparent'ı; worker kaydı ilk aldığında yazılır, sonraki denemeler bu trace'i sürdürür, resend değiştirmez ([İzler](#i̇zler)) |
+| `erp_outbox` | Faturanın ERP'ye gidecek istekleri: `kind` = `Gönderim` ya da `İptal`, fatura ve tür başına bir satır (unique `(invoice_number, kind)`). `locked_until` / `locked_by` / `claim_token` sahipliği ve eski alımın sonucunun yenisini ezmesini önler. `trace_parent`: faturanın trace'inin W3C traceparent'ı; worker kaydı ilk aldığında yazılır, sonraki denemeler bu trace'i sürdürür, resend değiştirmez ([İzler](#i̇zler)) |
 | `erp_webhook_events` | Gelen her geçerli event bir satır (`event_id` birincil anahtar). `delivery_count` tekrar gelişi sayar, `ignore_reason` `Yok Sayıldı`'nın nedenidir (`Geri Götürüyor`, `Kesin Durumda`, `İlerletmiyor`, `Referans Farklı`, `Fatura Yok`) |
 | `reconciliation_runs` | Bir mutabakat çalışması: durum (`Çalışıyor` / `Tamamlandı` / `Başarısız`), karşılaştırılan, düzeltilen ve raporlanan sayısı, hata, `started_by` (başlatan operatörün token'daki kullanıcı adı ya da `Zamanlayıcı`; başlatanın kaydedilmesinden önceki çalışmalarda boş), `started_by_sub` (başlatanın token'daki `sub`'ı; zamanlayıcının çalışmasında ve `sub`'ın kaydedilmesinden önceki çalışmalarda boş) |
 | `reconciliation_findings` | Çalışmanın bulduğu fark: tür, eylem (`Düzeltildi` / `Raporlandı`), ayrıntı. `Düzeltildi` yalnızca düzeltilen üç türde olabilir (check constraint). Fatura tablosuna foreign key yoktur: ERP'de olup serviste olmayan fatura da raporlanır |
-| `operator_actions` | Her müdahale: `operator_name` (token'daki kullanıcı adı), `operator_sub` (token'daki `sub`; `sub`'ın kaydedilmesinden önceki satırlarda boş), `action` (`Yeniden Gönderme`, `Toplu Yeniden Gönderme`, `Mutabakat Başlatma`, `Takibe Alma`, `Takibi Kapatma`), `invoice_number` (mutabakat başlatmada boş), `result` (`Kuyruğa alındı`, `Reddedildi: fatura Bekliyor`, `Başlatıldı: çalışma 12` …), `created_at`. Reddedilen istekler de yazılır; toplu gönderimde fatura başına bir satır |
+| `operator_actions` | Her müdahale: `operator_name` (token'daki kullanıcı adı), `operator_sub` (token'daki `sub`; `sub`'ın kaydedilmesinden önceki satırlarda boş), `action` (`Yeniden Gönderme`, `Toplu Yeniden Gönderme`, `Mutabakat Başlatma`, `Takibe Alma`, `Takibi Kapatma`, `İptal`), `invoice_number` (mutabakat başlatmada boş), `result` (`Kuyruğa alındı`, `Reddedildi: fatura Bekliyor`, `Başlatıldı: çalışma 12` …), `created_at`. Reddedilen istekler de yazılır; toplu gönderimde fatura başına bir satır |
 | `erp_send_pace` | Tek satır: bütün servis kopyalarının paylaştığı bir sonraki boş gönderim sırası (`next_turn_at`). Yalnızca gönderim hızı için kullanılır ([Outbox Worker](#outbox-worker)); EF modelinde yoktur, migration'da SQL ile oluşturulur |
 | `invoice_follow_ups` | Takılı bir faturanın elle takibi: `operator_name` / `operator_sub` (açan), `note`, `opened_at`, `closed_at` / `closed_by` / `closed_by_sub` (kapatan; açıkken boş). Fatura başına en fazla bir açık takip (kısmi benzersiz indeks); kapatılanlar geçmiş olarak kalır. Faturanın durumunu değiştirmez |
 
 `invoices.status`: `Bekliyor` → `Gönderildi` ya da `Başarısız`; ERP event'leriyle `Gönderildi` → `İşleme Alındı` →
 `Onaylandı` / `Reddedildi` (`Gönderildi`'den doğrudan karar da olur). `Onaylandı` ve `Reddedildi` kesin durumdur.
 `Başarısız`: bütün denemeler tükendiğinde ya da ERP Simulator 429 dışında bir 4xx döndüğünde; yalnızca resend onu
-yeniden kuyruğa alır. Durum değerleri ve alanlar veritabanında check constraint ile sınırlıdır.
+yeniden kuyruğa alır. Durum değerleri ve alanlar veritabanında check constraint ile sınırlıdır. İptal faturanın durumunu
+değiştirmez; iptalin durumu `erp_outbox`'taki `İptal` satırındadır (`Bekliyor` / `Tamamlandı` / `Başarısız`).
 
 ### Endpoint'ler
 
@@ -191,8 +193,9 @@ fatura oluşturma yalnızca sipariş sistemine açıktır ([Kimlik doğrulama](#
 | Endpoint | Davranış |
 |---|---|
 | `POST /api/v1/invoices` | Yalnızca sipariş sistemi. Body: `customerCode`, `amount`, `currency`, `invoiceDate`. Fatura `Bekliyor` durumunda ve `erp_outbox` kaydıyla aynı transaction'da yazılır, `202`. ERP Simulator bu istekte çağrılmaz. Geçersiz body `400` (tutar 0'dan büyük, en fazla 999.999.999.999,99, virgülden sonra en fazla iki basamak), hiçbir şey kaydedilmez. |
-| `POST /api/v1/invoices/{invoiceNumber}/resend` | Operatör. Yalnızca `Başarısız` fatura için: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen), faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409` (`code: invoice_not_failed`, `currentStatus`), yoksa `404` (`code: invoice_not_found`). Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
-| `POST /api/v1/invoices/resend` | Operatör. Body `{"invoiceNumbers": [...]}`, 1-100 numara (aksi `400`). Her fatura tekli resend'in kurallarıyla, kendi transaction'ında; tekrarlanan numara bir kez. Her zaman `200` + fatura başına sonuç: `queued`, `not_found`, `not_failed` (+ `currentStatus`), `error`. |
+| `POST /api/v1/invoices/{invoiceNumber}/resend` | Operatör. Yalnızca `Başarısız` fatura için: Outbox kaydını sıfırlar (`Bekliyor`, 0 deneme, hemen), faturayı `Bekliyor` yapar, `202`. `Başarısız` değilse `409` (`code: invoice_not_failed`, `currentStatus`), iptali istenmişse `409` (`code: invoice_cancelled`), yoksa `404` (`code: invoice_not_found`). Aynı anda iki resend gelirse biri `202`, diğeri `409` alır. |
+| `POST /api/v1/invoices/resend` | Operatör. Body `{"invoiceNumbers": [...]}`, 1-100 numara (aksi `400`). Her fatura tekli resend'in kurallarıyla, kendi transaction'ında; tekrarlanan numara bir kez. Her zaman `200` + fatura başına sonuç: `queued`, `not_found`, `not_failed` (+ `currentStatus`), `cancelled`, `error`. |
+| `POST /api/v1/invoices/{invoiceNumber}/cancel` | Operatör. İptali `erp_outbox`'a `İptal` satırı olarak yazar, `202`; ERP bu istekte çağrılmaz, worker gönderir ([Outbox Worker](#outbox-worker)). Reddedilmiş fatura `409` (`code: invoice_rejected`), iptali zaten istenmiş fatura `409` (`code: invoice_cancelled`), yoksa `404`. Faturanın satırı kilitlenir: aynı faturanın resend'i ile iptali birbirini bekler. |
 | `GET /api/v1/invoices` | Sayfalı liste, en yeni üstte: `status` (geçersizse `400`), `stuck=true` (yalnızca özetin takılı saydığı faturalar; aynı koşul; her faturada `stuck` alanı da bu koşulla gelir), `search` (numaranın bir parçası, büyük/küçük harf fark etmez), `page` (1'den), `pageSize` (1-100, varsayılan 20). Cevap `{items, page, pageSize, totalCount, totalPages}`. |
 | `GET /api/v1/invoices/summary` | Her durumdaki fatura sayısı (0 olanlar dahil), toplam, takılı sayısı (`Gönderildi` / `İşleme Alındı`'da `StuckAfterMinutes`'tan uzun kalan) ve ERP'ye gönderim kuyruğu: `queuedCount` (`erp_outbox`'ta `Bekliyor`), `oldestQueuedSeconds` (en eski `Bekliyor` kaydın oluşturulmasından bu yana; kuyruk boşsa `null`), `sentLastMinute` (son 60 sn'de `Tamamlandı` olan). Bütün sayılar tek snapshot'tan okunur. |
 | `GET /api/v1/invoices/{invoiceNumber}` | Faturanın servisteki hali (`200`, `rejectReason` dahil) ya da `404`. |
@@ -306,6 +309,12 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar (`MaxConcurrentSends`)
 - **Servis öldürülürse** kayıt veritabanında kalır; lock `LockSeconds` (60 sn) sonra dolar ve kayıt yeniden alınabilir.
   Sonuç yalnızca kayıt hâlâ o alımın `claim_token`'ını taşıyorsa yazılır. Son denemesi yarıda kalan kayıt yeniden POST
   edilmez, yalnızca sorulur.
+- **İptal:** `İptal` satırı, aynı faturanın `Gönderim` satırı `Bekliyor` iken (tekrar denemede, gönderilirken ya da öldürülen bir
+  worker'ın lock'unda) alınmaz; kural claim SQL'indedir (`OutboxStore.ClaimAsync`). Böylece iptal ERP'ye faturadan önce gitmez.
+  Alınan iptal önce ERP'ye sorulur (`GET`): iptal zaten varsa `Tamamlandı` (tekrar POST yok); fatura ERP'de yoksa iptal gönderilmez,
+  `Başarısız` (`ERP faturayı bilmiyor`); fatura varsa sıra beklenir ve iptal POST edilir. Tekrar deneme, hız sınırı, `MaxAttempts`
+  ve lock kuralları faturalarla aynıdır; iptal denemeleri faturanın `send_attempt_count`'una ve gönderim sonucu metriklerine
+  yazılmaz; sıra bekleme süresi (`erp.send.pace_wait`) iptalleri de sayar.
 - **Bilinen sınır:** ilk POST ERP'de henüz kaydedilmeden timeout olursa sonraki `GET` `404` dönebilir ve ikinci POST çift
   kayıt oluşturabilir; bunu alıcı tarafta yalnızca ERP Simulator'daki `IdempotentInvoices=true` önler.
 
@@ -563,6 +572,7 @@ trace'idir:
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
 | Gün 21 kontrol listesi: kapatılan bulguların önce/sonra istekleri (Grafana, kaba kuvvet ve şifre politikası, offline token ve refresh token'ın ikinci kullanımı, ekranın başlıkları, veritabanı kullanıcıları, izleme araçlarına kimliksiz ve başka origin'den istek), yük testi | [`manual-tests/gun21/`](manual-tests/gun21/) |
+| Gün 22 kontrol listesi: hesap kilitleme, iptal (onaylanmış fatura, tekrar denemedeki fatura, iptal gönderilirken servisin öldürülmesi); ek canlı kontroller, dünkü veriyle migration, yük testi | [`manual-tests/gun22/`](manual-tests/gun22/) |
 | Gün 19 kontrol listesi (ekranda işlemsizlik süresi, kısaltılmış süreyle; rol ve audience kontrolü kaldırılınca kırılan testler; bütün testlerin 10 kez koşulması) ve Keycloak kapalıyken açılan servisin log satırı | [`manual-tests/gun19/`](manual-tests/gun19/) |
 | Gün 18 kontrol listesi (kayıtta kullanıcı adıyla `sub`; `/health` token'sız; varsayılan kurulumda `fatura-test` yok; süresi dolmuş token 30 sn sonra `401`; izleyicinin token'ıyla müdahale `403`; çıkıştan önce ve sonra Keycloak oturumu; Keycloak durdurma). Ekran maddeleri tarayıcıda yapılır | [`manual-tests/gun18/`](manual-tests/gun18/) |
 | Gün 17 kontrol listesi (compose sonrası realm; endpoint × durum tablosu; operator_actions'ta token'daki ad; token ömründen uzun yük testi; webhook HMAC; Keycloak durdurma) ve audience / issuer kontrolü | [`manual-tests/gun17/`](manual-tests/gun17/) |
@@ -621,13 +631,14 @@ token, ikinci realm, anahtar değişimi) client'ın ya da realm'in bir kopyasın
 | 9. Zamanı gelmiş kayıtlar kuyruğa giriş sırasıyla alınır | `OutboxClaimTests.Entries_whose_time_has_come_are_taken_in_the_order_they_entered_the_queue_...` |
 | 10. Sürekli hata alan faturalar yeni faturanın gönderimini durdurmaz | `OutboxClaimTests.Invoices_that_keep_failing_do_not_hold_back_a_new_invoice` |
 | 11. İlk deneme başlattığı trace'i kayda yazar, resend trace'i değiştirmez | `OutboxClaimTests.The_first_attempt_stores_the_trace_it_started_and_a_resend_keeps_it` |
-| 12. Rol kuralları: okuma, müdahale ve fatura oluşturmanın her endpoint'i, webhook ve `/health`; izleyici, operatör, rolsüz ve sipariş sistemi token'larıyla | `RoleRuleTests` (14 endpoint × 4 token = 56 durum) |
+| 12. Rol kuralları: okuma, müdahale ve fatura oluşturmanın her endpoint'i, webhook ve `/health`; izleyici, operatör, rolsüz ve sipariş sistemi token'larıyla | `RoleRuleTests` (15 endpoint × 4 token = 60 durum) |
 | 13. Geçersiz token'lar `401` (nedeniyle): imzası bozulmuş, süresi ve 30 sn toleransı dolmuş, başka realm'den, audience'ı tutmayan | `InvalidTokenTests` (4 test) |
 | 14. Keycloak imza anahtarını değiştirince yeni anahtarlı token kabul, kaldırılan anahtarlı token ret; servis yeniden başlatılmaz | `KeyRotationTests` |
 | 15. Müdahale kaydında token'daki ad ve `sub`; `sub`'sız token'la müdahale `403`, kayıt yok | `InterventionRecordTests` (2 test) |
 | 16. Keycloak kapalıyken açılan servis token'ı reddeder ve logda uyarı satırı yazar; Keycloak açılınca yeniden başlatılmadan kabul eder | `KeycloakDownTests` (Keycloak aynı portta yeni container olarak açılır: Testcontainers durdurulan Keycloak container'ını yeniden hazır hale getirirken takılıyor; yeni container yeni anahtar ürettiği için kabul yeni token'la sınanır) |
 | 17. Servis listeyi okuduktan hemen sonra Keycloak'tan kaldırılan anahtar, `Keycloak:JwksRefreshMinutes`'tan önce reddedilmez, ardından en geç rastgele pay ve 6 sn içinde reddedilir | `KeyRefreshTests` (~5 dk 10 sn sürer; test realm'inde token ömrü 15 dk) |
 | 18. Realm'in giriş kuralları: art arda 5 yanlış şifreden sonra doğru şifre de reddedilir ve kullanıcı kilitli görünür; ekranın client'ı `offline_access` isteyince `invalid_scope`; bir refresh token ikinci kez kullanılınca `invalid_grant` | `RealmSecurityTests` (3 test; kilit testi realm'in bir kopyasında) |
+| 19. İptal faturadan önce ERP'ye gitmez: fatura tekrar denemedeyken, iki worker aynı anda alırken ve öldürülen worker'ın lock'undayken; servis iptal gönderilirken öldürülünce iptal ikinci kez POST edilmez; ERP'de olmayan faturanın iptali gönderilmez; ikinci iptal ve iptal edilen faturanın resend'i reddedilir; iptal ve resend aynı anda gelince ERP'de iptalsiz fatura kalmaz | `CancelOrderTests` (7 test) |
 
 Özet sayısının yük altındaki ölçümü: [`manual-tests/gun9/1-ozet-yuk-altinda.ps1`](manual-tests/gun9/1-ozet-yuk-altinda.ps1)
 (yük testi sürerken çalıştırılır).
@@ -658,53 +669,68 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 21 — Güvenlik Bulgularını Kapatmak
+## Gün 22 — İptal Faturası ve Sıra Garantisi
 
-Bugünün işi: [SECURITY-REVIEW.md](SECURITY-REVIEW.md)'deki bütün bulguların derecelerinin aynı ölçütle yeniden gözden geçirilmesi
-ve Orta bulgulardan O1, O2, O3, O4, O7, O9, O10'un kapatılması. Her bulgunun düzeltmesi, önce ve sonra isteği dokümanda kendi
-başlığında; kalan bulgular öneri olarak duruyor.
+Bugünün işi: kesilmiş bir faturanın iptalinin ERP'ye uçtan uca gönderilmesi ve iptalin ERP'ye hiçbir koşulda faturanın kendisinden
+önce gitmemesi. ERP'den gelen iptal haberleri, mutabakat ve ekran yarının konusu.
 
-- **Dereceler:** derece açığın kendisine ve düzeltmeden önceki duruma göre, aynı türden açıklar aynı derecede: O2 (Grafana
-  `admin/admin`) Orta → Kritik, K1 ile aynı tür; O3 (kimliksiz Alertmanager, Prometheus, Jaeger) Orta → Kritik ve Y5 (kimliksiz
-  ERP Simülatörü API'si) Yüksek → Kritik, ikisi aynı tür, hiç kimlik bilgisi istemeden; Y5'in durumu "Kısmen". Bunun için Kritik
-  tanımına "ya da bir bileşen ele geçer" eklendi. Gerekçeler dokümanın "Derece değişiklikleri" tablosunda. Numaralar değişmedi.
-- **Grafana (O2):** yönetici şifresi `.env`'den; anonim izleyici kapatıldı (Prometheus'a Grafana üzerinden kimliksiz sorgu atabiliyordu).
-- **Keycloak (O1, O7):** 5 yanlış şifreden sonra 60 sn kilit (en çok 15 dk), en az 12 karakterlik şifre; ekranın client'ı
-  `offline_access` isteyemiyor, refresh token yalnız bir kez kullanılabiliyor (refresh token rotation).
-- **Ekran (O4):** nginx `Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` gönderiyor,
-  sürümünü göstermiyor.
-- **Veritabanı (O9):** migration'ları ayrı `invoice-migrate` / `erp-migrate` adımı sahibin kullanıcısıyla çalıştırıyor; uygulamalar
-  yalnız satır okuyup yazabilen `invoice_app` / `erp_app` ile bağlanıyor; `UPDATE` yalnız satırı değiştirilen tablolarda, müdahale
-  kaydı ve mutabakat bulguları yalnız eklenebiliyor ([Kurulum](#kurulum)).
-- **İzleme araçları (O3, O10):** Prometheus, Alertmanager ve Jaeger'ın önünde `izleme-girisi` (nginx) ve `oauth2-proxy`; giriş
-  Keycloak'ta, yalnız `fatura-operatoru`; araçların CORS başlıkları siliniyor ([İzleme](#i̇zleme)).
+- **ERP Simulator:** `POST /api/v1/invoices/{invoiceNumber}/cancel`; bilinmeyen faturaya `404`, reddedilmiş faturaya `409`, aynı
+  iptale yeni kayıt yok; yeni iptal faturalarla aynı hız sınırından ve davranışlardan geçiyor ([Endpoint'ler](#endpointler)).
+- **Invoice Service:** operatöre açık `POST /api/v1/invoices/{invoiceNumber}/cancel`, her istek `operator_actions`'a; iptal
+  `erp_outbox`'ta `İptal` satırı olarak, faturalarla aynı worker, tekrar deneme ve hız sınırı kurallarıyla gidiyor. Sıra kuralı
+  claim SQL'inde ([Outbox Worker](#outbox-worker)).
+- **ERP'ye hiç gitmemiş faturanın iptali:** iptal de kuyruğa giriyor; sıra kuralı önce faturayı, sonra iptali gönderiyor. Ayrı bir
+  iptal yolu eklenmedi: iptal tek yoldan gidiyor ve sıra kuralı bu durumu da kapsıyor. Gönderimi `Başarısız` bitmiş faturada
+  fatura tekrar gönderilmiyor; iptal ikinci karardaki gibi önce ERP'ye soruyor.
+- **ERP'ye gidip gitmediği belli olmayan faturanın iptali:** fatura tekrar denemedeyken ya da gönderilirken iptal bekliyor. Gönderim
+  `Başarısız` bittiyse iptal önce ERP'ye soruyor: fatura ERP'de ise iptal gönderiliyor, değilse gönderilmiyor ve iptal `Başarısız`
+  oluyor. Gönderim bittikten sonra servis faturayı tekrar göndermiyor (iptali istenen faturanın resend'i reddediliyor); ERP'ye
+  bilmediği bir faturanın iptali gitmiyor.
+- **Güvenlik:** O1'in kilit mekanizmasının açtığı hesap kilitleme açığı [SECURITY-REVIEW.md](SECURITY-REVIEW.md)'ye O11 (Orta)
+  olarak eklendi; önlem öneri. Bulgu sayısı: 5 Kritik, 4 Yüksek, 9 Orta, 11 Düşük.
 
-Kontrol listesi ([`manual-tests/gun21/`](manual-tests/gun21/)):
+Kontrol listesi ([`manual-tests/gun22/`](manual-tests/gun22/)):
 
 | # | Madde | Sonuç |
 |---|---|---|
-| 1 | Derecesi değişen bulgular | SECURITY-REVIEW.md, "Derece değişiklikleri": O2 Orta → Kritik, O3 Orta → Kritik, Y5 Yüksek → Kritik; üçü de nedeniyle, Kritik tanımının genişletildiği de yazılı. Bulgu sayısı: 5 Kritik, 4 Yüksek, 8 Orta, 11 Düşük |
-| 2 | Önce ve sonra | `1-once-sonra.ps1` düzeltmelerden önce (`b-once`) ve sonra (`c-sonra`) koşuldu; her bulgunun istekleri ve sonuçları SECURITY-REVIEW.md'de kendi başlığında. Önce: 35 kontrolün 33'ü `FARKLI` (Grafana satırı oturum çereziyle ölçülmüştü; çerezsiz ölçümü `b-grafana-anonim-once.txt`, sonuç aynı) (`TAMAM` olan ikisi: uygulamanın kullanıcısı diğer uygulamanın veritabanı sunucusunda zaten yoktu); sonra: 50 kontrolün hepsi `TAMAM` (sonraki koşuda kontroller sıkılaştırıldı ve eklendi: izleme araçlarında operator, izleyici ve API token'ının sonucu, `Permissions-Policy`, yalnız eklenen tablolarda `UPDATE`, `.env`'deki Grafana şifresi, kilidin 65 sn sonra kalkması). Tarayıcıdan ayrıca: Grafana girişsiz açılınca giriş sayfası, `admin/admin` reddediliyor (`c-tarayici-grafana.txt`); izleme araçlarında izleyici 403, operator tek girişle üç araca ulaşıyor (`c-tarayici-izleme-girisi.txt`); eski halde başka bir sitenin sayfası Alertmanager ve Prometheus'tan veri okuyabiliyordu, yeni halde okuyamıyor (`c-tarayici-cors.txt`) |
-| 3 | Kaba kuvvet koruması | 1,5 sn arayla 5 yanlış şifreden sonra doğru şifre `400 invalid_grant`, yönetim API'sinde `disabled=true`, `numFailures=5`; 65 sn sonra doğru şifre `200`. `RealmSecurityTests`'in kilit testi; ayar geri alınınca kırılıyor |
-| 4 | Refresh token'ın ikinci kullanımı | Ekranın client'ıyla alınan refresh token: 1. kullanım `200`, 2. kullanım `400 invalid_grant` (`Maximum allowed refresh token reuse exceeded`) (`1-once-sonra.ps1`). `RealmSecurityTests`'in testi aynı kuralı test client'ıyla (`fatura-test`) sınıyor; kural realm düzeyinde, her client'a uygulanıyor; ayar geri alınınca test kırılıyor |
-| 5 | Ekran başlıklarla çalışıyor | Uygulama içi tarayıcıda giriş, Özet, Fatura Listesi, Fatura Detayı, Mutabakat (mutabakat başlatma dahil); iki sekme aynı anda, ikisinde de token yenilendi (Keycloak'ta yenileme hatası yok). Sayfa içinden dinlenen `securitypolicyviolation` olayı yok, konsolda hata yok (`c-tarayici-ekran.txt`, son hal 14:49–14:55 ve mutabakat başlatma 16:49) |
-| 6 | Veritabanı kullanıcısı | `invoice_app` ve `erp_app`: `DROP TABLE invoices` → `must be owner of table invoices`; aynı sunucudaki `postgres` veritabanı → `User does not have CONNECT privilege`; diğer uygulamanın veritabanı sunucusu → `password authentication failed`. İkinci servis kopyası da `invoice_app` ile bağlanıyor ve fatura gönderiyor; compose dışında `--migrate-only` deneme veritabanında çalıştı (`3-ikinci-kopya-ve-migrate.ps1`) |
-| 7 | Yük testi (50/sn, 2 dk) | `2-yuk-testi.ps1`, son kurulumla (uygulamalar `invoice_app` / `erp_app` ile): 6.000 istek, 6.000 kabul, p95 5,1 ms; serviste 6.000, ERP'de 6.000 kayıt; kayıp 0, çift kayıt 0. Ardından mutabakat çalıştı (24.021 kontrol, 280 düzeltme), loglarda yetki hatası 0. Prometheus'taki artış 6.000; Grafana panosunun 11 panelinin 12 sorgusu hatasız, hepsinde veri; 7 alarm kuralı sağlıklı; `CokSayida401` tetiklendi ve alert-receiver'ın logunda (`c-yuk-testi.txt`, 16:49 koşusu). Bir önceki koşuda aynı alarmın çözüldü bildirimi de geldi (`c-alarm-tetiklendi-cozuldu.txt`) |
-| 8 | Bütün testler | .NET birim testleri 532, Fatura Servisi entegrasyon testleri 84 (yeni `RealmSecurityTests` 3 test dahil), ekranın vitest testleri 27; hepsi geçti |
+| 1 | Hesap kilitleme bulgusu | SECURITY-REVIEW.md, O11: nasıl kullanıldığı, Orta, öneri (kaynak adrese göre sınırlama, kilitlenme alarmı); önlem uygulanmadı |
+| 2 | Onaylanmış faturanın iptali | `2-iptal-canli.ps1`: `Onaylandı` faturaya iptal `202`, iptal satırı `Tamamlandı`, ERP'de `cancellations`'ta 1 kayıt; ikinci iptal isteği `409 invoice_cancelled`, ERP'de yine 1 kayıt; `operator_actions`'ta iki satır (`Kuyruğa alındı`, `Reddedildi: faturanın iptali zaten istendi`) (`b-iptal-canli.txt`) |
+| 3 | Tekrar deneme bekleyen faturanın iptali | ERP her POST'a `500` dönerken verilen iptal: 20 sn boyunca fatura 4 deneme yaptı, iptal satırı `Bekliyor`, 0 deneme; ERP'de fatura ve iptal kaydı yok. ERP düzelince fatura ERP'ye ulaştı, ardından iptal: ERP'de fatura kaydı iptal kaydından önce (`b-iptal-canli.txt`) |
+| 4 | İptal gönderilirken servisin öldürülmesi | ERP iptali kaydedip cevabı 40 sn geciktirirken `docker compose kill invoice-service`; servis yeniden açıldı, lock dolunca iptal yeniden alındı, ERP'ye soruldu, iptal bulundu (`check=found`), tekrar POST edilmedi; iptal satırı `Tamamlandı`, ERP'de 1 iptal kaydı, ERP logunda tek iptal isteği (`b-iptal-canli.txt`) |
+| 5 | Sıra garantisi, gerçek veritabanıyla | `CancelOrderTests` (Testcontainers PostgreSQL): tekrar deneme, iki worker aynı anda, öldürülen worker'ın lock'u. Claim SQL'indeki sıra koşulu kaldırılınca bu üç test kırıldı (`c-mutasyon-sira.txt`) |
+| 6 | Bütün testler | .NET birim testleri 548 (ERP 137, Fatura Servisi 411), Fatura Servisi entegrasyon testleri 95 (yeni `CancelOrderTests` 7 test, `RoleRuleTests`'e iptalin 4 durumu dahil), ekranın vitest testleri 27; hepsi geçti (`c-testler.txt`) |
+
+Kontrol listesine ek olarak (`3-iptal-ek.ps1`, `d-iptal-ek.txt`; `4-migration-dunku-veri.ps1`; `5-yuk-testi.ps1`):
+
+- **İki kopya, 60 iptal aynı anda:** 60 faturanın 60'ında ERP'de tek iptal kaydı, iptali faturasından önce kaydedilen 0; ERP'nin
+  hız sınırıyla reddettiği istek 0, bir saniyede ERP'ye kaydedilen iptal en çok 19 (ERP'nin sınırı 20, servisin gönderim hızı 18);
+  iptallerin 32'sini bir kopya, 28'ini diğeri gönderdi. İptaller faturalar ERP'ye ulaştıktan sonra verildi; bu bölüm iki kopyada
+  tek kaydı ve hız sınırını gösteriyor, iki worker altında sırayı entegrasyon testi gösteriyor.
+- **ERP hata dönerken:** ERP iptallere `ServerError`, `Busy` ve `SaveThenError` dönerken 20 iptalin hepsi `Tamamlandı`, ERP'de her
+  faturaya tek kayıt; `SaveThenError`'dan sonra iptal ERP'ye sorulup kayıtlı bulundu, tekrar POST edilmedi.
+- **ERP'ye aynı faturanın 10 iptali aynı anda** (doğrudan ERP'ye): 10 cevabın hepsi `202` ve aynı iptal referansı, ERP'de 1 iptal
+  kaydı; ERP logunda 1 yeni iptal, 9 tekrar (`Duplicate`).
+- **İptal ve resend aynı anda:** `CancelOrderTests.A_cancellation_and_a_resend_arriving_together_leave_no_invoice_at_the_erp_without_its_cancellation`
+  (gerçek PostgreSQL, 10 fatura): her faturada oluşan sonuç tutarlı: resend kabul edildiyse fatura önce, iptal sonra gitti;
+  reddedildiyse ikisi de gitmedi. Hangi sonucun kaç kez oluştuğu kaydedilmiyor; iptali istenen faturanın resend'inin reddini
+  `A_second_cancellation_is_refused_and_a_cancelled_invoice_is_not_resent` sınıyor.
+- **Reddedilmiş fatura:** iptal isteği `409 invoice_rejected`, kuyruğa alınmadı, müdahale kaydına yazıldı.
+- **Fatura gönderilirken servisin öldürülmesi:** iptal kuyrukta bekledi; servis yeniden açılınca fatura ERP'ye soruldu (tek POST),
+  ardından iptal gitti; ERP'de bir fatura ve bir iptal kaydı, fatura önce.
+- **Dünkü veriyle migration:** Gün 21 koşusunun veritabanlarının kopyasında (24.021 fatura) iki migration hatasız; sayılar aynı,
+  bütün outbox satırları `Gönderim` (`e-migration-dunku-veri.txt`).
+- **Yük testi (50/sn, 2 dk):** 6.000 istek, 6.000 kabul, p95 6,3 ms; serviste ve ERP'de 6.000, kayıp 0, çift kayıt 0; kuyruk ~15,5 dk'da
+  boşaldı (Gün 21'de ~16 dk). Panonun iki paneli ("Son başarılı çalışmadan beri", "Çalışma süresi") bu koşunun
+  kontrolünde veri göstermedi (`f-yuk-testi.txt`).
 
 ### Bilinen sınırlar
 
-- **Compose ağının içi:** izleme araçlarına compose ağındaki bir container'dan kimliksiz ulaşılıyor (Grafana → Prometheus,
-  Prometheus → Alertmanager); ERP Simülatörü'nün API'si hâlâ kimlik doğrulaması istemiyor (SECURITY-REVIEW.md, Y5, D11).
-- **Kısmen kapatılan bulgular:** O1'de `admin-cli`'nin şifreyle token vermesi, O4'te API'nin `Server: Kestrel` başlığı, O7'de
-  realm'in varsayılan rollerindeki `offline_access` (Keycloak içe aktarırken geri ekliyor; yalnız ekranın client'ı isteyemiyor)
-  öneri olarak duruyor.
-- **Refresh token'ın ikinci kullanımı:** reddedilince Keycloak oturumun o client'taki kaydını kapatıyor; aynı oturumun yeni
-  token'ı da geçersiz oluyor (kullanıcı yeniden yönlendirilir).
-- **Grafana:** tek hesap `admin`; panoya bakacak herkes bu şifreyle giriyor.
-- **İzleme araçlarındaki oturum:** girişten sonra oauth2-proxy'nin varsayılanıyla 7 gün geçerli, Keycloak'a yeniden sorulmuyor;
-  Keycloak'ta oturum kapatılsa da aynı çerezle erişim sürüyor.
-- **Eski script'ler:** izleme araçlarına istek atan Gün 11-20 script'leri token göndermez; o günlerin tag'lerinde çalıştırılır.
+- **Faturanın durumu:** iptal faturanın durumunu değiştirmiyor; iptal edilen fatura ERP'den iptal haberi gelene kadar eski durumunu
+  (ör. `Onaylandı`) gösteriyor. İptalin durumu yalnız veritabanında (`erp_outbox`, `kind = İptal`); detay endpoint'i ve ekran
+  göstermiyor.
+- **ERP'de olmayan fatura:** gönderimi `Başarısız` biten ve ERP'de olmayan faturanın iptali `Başarısız` oluyor; fatura `Başarısız`
+  kalıyor ve iptali istendiği için yeniden gönderilemiyor.
+
 
 ---
 
@@ -733,3 +759,4 @@ Kontrol listesi ([`manual-tests/gun21/`](manual-tests/gun21/)):
 | `gun-19` | Kimlik Doğrulamanın Otomatik Testleri | [tree/gun-19](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-19) |
 | `gun-20` | Güvenlik Gözden Geçirmesi | [tree/gun-20](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-20) |
 | `gun-21` | Güvenlik Bulgularını Kapatmak | [tree/gun-21](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-21) |
+| `gun-22` | İptal Faturası ve Sıra Garantisi | [tree/gun-22](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-22) |

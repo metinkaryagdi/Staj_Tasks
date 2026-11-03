@@ -44,8 +44,9 @@ public static class OperatorActionType
     public const string StartReconciliation = "Mutabakat Başlatma";
     public const string FollowUp = "Takibe Alma";
     public const string CloseFollowUp = "Takibi Kapatma";
+    public const string Cancel = "İptal";
 
-    public static readonly string[] All = [Resend, BulkResend, StartReconciliation, FollowUp, CloseFollowUp];
+    public static readonly string[] All = [Resend, BulkResend, StartReconciliation, FollowUp, CloseFollowUp, Cancel];
 }
 
 public static class OperatorActionResult
@@ -58,6 +59,7 @@ public static class OperatorActionResult
     public const string FollowUpClosed = "Takip kapatıldı";
     public const string FollowUpNotOpen = "Reddedildi: açık takip yok";
     public const string InvalidNote = "Reddedildi: not geçersiz";
+    public const string CancelAlreadyRequested = "Reddedildi: faturanın iptali zaten istendi";
 
     public static string NotFailed(string currentStatus) => $"Reddedildi: fatura {currentStatus}";
 

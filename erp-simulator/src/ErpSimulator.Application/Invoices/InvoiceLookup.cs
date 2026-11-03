@@ -5,7 +5,8 @@ namespace ErpSimulator.Application.Invoices;
 
 /// <param name="Records">Oldest first; empty if the invoice number has no record.</param>
 /// <param name="Decision">Of the first record; <see cref="InvoiceDecision.None"/> when there is no record.</param>
-public sealed record InvoiceLookupResult(IReadOnlyList<ErpInvoice> Records, InvoiceDecision Decision);
+/// <param name="Cancellation">The invoice number's cancellation; null if it is not cancelled.</param>
+public sealed record InvoiceLookupResult(IReadOnlyList<ErpInvoice> Records, InvoiceDecision Decision, ErpCancellation? Cancellation = null);
 
 /// <summary>Reads the ERP's records of an invoice number and its decision. No faults are injected here.</summary>
 public sealed class InvoiceLookup(IErpInvoiceStore invoices, IWebhookDeliveryStore deliveries, TimeProvider time)
@@ -17,6 +18,7 @@ public sealed class InvoiceLookup(IErpInvoiceStore invoices, IWebhookDeliverySto
             return new InvoiceLookupResult(records, InvoiceDecision.None);
 
         var planned = await deliveries.ListForInvoiceAsync(records[0].Id, ct);
-        return new InvoiceLookupResult(records, InvoiceDecisions.Resolve(planned, time.GetUtcNow()));
+        var cancellation = await invoices.FindCancellationAsync(invoiceNumber, ct);
+        return new InvoiceLookupResult(records, InvoiceDecisions.Resolve(planned, time.GetUtcNow()), cancellation);
     }
 }

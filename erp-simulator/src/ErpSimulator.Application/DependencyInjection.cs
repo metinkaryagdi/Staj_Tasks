@@ -33,6 +33,7 @@ public static class DependencyInjection
 
         services.AddScoped<SubmitInvoiceHandler>();
         services.AddScoped<InvoiceLookup>();
+        services.AddScoped<CancelInvoiceHandler>();
         services.AddScoped<InvoiceListing>();
         services.AddScoped<WebhookSender>();
 

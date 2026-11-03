@@ -22,7 +22,47 @@ namespace ErpSimulator.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.HasSequence("cancel_reference_seq");
+
             modelBuilder.HasSequence("erp_reference_seq");
+
+            modelBuilder.Entity("ErpSimulator.Domain.Invoices.ErpCancellation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("CancelReference")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("cancel_reference")
+                        .HasDefaultValueSql("'IPT-' || lpad(nextval('cancel_reference_seq')::text, 8, '0')");
+
+                    b.Property<DateTimeOffset>("CancelledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cancelled_at");
+
+                    b.Property<string>("InvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("invoice_number");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CancelReference")
+                        .IsUnique();
+
+                    b.HasIndex("InvoiceNumber")
+                        .IsUnique();
+
+                    b.ToTable("cancellations", (string)null);
+                });
 
             modelBuilder.Entity("ErpSimulator.Domain.Invoices.ErpInvoice", b =>
                 {

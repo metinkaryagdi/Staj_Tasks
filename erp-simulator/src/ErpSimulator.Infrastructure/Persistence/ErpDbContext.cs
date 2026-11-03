@@ -10,9 +10,32 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
     public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
 
+    public DbSet<ErpCancellation> Cancellations => Set<ErpCancellation>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasSequence<long>("erp_reference_seq");
+        modelBuilder.HasSequence<long>("cancel_reference_seq");
+
+        modelBuilder.Entity<ErpCancellation>(entity =>
+        {
+            entity.ToTable("cancellations");
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+
+            entity.Property(e => e.CancelReference)
+                .HasColumnName("cancel_reference")
+                .HasMaxLength(32)
+                .HasDefaultValueSql("'IPT-' || lpad(nextval('cancel_reference_seq')::text, 8, '0')");
+            entity.HasIndex(e => e.CancelReference).IsUnique();
+
+            // Unique: one cancellation per invoice number, however many times it is asked for.
+            entity.Property(e => e.InvoiceNumber).HasColumnName("invoice_number").HasMaxLength(64);
+            entity.HasIndex(e => e.InvoiceNumber).IsUnique();
+
+            entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at");
+        });
 
         modelBuilder.Entity<ErpInvoice>(entity =>
         {

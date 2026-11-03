@@ -16,7 +16,7 @@ public sealed record InvoiceRecordResponse(
 /// One invoice number can map to several ERP records (duplicates are allowed): <see cref="ErpReference"/> is the
 /// first, and the decision (none, received, approved, rejected) is the first record's, shown once its time has come
 /// even if its event was never sent. <see cref="Reason"/> only when rejected; <see cref="DecidedAt"/> when approved
-/// or rejected.
+/// or rejected. <see cref="CancelReference"/> and <see cref="CancelledAt"/> once the invoice is cancelled.
 /// </summary>
 public sealed record InvoiceLookupResponse(
     string InvoiceNumber,
@@ -26,7 +26,11 @@ public sealed record InvoiceLookupResponse(
     IReadOnlyList<InvoiceRecordResponse> Records,
     string Decision,
     string? Reason,
-    [property: JsonPropertyName("decided_at")] DateTimeOffset? DecidedAt);
+    [property: JsonPropertyName("decided_at")] DateTimeOffset? DecidedAt,
+    string? CancelReference,
+    [property: JsonPropertyName("cancelled_at")] DateTimeOffset? CancelledAt);
+
+public sealed record CancellationAcceptedResponse(string CancelReference, string InvoiceNumber, DateTimeOffset CancelledAt);
 
 /// <summary>One ERP record in the list; a duplicated invoice number is listed once per record.</summary>
 public sealed record InvoiceListItemResponse(

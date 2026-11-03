@@ -62,6 +62,7 @@ derecedeki sırasıdır. Derecesi sonradan değişen bulgunun numarası, önceki
 | O8 | Orta | Güvenlik olayları saklanmıyor ve izlenmiyor | A09 | Öneri |
 | O9 | Orta | Uygulamaların veritabanı kullanıcıları süper kullanıcı | A02 | Düzeltildi |
 | O10 | Orta | Alertmanager ve Prometheus her web sitesine CORS izni veriyor | A01 | Düzeltildi |
+| O11 | Orta | Hesap kilitleme ile operatörün girişi engellenebiliyor | A07 | Öneri |
 | D1 | Düşük | Geliştirme bağımlılığında (vitest) bilinen açıklar | A03 | Öneri |
 | D2 | Düşük | ERP Simülatörü'nün 409 cevabı mevcut ERP referansını söylüyor | A01 | Öneri |
 | D3 | Düşük | Uygulama container'ları root olarak çalışıyor | A02 | Öneri |
@@ -426,6 +427,21 @@ sayfasını kendi tarayıcısında açması gerekiyor (O3'te ağdaki biri doğru
   cevabı çerezsiz istekte okundu (HTTP 200), giriş kapısının arkasındakilerin dört isteğinin hiçbiri okunamadı
   (`c-tarayici-cors.txt`, `c-tarayici-cors.jpg`).
 
+### O11 — Hesap kilitleme ile operatörün girişi engellenebiliyor (Orta)
+
+- **Ne:** O1'in düzeltmesiyle açılan kaba kuvvet koruması, art arda 5 yanlış şifreden sonra hesabı 60 sn kilitliyor. Kilit
+  kullanıcıya göre uygulanıyor; kilitliyken doğru şifre de reddediliyor.
+- **Nerede:** `keycloak/fatura-realm.json` (`bruteForceProtected`, `failureFactor: 5`, `waitIncrementSeconds: 60`,
+  `maxFailureWaitSeconds: 900`).
+- **Nasıl istismar edilir:** Kullanıcı adını bilen biri, şifreyi bilmeden token adresine 5 yanlış şifre gönderir ve kilit
+  açıldığında tekrarlar (dakikada ~5 deneme). Ölçüm (`manual-tests/gun22/1-hesap-kilitleme.ps1`, `a-hesap-kilitleme.txt`):
+  5 dk'lık koşuda araya başarılı giriş girmeyen turda hesap kilitlendi, kilit uzadı ve 143–253. sn arasındaki 12 doğru
+  şifre denemesinin hepsi reddedildi. Araya başarılı giriş giren turlarda hesap kilitlenmedi. Koşunun tamamında doğru
+  şifreyle yapılan 30 denemenin 18'i başarılı oldu.
+- **Etki:** Saldırı sürdükçe operatör ekrana ve müdahale uçlarına giremeyebilir. Fatura akışı (sipariş, ERP'ye gönderim)
+  etkilenmiyor.
+- **Öneri:** Denemeler kullanıcı yerine kaynak adrese göre sınırlansın; kilitlenme alarm olarak bildirilsin.
+
 ### D1 — Geliştirme bağımlılığında bilinen açıklar (Düşük)
 
 - **Ne:** `npm audit`: `vitest`/`@vitest/mocker`'da 2 moderate: GHSA-qxg6-89mg-rqv8 (kimliksiz manual mock kaydıyla kod
@@ -638,7 +654,7 @@ Görev mailinin saydığı konular, aynı sırayla.
 | A04 Cryptographic Failures | secret'ların saklanması, HMAC, TLS | Y2, O5 |
 | A05 Injection | ham SQL (bulgu yok), LIKE kaçışı, log satırları, girdi doğrulama | D8, D10 |
 | A06 Insecure Design | iş akışları: yeniden deneme, mutabakat, ERP'ye güven | Y5, O6, D9 |
-| A07 Authentication Failures | Keycloak realm, token doğrulama, anahtar yenileme, şifreler | K1, K2, Y3, Y4, O1, O2, O7, D7 |
+| A07 Authentication Failures | Keycloak realm, token doğrulama, anahtar yenileme, şifreler | K1, K2, Y3, Y4, O1, O2, O7, O11, D7 |
 | A08 Software or Data Integrity Failures | webhook imzası, telemetri verisi | Y2, D11 |
 | A09 Security Logging and Alerting Failures | Keycloak olay kaydı, API'nin 401/403 logu, alarm kuralları | O8, D8 |
 | A10 Mishandling of Exceptional Conditions | hata yolları (`catch` blokları): JWT hataları reddediyor, Keycloak açılışta yoksa token reddediliyor, ayar hatasında servis açılmıyor, mutabakat okuma hatasında hiçbir şey değiştirmiyor, ERP cevabı okunamazsa "yok" sayılmıyor; açık kalan: Keycloak'a sonradan ulaşılamazken eski anahtar listesi kalıyor (Önce bir düzeltme, README) | D9 |

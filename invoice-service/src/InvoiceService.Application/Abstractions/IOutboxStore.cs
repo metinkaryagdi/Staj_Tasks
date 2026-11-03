@@ -44,11 +44,15 @@ public interface IOutboxStore
     /// </summary>
     Task ResetAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
 
-    /// <summary>The invoice's entry, not tracked; null if it has none (invoices that failed before the outbox existed).</summary>
-    Task<ErpOutboxEntry?> FindAsync(string invoiceNumber, CancellationToken ct);
+    /// <summary>The invoice's entry of this kind (its send by default), not tracked; null if it has none (for a send:
+    /// invoices that failed before the outbox existed).</summary>
+    Task<ErpOutboxEntry?> FindAsync(string invoiceNumber, CancellationToken ct, string kind = OutboxKind.Send);
+
+    /// <summary>Queues the invoice's cancellation (Bekliyor, due now). Returns false when it already has one.</summary>
+    Task<bool> AddCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>
-    /// Makes the invoice's entry Tamamlandı if it is Başarısız: the invoice got to the ERP after all, so the two agree.
+    /// Makes the invoice's send entry Tamamlandı if it is Başarısız: the invoice got to the ERP after all, so the two agree.
     /// Nothing happens for an entry in any other state, or a missing one.
     /// </summary>
     Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);

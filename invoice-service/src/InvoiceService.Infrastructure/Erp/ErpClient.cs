@@ -18,17 +18,27 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
     /// <summary>The most records the ERP returns per page.</summary>
     private const int ListPageSize = 500;
 
-    public async Task<ErpSendResult> SendAsync(Invoice invoice, CancellationToken ct)
+    public Task<ErpSendResult> SendAsync(Invoice invoice, CancellationToken ct)
     {
         var request = new ErpInvoiceRequest(
             invoice.InvoiceNumber, invoice.CustomerCode, invoice.Amount, invoice.Currency, invoice.InvoiceDate);
+        return PostAsync(() => http.PostAsJsonAsync("api/v1/invoices", request, ct), "erpReference", ct);
+    }
+
+    public Task<ErpSendResult> CancelAsync(string invoiceNumber, CancellationToken ct) =>
+        PostAsync(() => http.PostAsync($"api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}/cancel", null, ct),
+            "cancelReference", ct);
+
+    /// <summary>One POST; accepted only on 202 with <paramref name="referenceField"/> in the body.</summary>
+    private async Task<ErpSendResult> PostAsync(Func<Task<HttpResponseMessage>> post, string referenceField, CancellationToken ct)
+    {
         var watch = Stopwatch.StartNew();
 
         HttpResponseMessage response;
         try
         {
             // Default completion option buffers the whole body, so HttpClient.Timeout covers headers and body.
-            response = await http.PostAsJsonAsync("api/v1/invoices", request, ct);
+            response = await post();
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -52,9 +62,9 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
                     watch.Elapsed, response.Headers.RetryAfter);
             }
 
-            var reference = ReadErpReference(body);
+            var reference = ReadString(body, referenceField);
             if (reference is null)
-                return Failed(status, $"ERP 202 döndü ama cevapta erpReference yok: {Describe(body)}", watch);
+                return Failed(status, $"ERP 202 döndü ama cevapta {referenceField} yok: {Describe(body)}", watch);
 
             return new ErpSendResult(true, reference, status, null, watch.Elapsed);
         }
@@ -91,9 +101,9 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
             if (response.StatusCode == HttpStatusCode.NotFound)
                 return new ErpLookupResult(ErpLookup.NotFound, null, status, null, watch.Elapsed);
 
-            if (response.StatusCode == HttpStatusCode.OK && ReadErpReference(body) is { } reference)
+            if (response.StatusCode == HttpStatusCode.OK && ReadString(body, "erpReference") is { } reference)
                 return new ErpLookupResult(ErpLookup.Found, reference, status, null, watch.Elapsed, ReadDecision(body),
-                    ReadRecords(body, invoiceNumber));
+                    ReadRecords(body, invoiceNumber), CancelReference: ReadString(body, "cancelReference"));
 
             return new ErpLookupResult(ErpLookup.Unknown, null, status,
                 $"ERP'ye faturanın kaydı sorulamadı: GET {status} {response.ReasonPhrase} döndü: {Describe(body)}", watch.Elapsed);
@@ -184,14 +194,14 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
     private static ErpSendResult Failed(int? status, string error, Stopwatch watch, ErpNoAnswer? noAnswer = null) =>
         new(false, null, status, error, watch.Elapsed, NoAnswer: noAnswer);
 
-    private static string? ReadErpReference(string body)
+    private static string? ReadString(string body, string field)
     {
         try
         {
             using var json = JsonDocument.Parse(body);
             // TryGetProperty throws on anything but an object ([], null, 42, "x"); such a body has no reference.
             return json.RootElement.ValueKind == JsonValueKind.Object
-                   && json.RootElement.TryGetProperty("erpReference", out var value) && value.ValueKind == JsonValueKind.String
+                   && json.RootElement.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String
                    && !string.IsNullOrWhiteSpace(value.GetString())
                 ? value.GetString()
                 : null;

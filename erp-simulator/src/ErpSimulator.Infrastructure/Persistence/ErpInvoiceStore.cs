@@ -51,4 +51,18 @@ public sealed class ErpInvoiceStore(ErpDbContext db) : IErpInvoiceStore
         var items = await range.OrderBy(i => i.ReceivedAt).ThenBy(i => i.Id).Skip(skip).Take(take).ToListAsync(ct);
         return new InvoicePage(items, total);
     }
+
+    public Task<ErpCancellation?> FindCancellationAsync(string invoiceNumber, CancellationToken ct) =>
+        db.Cancellations.AsNoTracking().SingleOrDefaultAsync(c => c.InvoiceNumber == invoiceNumber, ct);
+
+    public async Task SaveCancellationAsync(ErpCancellation cancellation)
+    {
+        var transaction = db.Database.CurrentTransaction ?? await db.Database.BeginTransactionAsync(CancellationToken.None);
+
+        db.Cancellations.Add(cancellation);
+        await db.SaveChangesAsync(CancellationToken.None);
+
+        await transaction.CommitAsync(CancellationToken.None);
+        await transaction.DisposeAsync();
+    }
 }

@@ -50,6 +50,7 @@ public static class DependencyInjection
 
         services.AddScoped<CreateInvoiceHandler>();
         services.AddScoped<ResendInvoiceHandler>();
+        services.AddScoped<CancelInvoiceHandler>();
         services.AddScoped<ResendInvoicesHandler>();
         services.AddScoped<InvoiceFollowUpHandler>();
         services.AddScoped<InvoiceQueries>();

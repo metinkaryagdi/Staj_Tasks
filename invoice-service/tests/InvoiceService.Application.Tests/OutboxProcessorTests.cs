@@ -1,3 +1,4 @@
+using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Outbox;
 using InvoiceService.Application.Tests.Fakes;
 using InvoiceService.Application.Webhooks;
@@ -17,6 +18,52 @@ public class OutboxProcessorTests
         new(1, Number, attempt, usedUp, Guid.NewGuid());
 
     private Task Send(ClaimedEntry entry) => _s.OutboxProcessor().SendAsync(entry, "worker-1");
+
+    private static ClaimedEntry CancelEntry(int attempt) =>
+        new(2, Number, attempt, false, Guid.NewGuid(), Kind: OutboxKind.Cancel);
+
+    [Fact]
+    public async Task A_cancellation_is_posted_when_the_ERP_has_the_invoice_and_does_not_change_the_invoice()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Approved, erpReference: "ERP-1");
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.Found("ERP-1"));
+        _s.Erp.CancelResults.Enqueue(FakeErpGateway.Accepted("IPT-1"));
+
+        await Send(CancelEntry(1));
+
+        Assert.Equal(["GET " + Number, "CANCEL " + Number], _s.Erp.Calls);
+        Assert.Equal([1], _s.Pacer.TurnsAtCall);
+        Assert.Equal(OutboxStatus.Completed, Assert.Single(_s.Outbox.Outcomes).Status);
+        Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices[Number].Status);
+    }
+
+    [Fact]
+    public async Task A_cancellation_the_ERP_refuses_fails_at_once_and_leaves_the_invoice_as_it_was()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Approved, erpReference: "ERP-1");
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.Found("ERP-1"));
+        _s.Erp.CancelResults.Enqueue(new ErpSendResult(false, null, 409, "ERP 409: Invoice rejected", TimeSpan.Zero));
+
+        await Send(CancelEntry(1));
+
+        var outcome = Assert.Single(_s.Outbox.Outcomes);
+        Assert.Equal(OutboxStatus.Failed, outcome.Status);
+        Assert.Contains("409", outcome.Error);
+        Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices[Number].Status);
+        Assert.Equal("ERP-1", _s.Invoices.Invoices[Number].ErpReference);
+    }
+
+    [Fact]
+    public async Task A_cancellation_the_ERP_already_has_is_not_posted_again()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Sent, erpReference: "ERP-1");
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.Found("ERP-1") with { CancelReference = "IPT-1" });
+
+        await Send(CancelEntry(2));
+
+        Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        Assert.Equal(OutboxStatus.Completed, Assert.Single(_s.Outbox.Outcomes).Status);
+    }
 
     [Fact]
     public async Task First_attempt_posts_directly_and_marks_the_invoice_sent()

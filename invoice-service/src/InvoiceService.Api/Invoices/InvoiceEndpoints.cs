@@ -30,8 +30,22 @@ public static class InvoiceEndpoints
                 "Only for invoices with status Başarısız. Does not call the ERP: resets the invoice's erp_outbox entry " +
                 "(Bekliyor, 0 attempts, due now) and sets the invoice to Bekliyor, then returns 202. The worker sends it " +
                 "again by the usual rules, asking the ERP first so an invoice the ERP already shows is not posted again. " +
-                "409 if the invoice is not Başarısız, 404 if it does not exist. " + OperatorDescription)
+                "409 if the invoice is not Başarısız or has a cancellation, 404 if it does not exist. " + OperatorDescription)
             .Produces<InvoiceResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization(Policies.Intervene);
+
+        group.MapPost("/{invoiceNumber}/cancel", CancelInvoice)
+            .WithName("CancelInvoice")
+            .WithSummary("Queue the invoice's cancellation for the ERP")
+            .WithDescription(
+                "Does not call the ERP: queues the cancellation in erp_outbox and returns 202. The worker sends it only after " +
+                "the invoice's own send is done, so the ERP never gets the cancellation before the invoice; if the ERP turns " +
+                "out not to have the invoice, nothing is sent and the cancellation fails. The invoice's status does not change. " +
+                "409 invoice_rejected for a rejected invoice, 409 invoice_cancelled if it already has a cancellation, 404 if " +
+                "it does not exist. " + OperatorDescription)
+            .Produces(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .RequireAuthorization(Policies.Intervene);
@@ -152,10 +166,36 @@ public static class InvoiceEndpoints
                     ["code"] = ProblemCodes.InvoiceNotFailed,
                     ["currentStatus"] = result.CurrentStatus
                 }),
+            ResendStatus.Cancelled => Cancelled(invoiceNumber),
             _ => Results.Accepted(
                 $"/api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}", InvoiceResponse.From(result.Invoice!))
         };
     }
+
+    private static async Task<IResult> CancelInvoice(string invoiceNumber, ClaimsPrincipal user, CancelInvoiceHandler handler)
+    {
+        var (by, invalid) = OperatorName.Read(user);
+        if (invalid is not null)
+            return invalid;
+
+        return await handler.HandleAsync(invoiceNumber, by!) switch
+        {
+            CancelStatus.NotFound => NotFound(invoiceNumber),
+            CancelStatus.Rejected => Results.Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Invoice is rejected",
+                detail: $"Invoice '{invoiceNumber}' was rejected by the ERP and cannot be cancelled.",
+                extensions: new Dictionary<string, object?> { ["code"] = ProblemCodes.InvoiceRejected }),
+            CancelStatus.AlreadyRequested => Cancelled(invoiceNumber),
+            _ => Results.Accepted($"/api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}")
+        };
+    }
+
+    private static IResult Cancelled(string invoiceNumber) => Results.Problem(
+        statusCode: StatusCodes.Status409Conflict,
+        title: "Invoice cancellation already requested",
+        detail: $"Invoice '{invoiceNumber}' already has a cancellation.",
+        extensions: new Dictionary<string, object?> { ["code"] = ProblemCodes.InvoiceCancelled });
 
     private static async Task<IResult> ResendInvoices(
         ResendInvoicesRequest request, ClaimsPrincipal user, ResendInvoicesHandler handler)

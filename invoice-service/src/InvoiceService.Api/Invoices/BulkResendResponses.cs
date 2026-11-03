@@ -15,6 +15,7 @@ public sealed record BulkResendItemResponse(string InvoiceNumber, string Result,
         BulkResendOutcome.Queued => "queued",
         BulkResendOutcome.NotFound => "not_found",
         BulkResendOutcome.NotFailed => "not_failed",
+        BulkResendOutcome.Cancelled => "cancelled",
         _ => "error"
     };
 }
@@ -27,6 +28,8 @@ public static class ProblemCodes
 {
     public const string InvoiceNotFound = "invoice_not_found";
     public const string InvoiceNotFailed = "invoice_not_failed";
+    public const string InvoiceRejected = "invoice_rejected";
+    public const string InvoiceCancelled = "invoice_cancelled";
     public const string ReconciliationRunning = "reconciliation_running";
     public const string OperatorNameRequired = "operator_name_required";
     public const string OperatorNameInvalid = "operator_name_invalid";

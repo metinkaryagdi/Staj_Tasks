@@ -21,6 +21,10 @@ public enum SendPath
     /// <summary>The ERP could not be asked: nothing sent.</summary>
     Unknown,
 
+    /// <summary>Cancellation only: the ERP does not have the invoice, so there is nothing to cancel; nothing
+    /// sent.</summary>
+    InvoiceNotFound,
+
     /// <summary>The entry was no longer held with this claim: nothing sent, nothing to write.</summary>
     NotHeld
 }
@@ -35,6 +39,7 @@ public sealed record SendAttempt(ErpSendResult Result, SendPath Path)
         SendPath.Found => "found",
         SendPath.NotFound => "notFound",
         SendPath.Unknown => "unknown",
+        SendPath.InvoiceNotFound => "invoiceNotFound",
         _ => "notHeld"
     };
 }
@@ -95,6 +100,50 @@ public sealed class ErpSendStrategy(
             _ => new(new ErpSendResult(false, null, null, lookup.Error, lookup.Elapsed, NoAnswer: lookup.NoAnswer), SendPath.Unknown)
         };
     }
+
+    /// <summary>
+    /// One cancellation attempt. The ERP is always asked first: already cancelled -> accepted with its cancel reference
+    /// (<see cref="SendPath.Found"/>: an earlier attempt got there without us being told); invoice not there -> failed
+    /// with a 404, nothing to cancel; invoice there but not cancelled -> the cancellation is POSTed once it is this
+    /// entry's turn and the entry is still held (<see cref="SendPath.NotFound"/>).
+    /// </summary>
+    public async Task<SendAttempt> CancelOnceAsync(ClaimedEntry entry)
+    {
+        var lookup = await erp.FindAsync(entry.InvoiceNumber, CancellationToken.None);
+        if (lookup.Lookup == ErpLookup.Found && lookup.CancelReference is null)
+        {
+            await WaitForTurnAsync();
+            return await StillHeldAsync(entry)
+                ? new(await erp.CancelAsync(entry.InvoiceNumber, CancellationToken.None), SendPath.NotFound)
+                : new(new ErpSendResult(false, null, null, null, lookup.Elapsed), SendPath.NotHeld);
+        }
+
+        return CancelLookupOutcome(lookup, lastError: null);
+    }
+
+    /// <summary>
+    /// Asks the ERP whether it has cancelled the invoice, without sending. Cancelled -> accepted; anything else -> failed
+    /// with <paramref name="lastError"/> (or why the ERP could not be asked).
+    /// </summary>
+    public async Task<SendAttempt> ConfirmCancelAsync(string invoiceNumber, string? lastError)
+    {
+        var lookup = await erp.FindAsync(invoiceNumber, CancellationToken.None);
+        if (lookup.Lookup == ErpLookup.Found && lookup.CancelReference is null)
+            return new(new ErpSendResult(false, null, lookup.HttpStatus, lastError, lookup.Elapsed), SendPath.NotFound);
+        var outcome = CancelLookupOutcome(lookup, lastError);
+        return outcome.Path == SendPath.Unknown
+            ? outcome with { Result = outcome.Result with { Error = $"{lastError} Son durum ERP'ye sorulamadı: {lookup.Error}" } }
+            : outcome;
+    }
+
+    private static SendAttempt CancelLookupOutcome(ErpLookupResult lookup, string? lastError) => lookup.Lookup switch
+    {
+        ErpLookup.Found => new(new ErpSendResult(true, lookup.CancelReference, lookup.HttpStatus, null, lookup.Elapsed), SendPath.Found),
+        // A 404 is final under RetryPolicy: an invoice the ERP does not have cannot be cancelled there.
+        ErpLookup.NotFound => new(new ErpSendResult(false, null, lookup.HttpStatus,
+            "ERP faturayı bilmiyor; iptal edilecek kayıt yok, iptal gönderilmedi.", lookup.Elapsed), SendPath.InvoiceNotFound),
+        _ => new(new ErpSendResult(false, null, null, lookup.Error ?? lastError, lookup.Elapsed, NoAnswer: lookup.NoAnswer), SendPath.Unknown)
+    };
 
     private async Task WaitForTurnAsync()
     {

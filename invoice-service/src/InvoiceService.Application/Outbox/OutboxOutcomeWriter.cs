@@ -7,7 +7,8 @@ namespace InvoiceService.Application.Outbox;
 
 /// <summary>
 /// Writes the outcome of an attempt to erp_outbox and invoices in one transaction, and applies the ERP events that were
-/// waiting for the invoice when it becomes Gönderildi.
+/// waiting for the invoice when it becomes Gönderildi. A cancellation's outcome is written to its outbox entry only: the
+/// invoice's status is not changed by it.
 /// </summary>
 public sealed class OutboxOutcomeWriter(
     IUnitOfWork unitOfWork, IOutboxStore outbox, IInvoiceStore invoices, WebhookEventProcessor events)
@@ -35,7 +36,11 @@ public sealed class OutboxOutcomeWriter(
         var owned = await outbox.WriteOutcomeAsync(
             entry.Id, entry.ClaimToken, outboxStatus, result.Error, nextAttemptAt, processedAt, CancellationToken.None);
 
-        if (owned)
+        if (owned && entry.IsCancel)
+        {
+            await transaction.CommitAsync(CancellationToken.None);
+        }
+        else if (owned)
         {
             await invoices.WriteSendOutcomeAsync(
                 entry.InvoiceNumber, invoiceStatus, result.ErpReference, result.Error, now, CancellationToken.None);

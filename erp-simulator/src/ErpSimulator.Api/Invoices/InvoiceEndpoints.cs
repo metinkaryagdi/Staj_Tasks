@@ -52,9 +52,27 @@ public static class InvoiceEndpoints
                 "Returns the ERP reference(s) recorded for the invoice number. No faults are injected here. " +
                 "erpReference is the first record; records lists all of them when duplicates exist. " +
                 "decision (none, received, approved, rejected) is the first record's, with reason (rejected only) and decided_at; " +
-                "it shows once its time has come, even if the event was never sent.")
+                "it shows once its time has come, even if the event was never sent. " +
+                "cancelReference and cancelled_at are set once the invoice is cancelled.")
             .Produces<InvoiceLookupResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{invoiceNumber}/cancel", CancelInvoice)
+            .AddEndpointFilter(LimitRate)
+            .WithName("CancelInvoice")
+            .WithSummary("Cancel an invoice")
+            .WithDescription(
+                "Shares the invoice POST's rate limit. Only a recorded invoice that is not rejected is cancelled: an unknown " +
+                "invoice number gets 404, a rejected invoice 409 (no behavior is drawn for either). An invoice is cancelled " +
+                "once: a repeated request gets 202 with the existing cancel reference and saves nothing (no behavior is drawn). " +
+                "A new cancellation goes through the same behaviors as an invoice POST: Success (202, saved), Busy (429 + " +
+                "Retry-After, not saved), ServerError (500, not saved), SaveThenError (500, but saved), LateResponse (saved, " +
+                "202 after the configured delay).")
+            .Produces<CancellationAcceptedResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return app;
     }
@@ -172,8 +190,65 @@ public static class InvoiceEndpoints
         var decision = found.Decision;
         return Results.Ok(new InvoiceLookupResponse(
             invoiceNumber, true, records[0].ErpReference, records.Count, records,
-            decision.Kind, decision.Reason, decision.DecidedAt));
+            decision.Kind, decision.Reason, decision.DecidedAt,
+            found.Cancellation?.CancelReference, found.Cancellation?.CancelledAt));
     }
+
+    private static async Task<IResult> CancelInvoice(
+        string invoiceNumber, HttpContext http, CancelInvoiceHandler handler, IOptions<SimulatorOptions> options)
+    {
+        var result = await handler.HandleAsync(invoiceNumber, http.RequestAborted);
+        Activity.Current?.SetTag(SimulatorTracing.InvoiceNumber, invoiceNumber);
+        Activity.Current?.SetTag("simulator.outcome", result.Decision?.Behavior.ToString() ?? result.Outcome.ToString());
+        switch (result.Outcome)
+        {
+            case CancelOutcome.NotFound:
+                return Results.Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "Invoice not found",
+                    detail: $"No ERP record for invoice '{invoiceNumber}'; there is nothing to cancel.");
+
+            case CancelOutcome.Rejected:
+                return Results.Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Invoice rejected",
+                    detail: $"Invoice '{invoiceNumber}' was rejected by the ERP and cannot be cancelled.");
+
+            case CancelOutcome.Duplicate:
+                return CancelAccepted(result.Cancellation!);
+        }
+
+        var decision = result.Decision!;
+        switch (decision.Behavior)
+        {
+            case Behavior.Success:
+                return CancelAccepted(result.Cancellation!);
+
+            case Behavior.Busy:
+                http.Response.Headers.RetryAfter = FormatRetryAfter(decision.RetryAfterSeconds, options.Value.RetryAfterFormat);
+                return Results.Problem(
+                    statusCode: StatusCodes.Status429TooManyRequests,
+                    title: "ERP is busy",
+                    detail: $"Try again in {decision.RetryAfterSeconds} seconds.");
+
+            case Behavior.ServerError:
+            case Behavior.SaveThenError:
+                return Results.Problem(
+                    statusCode: StatusCodes.Status500InternalServerError,
+                    title: "ERP internal error");
+
+            case Behavior.LateResponse:
+                return result.ClientGone ? Results.Empty : CancelAccepted(result.Cancellation!);
+
+            default:
+                throw new InvalidOperationException($"Unknown behavior {decision.Behavior}");
+        }
+    }
+
+    private static IResult CancelAccepted(ErpCancellation cancellation) =>
+        Results.Accepted(
+            $"/api/v1/invoices/{Uri.EscapeDataString(cancellation.InvoiceNumber)}",
+            new CancellationAcceptedResponse(cancellation.CancelReference, cancellation.InvoiceNumber, cancellation.CancelledAt));
 
     private static IResult Accepted(ErpInvoice invoice) =>
         Results.Accepted(
