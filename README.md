@@ -707,8 +707,8 @@ Kontrol listesi ([`manual-tests/gun23/`](manual-tests/gun23/)): 1-5 `1-kontrol-l
 ### Bilinen sınırlar
 
 - **Kuyruktaki fatura:** iptal sırayı beklediği için fatura hemen değil, sırası geldiğinde `İptal Edildi` olur. Yoğun kuyrukta bu süre
-  uzar; yük testinde kuyruk, yük bittikten yaklaşık 14,5 dakika sonra boşaldı. ERP'ye ulaşmış faturanın iptali de aynı sırayı bekledi (yük
-  testinde ERP'ye giden 252 iptalde ortalama 275, en çok 544 sn).
+  uzar; yük testinde kuyruk, yük bittikten yaklaşık 13,5 dakika sonra boşaldı. ERP'ye ulaşmış faturanın iptali de aynı sırayı bekledi (yük
+  testinde ERP'ye giden 253 iptalde ortalama 267, en çok 534 sn).
 - **Eski Onaylandı fatura:** karşılaştırma penceresinden eski her `Onaylandı` fatura her mutabakatta ERP'ye tek tek sorulur; tek bir
   cevabın alınamaması çalışmayı `Başarısız` yapar. Bu yol canlı koşularda çalışmadı, bütün faturalar pencere içindeydi.
 
