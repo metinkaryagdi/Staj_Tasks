@@ -370,6 +370,34 @@ public class ErpClientTests
     }
 
     [Fact]
+    public async Task A_listed_record_says_whether_the_erp_has_cancelled_it()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.OK, """
+            {"totalCount":2,"items":[
+              {"invoiceNumber":"A","erpReference":"ERP-1","customerCode":"C","amount":1.0,"currency":"TRY","invoiceDate":"2026-10-05","receivedAt":"2026-10-05T10:00:00Z"},
+              {"invoiceNumber":"B","erpReference":"ERP-2","customerCode":"C","amount":1.0,"currency":"TRY","invoiceDate":"2026-10-05","receivedAt":"2026-10-05T10:00:00Z","cancelReference":"IPT-1"}]}
+            """));
+
+        var result = await client.ListAsync(DateTimeOffset.UnixEpoch, DateTimeOffset.UtcNow, CancellationToken.None);
+
+        Assert.Equal([false, true], result.Records.Select(r => r.Cancelled));
+    }
+
+    [Fact]
+    public async Task A_looked_up_record_says_whether_the_erp_has_cancelled_it()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.OK, """
+            {"erpReference":"ERP-1","cancelReference":"IPT-1","decision":"cancelled","records":[
+              {"erpReference":"ERP-1","customerCode":"C","amount":1.0,"currency":"TRY","invoiceDate":"2026-10-05","receivedAt":"2026-10-05T10:00:00Z"}]}
+            """));
+
+        var result = await client.FindAsync("A", CancellationToken.None);
+
+        Assert.True(Assert.Single(result.Records!).Cancelled);
+        Assert.Equal("cancelled", result.Decision!.Kind);
+    }
+
+    [Fact]
     public async Task An_empty_range_is_a_successful_empty_list()
     {
         var (client, handler) = Create((_, _) => Reply(HttpStatusCode.OK, ListPage(0)));

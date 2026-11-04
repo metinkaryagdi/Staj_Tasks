@@ -49,17 +49,28 @@ public sealed class ErpInvoiceStore(ErpDbContext db) : IErpInvoiceStore
         var range = db.Invoices.AsNoTracking().Where(i => i.ReceivedAt >= from && i.ReceivedAt < to);
         var total = await range.CountAsync(ct);
         var items = await range.OrderBy(i => i.ReceivedAt).ThenBy(i => i.Id).Skip(skip).Take(take).ToListAsync(ct);
-        return new InvoicePage(items, total);
+        var numbers = items.Select(i => i.InvoiceNumber).Distinct().ToList();
+        var cancellations = await db.Cancellations.AsNoTracking()
+            .Where(c => numbers.Contains(c.InvoiceNumber))
+            .ToDictionaryAsync(c => c.InvoiceNumber, ct);
+        return new InvoicePage(items, total, cancellations);
     }
 
     public Task<ErpCancellation?> FindCancellationAsync(string invoiceNumber, CancellationToken ct) =>
         db.Cancellations.AsNoTracking().SingleOrDefaultAsync(c => c.InvoiceNumber == invoiceNumber, ct);
 
-    public async Task SaveCancellationAsync(ErpCancellation cancellation)
+    public async Task SaveCancellationAsync(ErpCancellation cancellation, IReadOnlyList<WebhookDelivery> events)
     {
         var transaction = db.Database.CurrentTransaction ?? await db.Database.BeginTransactionAsync(CancellationToken.None);
 
         db.Cancellations.Add(cancellation);
+        await db.SaveChangesAsync(CancellationToken.None);
+
+        await db.WebhookDeliveries
+            .Where(d => d.InvoiceNumber == cancellation.InvoiceNumber && d.OccurredAt > cancellation.CancelledAt
+                && (d.Status == DeliveryStatus.Pending || d.Status == DeliveryStatus.Waiting))
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.Status, DeliveryStatus.Skipped), CancellationToken.None);
+        db.WebhookDeliveries.AddRange(events);
         await db.SaveChangesAsync(CancellationToken.None);
 
         await transaction.CommitAsync(CancellationToken.None);

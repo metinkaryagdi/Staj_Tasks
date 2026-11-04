@@ -231,6 +231,7 @@ function InvoiceTable({ invoices, selectable, selected, onToggle, onSelectPage }
             <th>{tr.invoices.columns.status}</th>
             <th className="num">{tr.invoices.columns.attempts}</th>
             <th>{tr.invoices.columns.lastError}</th>
+            <th>{tr.invoices.columns.cancellation}</th>
             <th>{tr.invoices.columns.updatedAt}</th>
             <th>{tr.invoices.columns.detail}</th>
           </tr>
@@ -264,6 +265,7 @@ function InvoiceTable({ invoices, selectable, selected, onToggle, onSelectPage }
                 <td className="truncate" title={invoice.lastError ?? undefined}>
                   {invoice.lastError ?? emptyValue}
                 </td>
+                <td>{invoice.cancelStatus ? <StatusBadge status={invoice.cancelStatus} /> : emptyValue}</td>
                 <td>{formatDateTime(invoice.updatedAt)}</td>
                 <td>
                   <Link to={`/faturalar/${encodeURIComponent(invoice.invoiceNumber)}`}>{tr.invoices.detailLink}</Link>

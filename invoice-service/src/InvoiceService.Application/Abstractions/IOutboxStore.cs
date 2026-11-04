@@ -48,7 +48,10 @@ public interface IOutboxStore
     /// invoices that failed before the outbox existed).</summary>
     Task<ErpOutboxEntry?> FindAsync(string invoiceNumber, CancellationToken ct, string kind = OutboxKind.Send);
 
-    /// <summary>Queues the invoice's cancellation (Bekliyor, due now). Returns false when it already has one.</summary>
+    /// <summary>
+    /// Queues the invoice's cancellation (Bekliyor, 0 attempts, due now): a new one, or a Başarısız one again. Returns false
+    /// when it already has one in any other state.
+    /// </summary>
     Task<bool> AddCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
 
     /// <summary>
@@ -56,4 +59,19 @@ public interface IOutboxStore
     /// Nothing happens for an entry in any other state, or a missing one.
     /// </summary>
     Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
+
+    /// <summary>The status of the cancellation entry of those invoices that have one, by invoice number.</summary>
+    Task<IReadOnlyDictionary<string, string>> CancelStatusesAsync(IReadOnlyCollection<string> invoiceNumbers, CancellationToken ct);
+
+    /// <summary>
+    /// Queues the cancellation of an invoice the ERP has not cancelled (Bekliyor, 0 attempts, due now), whatever its entry's
+    /// state. Returns false when it is already Bekliyor.
+    /// </summary>
+    Task<bool> RequeueCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
+
+    /// <summary>
+    /// Makes the invoice's cancellation entry Tamamlandı, whatever a worker holding it still has to say: the cancellation
+    /// has nothing left to do. Nothing happens for a missing or already completed entry.
+    /// </summary>
+    Task CompleteCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct);
 }

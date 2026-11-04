@@ -65,6 +65,92 @@ public class OutboxProcessorTests
         Assert.Equal(OutboxStatus.Completed, Assert.Single(_s.Outbox.Outcomes).Status);
     }
 
+    private void WithCancellation() => _s.Outbox.CancelEntries[Number] = new ErpOutboxEntry
+    {
+        InvoiceNumber = Number, Kind = OutboxKind.Cancel, Status = OutboxStatus.Pending
+    };
+
+    [Fact]
+    public async Task An_invoice_with_a_cancellation_the_ERP_does_not_have_is_not_posted_even_on_its_first_attempt()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 1);
+        WithCancellation();
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        await Send(Entry(1));
+
+        Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        Assert.Equal(OutboxStatus.Failed, Assert.Single(_s.Outbox.Outcomes).Status);
+        Assert.Equal(OutboxStatus.Completed, _s.Outbox.CancelEntries[Number].Status);
+        Assert.Equal(InvoiceStatus.Cancelled, _s.Invoices.Invoices[Number].Status);
+    }
+
+    [Fact]
+    public async Task A_cancellation_arriving_while_the_first_attempt_waits_for_its_turn_stops_the_POST()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 1);
+        _s.Pacer.OnTurn = WithCancellation;
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        await Send(Entry(1));
+
+        Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        Assert.Equal(InvoiceStatus.Cancelled, _s.Invoices.Invoices[Number].Status);
+    }
+
+    [Fact]
+    public async Task A_cancellation_arriving_while_a_later_attempt_waits_for_its_turn_stops_the_POST()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 2);
+        _s.Pacer.OnTurn = WithCancellation;
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        await Send(Entry(2));
+
+        Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        Assert.Equal(InvoiceStatus.Cancelled, _s.Invoices.Invoices[Number].Status);
+    }
+
+    [Fact]
+    public async Task An_invoice_with_a_cancellation_the_ERP_has_completes_its_send_without_a_POST()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 1);
+        WithCancellation();
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.Found("ERP-1"));
+
+        await Send(Entry(1));
+
+        Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        Assert.Equal(OutboxStatus.Completed, Assert.Single(_s.Outbox.Outcomes).Status);
+        Assert.Equal(OutboxStatus.Pending, _s.Outbox.CancelEntries[Number].Status);
+        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices[Number].Status);
+    }
+
+    [Fact]
+    public async Task The_cancellation_of_a_failed_invoice_the_ERP_does_not_have_cancels_it_with_nothing_sent()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Failed);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        await Send(CancelEntry(1));
+
+        Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        Assert.Equal(OutboxStatus.Completed, Assert.Single(_s.Outbox.Outcomes).Status);
+        Assert.Equal(InvoiceStatus.Cancelled, _s.Invoices.Invoices[Number].Status);
+    }
+
+    [Fact]
+    public async Task The_cancellation_of_an_invoice_the_service_believes_is_at_the_ERP_fails_when_the_ERP_does_not_have_it()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Approved, erpReference: "ERP-1");
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        await Send(CancelEntry(1));
+
+        Assert.Equal(OutboxStatus.Failed, Assert.Single(_s.Outbox.Outcomes).Status);
+        Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices[Number].Status);
+    }
+
     [Fact]
     public async Task First_attempt_posts_directly_and_marks_the_invoice_sent()
     {

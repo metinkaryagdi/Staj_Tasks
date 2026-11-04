@@ -88,7 +88,7 @@ public static class DeliveryKind
     /// <summary>A second send of a normal event, same event_id and body.</summary>
     public const string Duplicate = "Duplicate";
 
-    /// <summary>The decision that is never sent (status Skipped).</summary>
+    /// <summary>The decision or the cancellation event that is never sent (status Skipped).</summary>
     public const string LostDecision = "LostDecision";
 
     /// <summary>A decision with its own event_id, signed with a wrong key.</summary>
@@ -109,4 +109,5 @@ public static class ErpEventType
     public const string Received = "invoice.received";
     public const string Approved = "invoice.approved";
     public const string Rejected = "invoice.rejected";
+    public const string Cancelled = "invoice.cancelled";
 }

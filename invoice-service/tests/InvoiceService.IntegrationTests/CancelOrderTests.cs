@@ -1,8 +1,12 @@
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Invoices;
 using InvoiceService.Application.Outbox;
+using InvoiceService.Application.Reconciliation;
+using InvoiceService.Domain.Invoices;
 using InvoiceService.Domain.Operators;
 using InvoiceService.Domain.Outbox;
+using InvoiceService.Domain.Reconciliation;
+using InvoiceService.Domain.Webhooks;
 using InvoiceService.IntegrationTests.Support;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,12 +49,24 @@ public class CancelOrderTests(PostgresFixture postgres) : IntegrationTest(postgr
     private Task<string?> OutboxStatusAsync(string number, string kind) =>
         ScalarAsync<string>("SELECT status FROM erp_outbox WHERE invoice_number = @n AND kind = @k", ("n", number), ("k", kind));
 
-    [Fact]
-    public async Task A_cancellation_waits_while_the_invoice_waits_for_a_retry_and_goes_after_it_reaches_the_erp()
+    private Task<string?> InvoiceStatusAsync(string number) =>
+        ScalarAsync<string>("SELECT status FROM invoices WHERE invoice_number = @n", ("n", number));
+
+    private async Task<string> InvoiceAtTheErpAsync()
     {
         Erp.KeepRecords = true;
         var number = await CreateInvoiceAsync();
-        Erp.OnPost = _ => Results.Problem(statusCode: 500, title: "ERP hatası");
+        await SendToErpAsync();
+        return number;
+    }
+
+    [Fact]
+    public async Task A_cancellation_waits_while_the_invoice_waits_for_a_retry_and_goes_after_it_reaches_the_erp()
+    {
+        // The ERP saves the invoice but answers with an error, so the service does not know the invoice is there.
+        Erp.KeepRecords = true;
+        var number = await CreateInvoiceAsync();
+        Erp.OnPost = n => { Erp.RecordInvoice(n); return Results.Problem(statusCode: 500, title: "ERP hatası"); };
         await SendToErpAsync();
         Assert.Equal(OutboxStatus.Pending, await OutboxStatusAsync(number, OutboxKind.Send));
 
@@ -60,8 +76,7 @@ public class CancelOrderTests(PostgresFixture postgres) : IntegrationTest(postgr
         Assert.Empty(await ClaimAsync("A", DateTimeOffset.UtcNow));
         Assert.Equal(["POST " + number], Erp.Requests);
 
-        // The retry gets the invoice to the ERP; only then is the cancellation taken and sent.
-        Erp.AcceptInvoices();
+        // The retry finds the invoice at the ERP; only then is the cancellation taken and sent.
         var retry = Assert.Single(await ClaimAsync("A", DateTimeOffset.UtcNow.AddMinutes(10)));
         Assert.Equal(OutboxKind.Send, retry.Kind);
         await SendAsync(retry, "A");
@@ -69,7 +84,7 @@ public class CancelOrderTests(PostgresFixture postgres) : IntegrationTest(postgr
         Assert.Equal(OutboxKind.Cancel, cancel.Kind);
         await SendAsync(cancel, "A");
 
-        Assert.Equal(["POST " + number, "POST " + number, "CANCEL " + number], Erp.Requests);
+        Assert.Equal(["POST " + number, "CANCEL " + number], Erp.Requests);
         Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Cancel));
         Assert.Equal(1, Erp.CancellationCount);
     }
@@ -108,7 +123,9 @@ public class CancelOrderTests(PostgresFixture postgres) : IntegrationTest(postgr
         var send = Assert.Single(await ClaimAsync("A", now));
         Assert.Equal(OutboxKind.Send, send.Kind);
 
-        // After A's lock runs out the invoice is taken again, never its cancellation.
+        // A's POST got to the ERP. After A's lock runs out the invoice is taken again, never its cancellation.
+        Erp.KeepRecords = true;
+        Erp.RecordInvoice(number);
         var later = now.AddSeconds(61);
         var again = Assert.Single(await ClaimAsync("B", later));
         Assert.Equal(OutboxKind.Send, again.Kind);
@@ -143,18 +160,145 @@ public class CancelOrderTests(PostgresFixture postgres) : IntegrationTest(postgr
     }
 
     [Fact]
-    public async Task The_cancellation_of_an_invoice_the_erp_does_not_have_is_not_sent_and_fails()
+    public async Task The_cancellation_of_a_failed_invoice_the_erp_does_not_have_sends_nothing_and_cancels_it()
     {
         Erp.KeepRecords = true;
         Erp.RefuseInvoices();
         var number = await CreateInvoiceAsync();
         await SendToErpAsync();
+        Assert.Equal(InvoiceStatus.Failed, await InvoiceStatusAsync(number));
         Assert.Equal(CancelStatus.Queued, await CancelAsync(number));
 
         await SendToErpAsync();
 
-        Assert.Equal(OutboxStatus.Failed, await OutboxStatusAsync(number, OutboxKind.Cancel));
+        Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Cancel));
+        Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(number));
         Assert.DoesNotContain(Erp.Requests, r => r.StartsWith("CANCEL"));
+    }
+
+    [Fact]
+    public async Task The_cancellation_of_an_invoice_still_in_the_queue_sends_nothing_and_cancels_it()
+    {
+        Erp.KeepRecords = true;
+        var number = await CreateInvoiceAsync();
+        Assert.Equal(CancelStatus.Queued, await CancelAsync(number));
+
+        await SendAllAsync();
+
+        Assert.Empty(Erp.Requests);
+        Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(number));
+        Assert.Equal(OutboxStatus.Failed, await OutboxStatusAsync(number, OutboxKind.Send));
+        Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Cancel));
+    }
+
+    [Fact]
+    public async Task A_failed_cancellation_is_queued_again_recorded_and_completed()
+    {
+        var number = await InvoiceAtTheErpAsync();
+        Assert.Equal(CancelStatus.Queued, await CancelAsync(number));
+        await ExecuteAsync($"UPDATE erp_outbox SET status = 'Başarısız', attempt_count = 10, processed_at = now(), last_error = 'ERP kapalı' WHERE invoice_number = '{number}' AND kind = '{OutboxKind.Cancel}'");
+
+        Assert.Equal(CancelStatus.Queued, await CancelAsync(number));
+
+        Assert.Equal(OutboxStatus.Pending, await OutboxStatusAsync(number, OutboxKind.Cancel));
+        Assert.Equal(2, await ScalarAsync<long>("SELECT count(*) FROM operator_actions WHERE invoice_number = @n", ("n", number)));
+        var again = Assert.Single(await ClaimAsync("A", DateTimeOffset.UtcNow));
+        Assert.Equal(1, again.Attempt);
+        await SendAsync(again, "A");
+        Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Cancel));
+        Assert.Equal(1, Erp.CancellationCount);
+    }
+
+    [Fact]
+    public async Task A_waiting_or_completed_cancellation_is_not_queued_again()
+    {
+        var number = await InvoiceAtTheErpAsync();
+        Assert.Equal(CancelStatus.Queued, await CancelAsync(number));
+        Assert.Equal(CancelStatus.AlreadyRequested, await CancelAsync(number));
+
+        await SendToErpAsync();
+
+        Assert.Equal(CancelStatus.AlreadyRequested, await CancelAsync(number));
+        Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Cancel));
+    }
+
+    [Fact]
+    public async Task The_cancelled_event_before_the_approval_and_twice_leaves_the_invoice_cancelled()
+    {
+        var number = await InvoiceAtTheErpAsync();
+        var cancelled = ErpEvent("evt-cancel", WebhookEventType.Cancelled, number);
+
+        Assert.Equal(WebhookEventStatus.Processed, (await DeliverAsync(cancelled)).Status);
+        Assert.True((await DeliverAsync(cancelled)).Repeat);
+        Assert.Equal(WebhookEventStatus.Ignored, (await DeliverAsync(ErpEvent("evt-cancel-2", WebhookEventType.Cancelled, number))).Status);
+        Assert.Equal(WebhookEventStatus.Ignored, (await DeliverAsync(ErpEvent("evt-approved", WebhookEventType.Approved, number))).Status);
+
+        Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(number));
+    }
+
+    [Fact]
+    public async Task An_approved_invoice_is_cancelled_by_the_event_and_a_rejected_one_is_not()
+    {
+        var approved = await InvoiceAtTheErpAsync();
+        var rejected = await CreateInvoiceAsync();
+        await SendToErpAsync();
+        await DeliverAsync(ErpEvent("evt-1", WebhookEventType.Approved, approved));
+        await DeliverAsync(ErpEvent("evt-2", WebhookEventType.Rejected, rejected));
+
+        await DeliverAsync(ErpEvent("evt-3", WebhookEventType.Cancelled, approved));
+        await DeliverAsync(ErpEvent("evt-4", WebhookEventType.Cancelled, rejected));
+
+        Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(approved));
+        Assert.Equal(InvoiceStatus.Rejected, await InvoiceStatusAsync(rejected));
+    }
+
+    [Fact]
+    public async Task A_cancelled_invoice_takes_no_new_cancellation_and_is_not_resent()
+    {
+        var number = await InvoiceAtTheErpAsync();
+        await DeliverAsync(ErpEvent("evt-cancel", WebhookEventType.Cancelled, number));
+
+        Assert.Equal(CancelStatus.AlreadyRequested, await CancelAsync(number));
+        Assert.Equal(ResendStatus.NotFailed, await ResendAsync(number));
+        Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(number));
+    }
+
+    [Fact]
+    public async Task The_cancelled_event_completes_a_failed_cancellation()
+    {
+        var number = await InvoiceAtTheErpAsync();
+        Assert.Equal(CancelStatus.Queued, await CancelAsync(number));
+        await ExecuteAsync($"UPDATE erp_outbox SET status = 'Başarısız', processed_at = now() WHERE invoice_number = '{number}' AND kind = '{OutboxKind.Cancel}'");
+
+        await DeliverAsync(ErpEvent("evt-cancel", WebhookEventType.Cancelled, number));
+
+        Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Cancel));
+        Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(number));
+    }
+
+    [Fact]
+    public async Task A_failed_invoice_at_the_erp_sends_only_the_cancellation_and_the_event_settles_everything()
+    {
+        Erp.KeepRecords = true;
+        Erp.RefuseInvoices();
+        var number = await CreateInvoiceAsync();
+        await SendToErpAsync();
+        Erp.RecordInvoice(number);
+        Erp.Requests.Clear();
+        await DeliverAsync(ErpEvent("evt-approved", WebhookEventType.Approved, number));
+        Assert.Equal(CancelStatus.Queued, await CancelAsync(number));
+
+        await SendAllAsync();
+        Assert.Equal(["CANCEL " + number], Erp.Requests);
+        Assert.Equal(InvoiceStatus.Failed, await InvoiceStatusAsync(number));
+
+        await DeliverAsync(ErpEvent("evt-cancel", WebhookEventType.Cancelled, number));
+
+        Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(number));
+        Assert.Equal($"ERP-{number}", await ScalarAsync<string>("SELECT erp_reference FROM invoices WHERE invoice_number = @n", ("n", number)));
+        Assert.Null(await ScalarAsync<string>("SELECT last_error FROM invoices WHERE invoice_number = @n", ("n", number)));
+        Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Send));
+        Assert.Equal(WebhookEventStatus.Ignored, await ScalarAsync<string>("SELECT status FROM erp_webhook_events WHERE event_id = 'evt-approved'"));
     }
 
     [Fact]
@@ -176,7 +320,69 @@ public class CancelOrderTests(PostgresFixture postgres) : IntegrationTest(postgr
     }
 
     [Fact]
-    public async Task A_cancellation_and_a_resend_arriving_together_leave_no_invoice_at_the_erp_without_its_cancellation()
+    public async Task Reconciliation_cancels_an_invoice_the_erp_cancelled_and_completes_its_entries()
+    {
+        Erp.KeepRecords = true;
+        Erp.RefuseInvoices();
+        var number = await CreateInvoiceAsync();
+        await SendToErpAsync();
+        Erp.RecordInvoice(number);
+        await DeliverAsync(ErpEvent("evt-approved", WebhookEventType.Approved, number));
+        Assert.Equal(CancelStatus.Queued, await CancelAsync(number));
+        var runId = await StartRunAsync();
+
+        var done = await ApplyFixAsync(runId, new PlannedFinding(number, FindingType.CancelledInErp, "ERP'de iptal edilmiş",
+            new Fix(FixKind.ApplyCancellation, number, InvoiceStatus.Failed, $"ERP-{number}")));
+
+        Assert.True(done);
+        Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(number));
+        Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Cancel));
+        Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Send));
+        Assert.Equal(WebhookEventStatus.Ignored, await ScalarAsync<string>("SELECT status FROM erp_webhook_events WHERE event_id = 'evt-approved'"));
+        Assert.Equal($"ERP-{number}", await ScalarAsync<string>("SELECT erp_reference FROM invoices WHERE invoice_number = @n", ("n", number)));
+
+        // The event that comes after the fix changes nothing.
+        Assert.Equal(WebhookEventStatus.Ignored, (await DeliverAsync(ErpEvent("evt-late", WebhookEventType.Cancelled, number))).Status);
+    }
+
+    [Fact]
+    public async Task Reconciliation_queues_again_a_cancellation_the_erp_does_not_have_and_only_once()
+    {
+        var number = await InvoiceAtTheErpAsync();
+        await DeliverAsync(ErpEvent("evt-cancel", WebhookEventType.Cancelled, number));
+        var runId = await StartRunAsync();
+        var requeue = new PlannedFinding(number, FindingType.CancelledInService, "ERP'de iptal edilmemiş",
+            new Fix(FixKind.RequeueCancellation, number, InvoiceStatus.Cancelled));
+
+        Assert.True(await ApplyFixAsync(runId, requeue));
+        Assert.False(await ApplyFixAsync(runId, requeue));
+
+        await SendToErpAsync();
+        Assert.Equal(1, Erp.CancellationCount);
+        Assert.Equal(OutboxStatus.Completed, await OutboxStatusAsync(number, OutboxKind.Cancel));
+        Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(number));
+    }
+
+    [Fact]
+    public async Task Of_the_final_invoices_older_than_the_window_reconciliation_reads_approved_and_cancelled_but_not_rejected()
+    {
+        var approved = await InvoiceAtTheErpAsync();
+        var rejected = await CreateInvoiceAsync();
+        var cancelled = await CreateInvoiceAsync();
+        await SendToErpAsync();
+        await DeliverAsync(ErpEvent("evt-1", WebhookEventType.Approved, approved));
+        await DeliverAsync(ErpEvent("evt-2", WebhookEventType.Rejected, rejected));
+        await DeliverAsync(ErpEvent("evt-3", WebhookEventType.Cancelled, cancelled));
+
+        await using var scope = NewScope();
+        var read = await scope.ServiceProvider.GetRequiredService<Application.Abstractions.IReconciliationStore>()
+            .InvoicesToCheckAsync(DateTimeOffset.UtcNow.AddHours(1), CancellationToken.None);
+
+        Assert.Equal(new[] { approved, cancelled }.Order(), read.Select(i => i.InvoiceNumber).Order());
+    }
+
+    [Fact]
+    public async Task A_cancellation_and_a_resend_arriving_together_send_nothing_and_cancel_the_invoice()
     {
         // Ten invoices the ERP refused (Başarısız) and does not have.
         Erp.KeepRecords = true;
@@ -198,18 +404,10 @@ public class CancelOrderTests(PostgresFixture postgres) : IntegrationTest(postgr
         }
         await SendAllAsync();
 
-        // The cancellation is always queued. The resend either loses (refused: the invoice is never sent, nor is the
-        // cancellation of an invoice the ERP does not have) or wins (the invoice goes first, its cancellation after it).
+        // The cancellation is always queued. Whichever comes first, the ERP does not have the invoice: nothing goes to it.
         Assert.All(outcomes, o => Assert.Equal(CancelStatus.Queued, o.Cancel));
-        foreach (var (number, outcome) in numbers.Zip(outcomes))
-        {
-            var postAt = Erp.Requests.IndexOf("POST " + number);
-            var cancelAt = Erp.Requests.IndexOf("CANCEL " + number);
-            var requests = $"{number} resend={outcome.Resend}: {string.Join(", ", Erp.Requests)}";
-            if (outcome.Resend == ResendStatus.Queued)
-                Assert.True(postAt >= 0 && cancelAt > postAt, requests);
-            else
-                Assert.True(outcome.Resend == ResendStatus.Cancelled && postAt < 0 && cancelAt < 0, requests);
-        }
+        Assert.Empty(Erp.Requests);
+        foreach (var number in numbers)
+            Assert.Equal(InvoiceStatus.Cancelled, await InvoiceStatusAsync(number));
     }
 }

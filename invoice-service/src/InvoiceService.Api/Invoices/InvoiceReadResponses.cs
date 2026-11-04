@@ -57,7 +57,8 @@ public sealed record InvoiceFollowUpSummaryResponse(string OperatorName, string 
 public sealed record InvoiceDetailsResponse(
     InvoiceResponse Invoice, OutboxEntryResponse? Outbox, IReadOnlyList<InvoiceEventResponse> Events,
     IReadOnlyList<ReconciliationFindingResponse> Findings, IReadOnlyList<OperatorActionResponse> OperatorActions,
-    InvoiceFollowUpSummaryResponse? FollowUp, IReadOnlyList<InvoiceFollowUpResponse> FollowUps)
+    InvoiceFollowUpSummaryResponse? FollowUp, IReadOnlyList<InvoiceFollowUpResponse> FollowUps,
+    OutboxEntryResponse? Cancellation)
 {
     public static InvoiceDetailsResponse From(InvoiceDetails d) => new(
         InvoiceResponse.From(d.Invoice, d.Stuck),
@@ -66,7 +67,8 @@ public sealed record InvoiceDetailsResponse(
         d.Findings.Select(ReconciliationFindingResponse.From).ToList(),
         d.OperatorActions.Select(OperatorActionResponse.From).ToList(),
         d.FollowUp is null ? null : new(d.FollowUp.OperatorName, d.FollowUp.Note, d.FollowUp.OpenedAt),
-        d.FollowUps.Select(InvoiceFollowUpResponse.From).ToList());
+        d.FollowUps.Select(InvoiceFollowUpResponse.From).ToList(),
+        d.Cancellation is null ? null : OutboxEntryResponse.From(d.Cancellation));
 }
 
 public sealed record FollowUpRequest(string? Note);

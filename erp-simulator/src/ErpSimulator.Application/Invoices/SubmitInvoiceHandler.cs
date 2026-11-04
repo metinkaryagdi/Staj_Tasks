@@ -147,12 +147,14 @@ public sealed class SubmitInvoiceHandler(
             RequestSequence = decision.Sequence
         };
 
-        await invoices.SaveAsync(invoice, saved => WithTrace(planner.Plan(saved, saved.ReceivedAt)));
+        // A cancelled invoice number gets no events: the ERP does not approve or reject it later.
+        var cancelled = await invoices.FindCancellationAsync(request.InvoiceNumber!, CancellationToken.None) is not null;
+        await invoices.SaveAsync(invoice, saved => cancelled ? [] : WithTrace(planner.Plan(saved, saved.ReceivedAt)));
         return invoice;
     }
 
     /// <summary>The events carry this request's trace (W3C traceparent), so their sends join the invoice's trace.</summary>
-    private static IReadOnlyList<WebhookDelivery> WithTrace(IReadOnlyList<WebhookDelivery> deliveries)
+    internal static IReadOnlyList<WebhookDelivery> WithTrace(IReadOnlyList<WebhookDelivery> deliveries)
     {
         foreach (var delivery in deliveries)
             delivery.TraceParent = Activity.Current?.Id;

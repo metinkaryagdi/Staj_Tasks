@@ -40,12 +40,13 @@ public static class InvoiceEndpoints
             .WithName("CancelInvoice")
             .WithSummary("Queue the invoice's cancellation for the ERP")
             .WithDescription(
-                "Does not call the ERP: queues the cancellation in erp_outbox and returns 202. The worker sends it only after " +
-                "the invoice's own send is done, so the ERP never gets the cancellation before the invoice; if the ERP turns " +
-                "out not to have the invoice, nothing is sent and the cancellation fails. The invoice's status does not change. " +
-                "409 invoice_rejected for a rejected invoice, 409 invoice_cancelled if it already has a cancellation, 404 if " +
-                "it does not exist. " + OperatorDescription)
-            .Produces(StatusCodes.Status202Accepted)
+                "Does not call the ERP: queues the cancellation in erp_outbox and returns 202; a Başarısız cancellation is queued " +
+                "again the same way. The worker sends it only after the invoice's own send is done, so the ERP never gets the " +
+                "cancellation before the invoice; if the ERP does not have the invoice, nothing goes to the ERP and the invoice " +
+                "is İptal Edildi. Otherwise the ERP's cancellation event makes it İptal Edildi. " +
+                "409 invoice_rejected for a rejected invoice, 409 invoice_cancelled for an İptal Edildi invoice or a cancellation " +
+                "that is waiting or done, 404 if it does not exist. " + OperatorDescription)
+            .Produces<InvoiceResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .RequireAuthorization(Policies.Intervene);
@@ -78,7 +79,7 @@ public static class InvoiceEndpoints
             .WithDescription(
                 "Body: { \"invoiceNumbers\": [...] }, 1 to 100 numbers (400 otherwise); a number sent twice is resent once. " +
                 "Every invoice follows the single resend's rules (only Başarısız, nothing is sent to the ERP in this request) " +
-                "and gets its own result: queued, not_found, not_failed (with its current status) or error. The request is " +
+                "and gets its own result: queued, not_found, not_failed (with its current status), cancelled or error. The request is " +
                 "200 whatever the results are; one invoice that is refused does not stop the others. " + OperatorDescription +
                 " Each invoice gets its own record.")
             .Produces<BulkResendResponse>()
@@ -89,7 +90,7 @@ public static class InvoiceEndpoints
             .WithName("ListInvoices")
             .WithSummary("One page of invoices, newest first")
             .WithDescription(
-                "status=Bekliyor, Gönderildi, İşleme Alındı, Onaylandı, Reddedildi or Başarısız narrows the list; search is part " +
+                "status=Bekliyor, Gönderildi, İşleme Alındı, Onaylandı, Reddedildi, Başarısız or İptal Edildi narrows the list; search is part " +
                 "of the invoice number (any case); stuck=true keeps only the invoices the summary counts as stuck (the same rule), and " +
                 "every listed invoice carries stuck by that rule. " +
                 "page starts at 1 (default 1), pageSize is 1 to 100 (default 20). The response " +
@@ -114,8 +115,8 @@ public static class InvoiceEndpoints
             .WithName("GetInvoiceDetails")
             .WithSummary("The invoice with its erp_outbox entry, its events and its reconciliation findings")
             .WithDescription(
-                "Four reads, not one snapshot: a change made while the response is built can show in one part and not in another. " +
-                "outbox is null for an invoice without an entry. Of the ERP Karar Vermedi findings, which every run writes again " +
+                "Separate reads, not one snapshot: a change made while the response is built can show in one part and not in another. " +
+                "outbox is null for an invoice without an entry, cancellation for one with no cancellation requested. Of the ERP Karar Vermedi findings, which every run writes again " +
                 "while the ERP stays silent, only the newest is listed. 404 if the invoice does not exist.")
             .Produces<InvoiceDetailsResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -172,7 +173,8 @@ public static class InvoiceEndpoints
         };
     }
 
-    private static async Task<IResult> CancelInvoice(string invoiceNumber, ClaimsPrincipal user, CancelInvoiceHandler handler)
+    private static async Task<IResult> CancelInvoice(
+        string invoiceNumber, ClaimsPrincipal user, CancelInvoiceHandler handler, InvoiceQueries queries, CancellationToken ct)
     {
         var (by, invalid) = OperatorName.Read(user);
         if (invalid is not null)
@@ -187,7 +189,8 @@ public static class InvoiceEndpoints
                 detail: $"Invoice '{invoiceNumber}' was rejected by the ERP and cannot be cancelled.",
                 extensions: new Dictionary<string, object?> { ["code"] = ProblemCodes.InvoiceRejected }),
             CancelStatus.AlreadyRequested => Cancelled(invoiceNumber),
-            _ => Results.Accepted($"/api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}")
+            _ => Results.Accepted(
+                $"/api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}", InvoiceResponse.From((await queries.FindAsync(invoiceNumber, ct))!))
         };
     }
 
@@ -222,7 +225,7 @@ public static class InvoiceEndpoints
 
         var result = await queries.ListAsync(status, search, stuck ?? false, currentPage, size, ct);
         return Results.Ok(new InvoiceListResponse(
-            result.Items.Select(i => InvoiceResponse.From(i.Invoice, i.Stuck, i.FollowedBy)).ToList(), currentPage, size, result.TotalCount,
+            result.Items.Select(i => InvoiceResponse.From(i.Invoice, i.Stuck, i.FollowedBy, i.CancelStatus)).ToList(), currentPage, size, result.TotalCount,
             Paging.TotalPages(result.TotalCount, size)));
     }
 

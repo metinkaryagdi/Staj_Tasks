@@ -324,4 +324,84 @@ public class WebhookPlannerTests
         var fakeAndReplay = plans.Count(p => p.Any(e => e.Kind == DeliveryKind.Fake) && p.Any(e => e.Kind == DeliveryKind.Replay));
         Assert.InRange(fakeAndReplay, 10, 45);
     }
+
+    private static WebhookDelivery Planned(string eventType, int secondsAfterCancel, string kind = DeliveryKind.Normal) => new()
+    {
+        EventId = "evt-planned", EventType = eventType, InvoiceNumber = Invoice().InvoiceNumber, Kind = kind, Payload = "{}",
+        OccurredAt = SavedAt.AddSeconds(secondsAfterCancel), Status = DeliveryStatus.Pending
+    };
+
+    [Fact]
+    public void A_cancellation_plans_one_cancelled_event_about_the_invoice()
+    {
+        var row = Assert.Single(Planner().PlanCancellation(Invoice(), SavedAt, []));
+
+        var body = JsonSerializer.Deserialize<ErpEventBody>(row.Payload)!;
+        Assert.Equal(ErpEventType.Cancelled, body.EventType);
+        Assert.Equal(row.EventId, body.EventId);
+        Assert.Equal(Invoice().ErpReference, body.ErpReference);
+        Assert.Equal(SavedAt, body.OccurredAt);
+        Assert.Equal(DeliveryKind.Normal, row.Kind);
+        Assert.Equal(DeliveryStatus.Pending, row.Status);
+        Assert.InRange((row.DueAt - SavedAt).TotalSeconds, 2, 10);
+    }
+
+    [Fact]
+    public void A_cancellation_gets_no_events_when_webhooks_are_off()
+    {
+        var options = Defaults();
+        options.Enabled = false;
+
+        Assert.Empty(Planner(options).PlanCancellation(Invoice(), SavedAt, []));
+    }
+
+    [Fact]
+    public void A_duplicated_cancelled_event_keeps_its_event_id_and_body()
+    {
+        var rows = Planner(WithProblems(p => p.DuplicateRate = 100)).PlanCancellation(Invoice(), SavedAt, []);
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(DeliveryKind.Duplicate, rows[1].Kind);
+        Assert.Equal(rows[0].EventId, rows[1].EventId);
+        Assert.Equal(rows[0].Payload, rows[1].Payload);
+    }
+
+    [Fact]
+    public void A_lost_cancelled_event_is_never_sent_and_has_no_duplicate_or_late_approval()
+    {
+        var options = WithProblems(p => { p.LostDecisionRate = 100; p.DuplicateRate = 100; p.OrderMixRate = 100; });
+
+        var row = Assert.Single(Planner(options).PlanCancellation(Invoice(), SavedAt, [Planned(ErpEventType.Approved, 5)]));
+
+        Assert.Equal(ErpEventType.Cancelled, row.EventType);
+        Assert.Equal(DeliveryKind.LostDecision, row.Kind);
+        Assert.Equal(DeliveryStatus.Skipped, row.Status);
+    }
+
+    [Fact]
+    public void With_an_order_mix_a_coming_approval_is_made_before_the_cancellation_and_sent_after_its_event()
+    {
+        var rows = Planner(WithProblems(p => p.OrderMixRate = 100))
+            .PlanCancellation(Invoice(), SavedAt, [Planned(ErpEventType.Approved, 5)]);
+
+        Assert.Equal(2, rows.Count);
+        var (cancelled, approved) = (rows[0], rows[1]);
+        Assert.Equal(ErpEventType.Cancelled, cancelled.EventType);
+        Assert.Equal(ErpEventType.Approved, approved.EventType);
+        Assert.True(approved.OccurredAt < SavedAt);
+        Assert.True(approved.DueAt > cancelled.DueAt);
+        Assert.Equal(approved.OccurredAt, JsonSerializer.Deserialize<ErpEventBody>(approved.Payload)!.OccurredAt);
+    }
+
+    [Theory]
+    [InlineData(ErpEventType.Rejected, 5, DeliveryKind.Normal)] // a rejection never comes after a cancellation
+    [InlineData(ErpEventType.Approved, -5, DeliveryKind.Normal)] // already made: its own event still goes out
+    [InlineData(ErpEventType.Approved, 5, DeliveryKind.LostDecision)] // a lost decision stays lost
+    public void An_order_mix_adds_no_approval_without_one_to_come(string eventType, int secondsAfterCancel, string kind)
+    {
+        var rows = Planner(WithProblems(p => p.OrderMixRate = 100))
+            .PlanCancellation(Invoice(), SavedAt, [Planned(eventType, secondsAfterCancel, kind)]);
+
+        Assert.Equal(ErpEventType.Cancelled, Assert.Single(rows).EventType);
+    }
 }

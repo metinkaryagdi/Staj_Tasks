@@ -10,7 +10,8 @@ namespace InvoiceService.Application.Invoices;
 public sealed record InvoicePage(IReadOnlyList<Invoice> Items, int TotalCount);
 
 /// <summary>An invoice of the list with whether the summary counts it as stuck.</summary>
-public sealed record ListedInvoice(Invoice Invoice, bool Stuck, string? FollowedBy);
+/// <param name="CancelStatus">The status of its cancellation entry; null if no cancellation was requested.</param>
+public sealed record ListedInvoice(Invoice Invoice, bool Stuck, string? FollowedBy, string? CancelStatus);
 
 /// <summary>One page of the list as the screen gets it; <paramref name="TotalCount"/> counts every invoice the filters
 /// match.</summary>
@@ -33,6 +34,8 @@ public sealed record InvoiceSummary(
 /// <param name="Findings">From every reconciliation run, newest first.</param>
 /// <param name="OperatorActions">The interventions made on it from the screen, newest first.</param>
 /// <param name="Stuck">Whether the summary counts it as stuck.</param>
+/// <param name="Cancellation">Its cancellation entry; null if no cancellation was requested.</param>
 public sealed record InvoiceDetails(
     Invoice Invoice, ErpOutboxEntry? Outbox, IReadOnlyList<ErpWebhookEvent> Events, IReadOnlyList<ReconciliationFinding> Findings,
-    IReadOnlyList<OperatorAction> OperatorActions, bool Stuck, InvoiceFollowUp? FollowUp, IReadOnlyList<InvoiceFollowUp> FollowUps);
+    IReadOnlyList<OperatorAction> OperatorActions, bool Stuck, InvoiceFollowUp? FollowUp, IReadOnlyList<InvoiceFollowUp> FollowUps,
+    ErpOutboxEntry? Cancellation);

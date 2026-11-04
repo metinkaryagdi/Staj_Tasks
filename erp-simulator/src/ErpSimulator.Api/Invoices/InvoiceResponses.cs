@@ -15,8 +15,8 @@ public sealed record InvoiceRecordResponse(
 /// <summary>
 /// One invoice number can map to several ERP records (duplicates are allowed): <see cref="ErpReference"/> is the
 /// first, and the decision (none, received, approved, rejected) is the first record's, shown once its time has come
-/// even if its event was never sent. <see cref="Reason"/> only when rejected; <see cref="DecidedAt"/> when approved
-/// or rejected. <see cref="CancelReference"/> and <see cref="CancelledAt"/> once the invoice is cancelled.
+/// even if its event was never sent; once the invoice is cancelled it is cancelled. <see cref="Reason"/> only when
+/// rejected; <see cref="DecidedAt"/> when approved or rejected. <see cref="CancelReference"/> and <see cref="CancelledAt"/> once the invoice is cancelled.
 /// </summary>
 public sealed record InvoiceLookupResponse(
     string InvoiceNumber,
@@ -40,7 +40,8 @@ public sealed record InvoiceListItemResponse(
     decimal Amount,
     string Currency,
     DateOnly InvoiceDate,
-    DateTimeOffset ReceivedAt);
+    DateTimeOffset ReceivedAt,
+    string? CancelReference);
 
 /// <param name="TotalCount">All records in the range, not only this page.</param>
 public sealed record InvoiceListResponse(int Page, int PageSize, int TotalCount, IReadOnlyList<InvoiceListItemResponse> Items);

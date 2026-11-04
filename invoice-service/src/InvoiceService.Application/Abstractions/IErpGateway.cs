@@ -41,6 +41,9 @@ public static class ErpDecisionKind
     public const string Received = "received";
     public const string Approved = "approved";
     public const string Rejected = "rejected";
+
+    /// <summary>The ERP has cancelled the invoice; no event's rules apply to it.</summary>
+    public const string Cancelled = "cancelled";
 }
 
 /// <param name="Kind">One of <see cref="ErpDecisionKind"/>.</param>
@@ -62,9 +65,10 @@ public sealed record ErpLookupResult(
     IReadOnlyList<ErpRecord>? Records = null, ErpNoAnswer? NoAnswer = null, string? CancelReference = null);
 
 /// <summary>One record the ERP has; an invoice number with duplicates has one per record.</summary>
+/// <param name="Cancelled">The ERP has cancelled the invoice number.</param>
 public sealed record ErpRecord(
     string InvoiceNumber, string ErpReference, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate,
-    DateTimeOffset ReceivedAt);
+    DateTimeOffset ReceivedAt, bool Cancelled = false);
 
 /// <param name="Records">Every record in the range, oldest first; empty unless <see cref="Succeeded"/>.</param>
 /// <param name="Error">Why the list could not be read completely; null when it succeeded.</param>

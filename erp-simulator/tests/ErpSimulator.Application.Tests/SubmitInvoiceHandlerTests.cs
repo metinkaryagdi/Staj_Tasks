@@ -3,6 +3,7 @@ using ErpSimulator.Application.Invoices;
 using ErpSimulator.Application.Simulation;
 using ErpSimulator.Application.Tests.Fakes;
 using ErpSimulator.Application.Webhooks;
+using ErpSimulator.Domain.Invoices;
 using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -138,6 +139,17 @@ public class SubmitInvoiceHandlerTests
 
         Assert.Equal(SubmitOutcome.Conflict, conflict.Outcome);
         Assert.Single(_store.Records);
+    }
+
+    [Fact]
+    public async Task A_record_saved_for_a_cancelled_invoice_number_plans_no_events()
+    {
+        _store.Cancellations.Add(new ErpCancellation { InvoiceNumber = Request().InvoiceNumber!, CancelledAt = DateTimeOffset.UtcNow });
+
+        var result = await Handler(Only(Behavior.Success)).HandleAsync(Request(), CancellationToken.None);
+
+        Assert.NotNull(result.Invoice);
+        Assert.Empty(_store.Deliveries);
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 // Fatura Servisi'nin cevaplarının şekli (alan adları API'ninkiyle aynı).
 
-export const invoiceStatuses = ['Bekliyor', 'Gönderildi', 'İşleme Alındı', 'Onaylandı', 'Reddedildi', 'Başarısız'] as const
+export const invoiceStatuses = ['Bekliyor', 'Gönderildi', 'İşleme Alındı', 'Onaylandı', 'Reddedildi', 'Başarısız', 'İptal Edildi'] as const
 export type InvoiceStatus = (typeof invoiceStatuses)[number]
 
 export const failedStatus: InvoiceStatus = 'Başarısız'
@@ -25,6 +25,8 @@ export interface Invoice {
   // Özetin takılı saydığı fatura mı; servis süzgeçle aynı kuralla hesaplar.
   stuck: boolean
   followedBy: string | null
+  // İptal satırının durumu (Bekliyor, Tamamlandı, Başarısız); iptal istenmediyse null. Yalnız listede dolu gelir.
+  cancelStatus: string | null
 }
 
 export interface InvoiceList {
@@ -107,6 +109,8 @@ export interface InvoiceDetails {
   operatorActions: OperatorAction[]
   followUp: OpenInvoiceFollowUp | null
   followUps: InvoiceFollowUp[]
+  // İptal satırı; iptal istenmediyse null.
+  cancellation: OutboxEntry | null
 }
 
 export interface ReconciliationRun {
@@ -135,7 +139,7 @@ export interface ReconciliationRunDetail {
   findings: Finding[]
 }
 
-export type ResendResult = 'queued' | 'not_found' | 'not_failed' | 'error'
+export type ResendResult = 'queued' | 'not_found' | 'not_failed' | 'cancelled' | 'error'
 
 export interface ResendItem {
   invoiceNumber: string

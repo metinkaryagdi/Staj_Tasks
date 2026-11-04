@@ -1,5 +1,6 @@
 using ErpSimulator.Application.Abstractions;
 using ErpSimulator.Application.Simulation;
+using ErpSimulator.Application.Webhooks;
 using ErpSimulator.Domain.Invoices;
 
 namespace ErpSimulator.Application.Invoices;
@@ -27,17 +28,20 @@ public sealed record CancelInvoiceResult(
 /// <summary>
 /// One cancellation request. Only a recorded, not rejected invoice is cancelled, and only once: requests for the same
 /// invoice number wait for each other (a lock held until the cancellation is committed), so a repeated request always
-/// finds the first one's record. A new cancellation goes through the same seeded behaviors as an invoice POST.
+/// finds the first one's record. A new cancellation goes through the same seeded behaviors as an invoice POST, and is saved
+/// together with its events.
 /// </summary>
 public sealed class CancelInvoiceHandler(
-    IErpInvoiceStore invoices, InvoiceLookup lookup, BehaviorSelector selector, IOptions<SimulatorOptions> options,
-    TimeProvider time, ILoggerFactory loggerFactory)
+    IErpInvoiceStore invoices, IWebhookDeliveryStore deliveries, InvoiceLookup lookup, BehaviorSelector selector,
+    WebhookPlanner planner, IOptions<SimulatorOptions> options, TimeProvider time, ILoggerFactory loggerFactory)
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger("ErpSimulator.Invoices");
 
     public async Task<CancelInvoiceResult> HandleAsync(string invoiceNumber, CancellationToken requestAborted)
     {
         await using var invoiceLock = await invoices.LockInvoiceNumberAsync(invoiceNumber);
+        // Taken before the decision is read: a decision made after this moment is either seen below or skipped by the save.
+        var cancelledAt = time.GetUtcNow();
 
         var existing = await invoices.FindCancellationAsync(invoiceNumber, CancellationToken.None);
         if (existing is not null)
@@ -74,12 +78,12 @@ public sealed class CancelInvoiceHandler(
 
             case Behavior.Success:
             case Behavior.SaveThenError:
-                return new CancelInvoiceResult(CancelOutcome.Decided, await Save(invoiceNumber), decision);
+                return new CancelInvoiceResult(CancelOutcome.Decided, await Save(found.Records[0], cancelledAt), decision);
 
             case Behavior.LateResponse:
             {
                 // Saved (and the lock released) before the delay, like a late invoice answer.
-                var cancellation = await Save(invoiceNumber);
+                var cancellation = await Save(found.Records[0], cancelledAt);
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(options.Value.LateResponseDelaySeconds), requestAborted);
@@ -100,10 +104,12 @@ public sealed class CancelInvoiceHandler(
         }
     }
 
-    private async Task<ErpCancellation> Save(string invoiceNumber)
+    private async Task<ErpCancellation> Save(ErpInvoice invoice, DateTimeOffset cancelledAt)
     {
-        var cancellation = new ErpCancellation { InvoiceNumber = invoiceNumber, CancelledAt = time.GetUtcNow() };
-        await invoices.SaveCancellationAsync(cancellation);
+        var cancellation = new ErpCancellation { InvoiceNumber = invoice.InvoiceNumber, CancelledAt = cancelledAt };
+        var planned = await deliveries.ListForInvoiceAsync(invoice.Id, CancellationToken.None);
+        var events = planner.PlanCancellation(invoice, cancellation.CancelledAt, planned);
+        await invoices.SaveCancellationAsync(cancellation, SubmitInvoiceHandler.WithTrace(events));
         return cancellation;
     }
 }

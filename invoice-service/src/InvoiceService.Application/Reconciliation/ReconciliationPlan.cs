@@ -28,7 +28,13 @@ public enum FixKind
     RecoverFailed,
 
     /// <summary>A waiting event for an unknown invoice becomes Yok Sayıldı.</summary>
-    IgnoreEvent
+    IgnoreEvent,
+
+    /// <summary>An invoice the ERP has cancelled becomes İptal Edildi, and its outbox entries agree.</summary>
+    ApplyCancellation,
+
+    /// <summary>An İptal Edildi invoice the ERP has not cancelled gets its cancellation queued again.</summary>
+    RequeueCancellation
 }
 
 /// <summary>

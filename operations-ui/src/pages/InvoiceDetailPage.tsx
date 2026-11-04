@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { closeInvoiceFollowUp, openInvoiceFollowUp, resendInvoice } from '../api/endpoints'
+import { cancelInvoice, closeInvoiceFollowUp, openInvoiceFollowUp, resendInvoice } from '../api/endpoints'
 import { currentUser } from '../auth'
+import { cancelAction } from '../cancellation'
 import { detailsQuery } from '../api/queries'
 import { failedStatus, maxFollowUpNoteLength, type InvoiceDetails } from '../api/types'
 import { Notice } from '../components/Notice'
@@ -11,7 +12,7 @@ import { RefreshStamp } from '../components/RefreshStamp'
 import { StatusBadge } from '../components/StatusBadge'
 import { StuckBadge } from '../components/StuckBadge'
 import { emptyValue, formatAmount, formatDate, formatDateTime } from '../format'
-import { describeFollowUpError, describeResendError, eventTypeLabel, tr } from '../tr'
+import { describeCancelError, describeFollowUpError, describeResendError, eventTypeLabel, tr } from '../tr'
 
 export function InvoiceDetailPage() {
   const { invoiceNumber = '' } = useParams()
@@ -30,7 +31,7 @@ export function InvoiceDetailPage() {
 }
 
 function Details({ data }: { data: InvoiceDetails }) {
-  const { invoice, outbox, events, findings, operatorActions } = data
+  const { invoice, outbox, events, findings, operatorActions, cancellation } = data
   // İzleyici müdahale butonlarını görmez; servis de onun müdahale isteklerini 403 ile reddeder.
   const { canIntervene } = currentUser()
   const queryClient = useQueryClient()
@@ -41,6 +42,11 @@ function Details({ data }: { data: InvoiceDetails }) {
     // Başarıda da, reddedilmede de (örn. başkası göndermişse) faturanın gerçek durumu yeniden okunur.
     onSettled: () => queryClient.invalidateQueries(),
   })
+  const cancel = useMutation({
+    mutationFn: () => cancelInvoice(invoice.invoiceNumber),
+    onSettled: () => queryClient.invalidateQueries(),
+  })
+  const action = cancelAction(invoice.status, cancellation?.status ?? null)
   const openFollowUp = useMutation({
     mutationFn: () => openInvoiceFollowUp(invoice.invoiceNumber, note),
     onSettled: () => queryClient.invalidateQueries(),
@@ -61,14 +67,21 @@ function Details({ data }: { data: InvoiceDetails }) {
           <button type="button" onClick={() => setEditingFollowUp(true)}>{tr.details.takeFollowUp}</button>
         )}
         {canIntervene && data.followUp && <button type="button" disabled={closeFollowUp.isPending} onClick={() => closeFollowUp.mutate()}>{tr.details.closeFollowUp}</button>}
-        {canIntervene && invoice.status === failedStatus && (
+        {canIntervene && invoice.status === failedStatus && cancellation === null && (
           <button type="button" className="primary" disabled={resend.isPending} onClick={() => resend.mutate()}>
             {resend.isPending ? tr.details.resending : tr.details.resend}
+          </button>
+        )}
+        {canIntervene && (
+          <button type="button" disabled={action === 'closed' || cancel.isPending} onClick={() => cancel.mutate()}>
+            {cancel.isPending ? tr.details.cancelling : action === 'retry' ? tr.details.retryCancel : tr.details.cancel}
           </button>
         )}
       </div>
       {resend.isSuccess && <Notice kind="success">{tr.details.resendQueued}</Notice>}
       {resend.isError && <Notice kind="error">{describeResendError(resend.error)}</Notice>}
+      {cancel.isSuccess && <Notice kind="success">{tr.details.cancelQueued}</Notice>}
+      {cancel.isError && <Notice kind="error">{describeCancelError(cancel.error)}</Notice>}
       {openFollowUp.isSuccess && <Notice kind="success">{tr.details.followUpOpened}</Notice>}
       {closeFollowUp.isSuccess && <Notice kind="success">{tr.details.followUpClosed}</Notice>}
       {openFollowUp.isError && <Notice kind="error">{describeFollowUpError(openFollowUp.error)}</Notice>}
@@ -80,6 +93,24 @@ function Details({ data }: { data: InvoiceDetails }) {
           <button className="primary" type="submit" disabled={openFollowUp.isPending || !note.trim()}>{tr.details.saveFollowUp}</button>
           <button type="button" onClick={() => { setEditingFollowUp(false); setNote('') }}>{tr.common.cancel}</button>
         </form>
+      )}
+
+      <h2>{tr.details.cancelSection}</h2>
+      {cancellation === null ? (
+        <p className="muted">{tr.details.noCancellation}</p>
+      ) : (
+        <dl className="facts">
+          <dt>{tr.details.outbox.status}</dt>
+          <dd><StatusBadge status={cancellation.status} /></dd>
+          <dt>{tr.details.outbox.attempts}</dt>
+          <dd>{cancellation.attemptCount}</dd>
+          <dt>{tr.details.outbox.lastError}</dt>
+          <dd>{cancellation.lastError ?? emptyValue}</dd>
+          <dt>{tr.details.outbox.createdAt}</dt>
+          <dd>{formatDateTime(cancellation.createdAt)}</dd>
+          <dt>{tr.details.outbox.processedAt}</dt>
+          <dd>{formatDateTime(cancellation.processedAt)}</dd>
+        </dl>
       )}
 
       <h2>{tr.details.followUpSection}</h2>

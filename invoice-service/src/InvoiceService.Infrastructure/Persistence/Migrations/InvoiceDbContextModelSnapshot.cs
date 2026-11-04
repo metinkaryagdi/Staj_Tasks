@@ -99,7 +99,7 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_invoices_currency", "currency ~ '^[A-Z]{3}$'");
 
-                            t.HasCheckConstraint("ck_invoices_status", "status IN ('Bekliyor', 'Gönderildi', 'İşleme Alındı', 'Onaylandı', 'Reddedildi', 'Başarısız')");
+                            t.HasCheckConstraint("ck_invoices_status", "status IN ('Bekliyor', 'Gönderildi', 'İşleme Alındı', 'Onaylandı', 'Reddedildi', 'Başarısız', 'İptal Edildi')");
                         });
                 });
 
@@ -351,9 +351,9 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_reconciliation_findings_action", "action IN ('Düzeltildi', 'Raporlandı')");
 
-                            t.HasCheckConstraint("ck_reconciliation_findings_finding_type", "finding_type IN ('Takılı Fatura', 'Başarısız Ama ERP Kayıtlı', 'Tanınmayan Haber', 'Serviste Yok', 'ERP Kaydı Yok', 'ERP Çift Kayıt', 'Alan Farkı', 'ERP Karar Vermedi')");
+                            t.HasCheckConstraint("ck_reconciliation_findings_finding_type", "finding_type IN ('Takılı Fatura', 'Başarısız Ama ERP Kayıtlı', 'Tanınmayan Haber', 'Serviste Yok', 'ERP Kaydı Yok', 'ERP Çift Kayıt', 'Alan Farkı', 'ERP Karar Vermedi', 'ERP İptal Etmiş', 'Serviste İptal Edilmiş')");
 
-                            t.HasCheckConstraint("ck_reconciliation_findings_fixed_types", "action <> 'Düzeltildi' OR (finding_type IN ('Takılı Fatura', 'Başarısız Ama ERP Kayıtlı', 'Tanınmayan Haber'))");
+                            t.HasCheckConstraint("ck_reconciliation_findings_fixed_types", "action <> 'Düzeltildi' OR (finding_type IN ('Takılı Fatura', 'Başarısız Ama ERP Kayıtlı', 'Tanınmayan Haber', 'ERP İptal Etmiş', 'Serviste İptal Edilmiş'))");
                         });
                 });
 
@@ -486,7 +486,7 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_erp_webhook_events_delivery_count", "delivery_count >= 1");
 
-                            t.HasCheckConstraint("ck_erp_webhook_events_event_type", "event_type IN ('invoice.received', 'invoice.approved', 'invoice.rejected')");
+                            t.HasCheckConstraint("ck_erp_webhook_events_event_type", "event_type IN ('invoice.received', 'invoice.approved', 'invoice.rejected', 'invoice.cancelled')");
 
                             t.HasCheckConstraint("ck_erp_webhook_events_ignore_reason", "(status = 'Yok Sayıldı') = (ignore_reason IS NOT NULL) AND (ignore_reason IS NULL OR ignore_reason IN ('Geri Götürüyor', 'Kesin Durumda', 'İlerletmiyor', 'Referans Farklı', 'Fatura Yok'))");
 

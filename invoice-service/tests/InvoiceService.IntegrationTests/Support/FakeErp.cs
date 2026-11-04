@@ -37,6 +37,12 @@ public sealed class FakeErp : IAsyncDisposable
     /// Başarısız at once.</summary>
     public void RefuseInvoices() => OnPost = _ => Results.Problem(statusCode: 400, title: "reddedildi");
 
+    /// <summary>The ERP has this invoice from now on, however its answer ended (with <see cref="KeepRecords"/>).</summary>
+    public void RecordInvoice(string number)
+    {
+        lock (_lock) _accepted.Add(number);
+    }
+
     /// <summary>From now on every invoice is accepted again.</summary>
     public void AcceptInvoices() => OnPost = number => Results.Json(new { erpReference = $"ERP-{number}" }, statusCode: 202);
 

@@ -190,6 +190,23 @@ public class InvoiceQueriesTests
         Assert.Null(await _s.InvoiceQueries().DetailsAsync("FTR-999999", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task The_list_and_the_details_show_the_cancellation()
+    {
+        _s.Invoices.Add("FTR-000001", InvoiceStatus.Approved, erpReference: "ERP-1");
+        _s.Invoices.Add("FTR-000002", InvoiceStatus.Approved, erpReference: "ERP-2");
+        await _s.Outbox.AddCancelAsync("FTR-000001", DateTimeOffset.UtcNow, CancellationToken.None);
+
+        var list = await _s.InvoiceQueries().ListAsync(null, null, false, 1, 20, CancellationToken.None);
+        var details = await _s.InvoiceQueries().DetailsAsync("FTR-000001", CancellationToken.None);
+        var without = await _s.InvoiceQueries().DetailsAsync("FTR-000002", CancellationToken.None);
+
+        Assert.Equal(OutboxStatus.Pending, list.Items.Single(i => i.Invoice.InvoiceNumber == "FTR-000001").CancelStatus);
+        Assert.Null(list.Items.Single(i => i.Invoice.InvoiceNumber == "FTR-000002").CancelStatus);
+        Assert.Equal(OutboxStatus.Pending, details!.Cancellation!.Status);
+        Assert.Null(without!.Cancellation);
+    }
+
     private static ErpWebhookEvent Event(string id, string invoice) => new()
     {
         EventId = id, EventType = WebhookEventType.Received, InvoiceNumber = invoice, ErpReference = "ERP-1",

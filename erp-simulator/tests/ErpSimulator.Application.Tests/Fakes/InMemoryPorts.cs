@@ -62,7 +62,9 @@ public sealed class FakeErpInvoiceStore : IErpInvoiceStore
     public Task<InvoicePage> ListReceivedAsync(DateTimeOffset from, DateTimeOffset to, int skip, int take, CancellationToken ct)
     {
         var range = Records.Where(r => r.ReceivedAt >= from && r.ReceivedAt < to).OrderBy(r => r.ReceivedAt).ThenBy(r => r.Id).ToList();
-        return Task.FromResult(new InvoicePage(range.Skip(skip).Take(take).ToList(), range.Count));
+        var items = range.Skip(skip).Take(take).ToList();
+        var cancellations = Cancellations.Where(c => items.Any(i => i.InvoiceNumber == c.InvoiceNumber)).ToDictionary(c => c.InvoiceNumber);
+        return Task.FromResult(new InvoicePage(items, range.Count, cancellations));
     }
 
     public List<ErpCancellation> Cancellations { get; } = [];
@@ -70,8 +72,9 @@ public sealed class FakeErpInvoiceStore : IErpInvoiceStore
     public Task<ErpCancellation?> FindCancellationAsync(string invoiceNumber, CancellationToken ct) =>
         Task.FromResult(Cancellations.SingleOrDefault(c => c.InvoiceNumber == invoiceNumber));
 
-    public Task SaveCancellationAsync(ErpCancellation cancellation)
+    public Task SaveCancellationAsync(ErpCancellation cancellation, IReadOnlyList<WebhookDelivery> events)
     {
+        Deliveries.AddRange(events);
         cancellation.Id = Cancellations.Count + 1;
         cancellation.CancelReference = $"IPT-{cancellation.Id:D8}";
         Cancellations.Add(cancellation);

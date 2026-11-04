@@ -1,6 +1,7 @@
 using ErpSimulator.Application.Invoices;
 using ErpSimulator.Application.Simulation;
 using ErpSimulator.Application.Tests.Fakes;
+using ErpSimulator.Application.Webhooks;
 using ErpSimulator.Domain.Invoices;
 using ErpSimulator.Domain.Webhooks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,7 +17,7 @@ public class CancelInvoiceHandlerTests
     private readonly FakeErpInvoiceStore _store = new();
     private readonly FakeDeliveryStore _deliveries = new();
 
-    private CancelInvoiceHandler Handler(Behavior behavior)
+    private CancelInvoiceHandler Handler(Behavior behavior, TimeProvider? clock = null)
     {
         var simulator = Options.Create(new SimulatorOptions
         {
@@ -29,9 +30,14 @@ public class CancelInvoiceHandlerTests
                 LateResponse = behavior == Behavior.LateResponse ? 100 : 0
             }
         });
-        var time = new FixedTime(Now);
-        return new CancelInvoiceHandler(_store, new InvoiceLookup(_store, _deliveries, time), new BehaviorSelector(simulator),
-            simulator, time, NullLoggerFactory.Instance);
+        var time = clock ?? new FixedTime(Now);
+        var webhooks = Options.Create(new WebhookOptions
+        {
+            Enabled = true, FirstEventMinSeconds = 2, FirstEventMaxSeconds = 10, SecondEventMinSeconds = 2, SecondEventMaxSeconds = 20,
+            Problems = new WebhookProblems()
+        });
+        return new CancelInvoiceHandler(_store, _deliveries, new InvoiceLookup(_store, _deliveries, time), new BehaviorSelector(simulator),
+            new WebhookPlanner(webhooks, simulator), simulator, time, NullLoggerFactory.Instance);
     }
 
     private void Recorded(string invoiceNumber, string? decision = null)
@@ -90,6 +96,30 @@ public class CancelInvoiceHandlerTests
     }
 
     [Fact]
+    public async Task A_rejection_made_just_after_the_request_arrived_stops_the_cancellation()
+    {
+        Recorded("FTR-000001", ErpEventType.Rejected);
+        _deliveries.Planned[0].OccurredAt = Now.AddSeconds(0.5);
+
+        var result = await Handler(Behavior.Success, new TickingTime(Now)).HandleAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(CancelOutcome.Rejected, result.Outcome);
+        Assert.Empty(_store.Cancellations);
+    }
+
+    private sealed class TickingTime(DateTimeOffset start) : TimeProvider
+    {
+        private DateTimeOffset _now = start;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            var now = _now;
+            _now = _now.AddSeconds(1);
+            return now;
+        }
+    }
+
+    [Fact]
     public async Task The_same_cancellation_again_returns_the_first_record_and_saves_nothing()
     {
         Recorded("FTR-000001");
@@ -141,5 +171,33 @@ public class CancelInvoiceHandlerTests
         var found = await new InvoiceLookup(_store, _deliveries, new FixedTime(Now)).FindAsync("FTR-000001", CancellationToken.None);
 
         Assert.Equal("IPT-00000001", found.Cancellation!.CancelReference);
+        Assert.Equal(DecisionKind.Cancelled, found.Decision.Kind);
+    }
+
+    [Theory]
+    [InlineData(Behavior.Success, 1)]
+    [InlineData(Behavior.Busy, 0)]
+    [InlineData(Behavior.ServerError, 0)]
+    [InlineData(Behavior.SaveThenError, 1)]
+    [InlineData(Behavior.LateResponse, 1)]
+    public async Task A_saved_cancellation_plans_its_event_and_an_unsaved_one_does_not(Behavior behavior, int events)
+    {
+        Recorded("FTR-000001");
+
+        await Handler(behavior).HandleAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Equal(events, _store.Deliveries.Count(d => d.EventType == ErpEventType.Cancelled));
+    }
+
+    [Fact]
+    public async Task The_same_cancellation_again_plans_no_second_event()
+    {
+        Recorded("FTR-000001");
+        var handler = Handler(Behavior.Success);
+        await handler.HandleAsync("FTR-000001", CancellationToken.None);
+
+        await handler.HandleAsync("FTR-000001", CancellationToken.None);
+
+        Assert.Single(_store.Deliveries);
     }
 }

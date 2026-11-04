@@ -2,6 +2,7 @@ using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Reconciliation;
 using InvoiceService.Application.Tests.Fakes;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Outbox;
 using InvoiceService.Domain.Reconciliation;
 using InvoiceService.Domain.Webhooks;
 
@@ -244,9 +245,63 @@ public class ReconciliationRunnerTests
     }
 
     [Fact]
-    public async Task A_final_invoice_older_than_the_window_is_not_asked_for()
+    public async Task An_old_approved_invoice_the_erp_has_cancelled_is_asked_for_and_cancelled()
     {
-        AddInvoice("F-OLD", InvoiceStatus.Approved, reference: "ERP-1", createdHoursAgo: 100);
+        AddInvoice("F-1", InvoiceStatus.Approved, reference: "ERP-1", createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(
+            new ErpDecision(ErpDecisionKind.Cancelled, null, Now), Erp("F-1") with { Cancelled = true }));
+
+        var run = await RunAsync();
+
+        Assert.Equal(InvoiceStatus.Cancelled, _s.Invoices.Invoices["F-1"].Status);
+        Assert.Equal(1, run.FixedCount);
+        Assert.Equal(FindingType.CancelledInErp, Assert.Single(_s.Reconciliation.Findings).FindingType);
+    }
+
+    [Fact]
+    public async Task An_old_cancelled_invoice_the_erp_has_not_cancelled_gets_its_cancellation_queued_again()
+    {
+        AddInvoice("F-1", InvoiceStatus.Cancelled, reference: "ERP-1", createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(new ErpDecision(ErpDecisionKind.Approved, null, Now), Erp("F-1")));
+
+        var run = await RunAsync();
+
+        Assert.Equal(1, run.FixedCount);
+        Assert.Equal(FindingType.CancelledInService, Assert.Single(_s.Reconciliation.Findings).FindingType);
+        Assert.Equal(OutboxStatus.Pending, _s.Outbox.CancelEntries["F-1"].Status);
+    }
+
+    [Fact]
+    public async Task An_old_cancelled_invoice_both_sides_agree_about_is_not_asked_again()
+    {
+        var invoice = AddInvoice("F-1", InvoiceStatus.Cancelled, reference: "ERP-1", createdHoursAgo: 100);
+        invoice.ErpCheckResult = ErpCheckResult.Found(ErpDecisionKind.Cancelled);
+        invoice.ErpCheckedAt = invoice.UpdatedAt;
+
+        await RunAsync();
+
+        Assert.Equal(["LIST"], _s.Erp.Calls);
+    }
+
+    [Fact]
+    public async Task An_old_cancelled_invoice_the_erp_never_had_is_no_finding_and_not_asked_again_within_the_recheck_time()
+    {
+        var invoice = AddInvoice("F-1", InvoiceStatus.Cancelled, createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.NotFound());
+
+        await RunAsync();
+        Assert.Empty(_s.Reconciliation.Findings);
+        Assert.Equal(ErpCheckResult.NotFound, invoice.ErpCheckResult);
+        _s.Erp.Calls.Clear();
+
+        await RunAsync();
+        Assert.Equal(["LIST"], _s.Erp.Calls);
+    }
+
+    [Fact]
+    public async Task A_rejected_invoice_older_than_the_window_is_not_asked_for()
+    {
+        AddInvoice("F-OLD", InvoiceStatus.Rejected, reference: "ERP-1", createdHoursAgo: 100);
 
         await RunAsync();
 

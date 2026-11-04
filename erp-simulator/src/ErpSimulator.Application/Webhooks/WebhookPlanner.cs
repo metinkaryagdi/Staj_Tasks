@@ -102,6 +102,53 @@ public sealed class WebhookPlanner
         }
     }
 
+    /// <summary>
+    /// Plans a cancellation's events: invoice.cancelled, plus its order mix, lost event and duplicate, each drawn
+    /// independently. With an order mix, an approval still to come (<paramref name="planned"/>) gets a new event: made just
+    /// before the cancellation, sent after invoice.cancelled. The rows planned for later never go out
+    /// (<see cref="Abstractions.IErpInvoiceStore.SaveCancellationAsync"/>).
+    /// </summary>
+    public IReadOnlyList<WebhookDelivery> PlanCancellation(
+        ErpInvoice invoice, DateTimeOffset cancelledAt, IReadOnlyList<WebhookDelivery> planned)
+    {
+        if (!_options.Enabled)
+            return [];
+
+        lock (_lock)
+        {
+            var settings = _options;
+            var problems = settings.Problems;
+
+            var dueAt = cancelledAt + Seconds(settings.FirstEventMinSeconds, settings.FirstEventMaxSeconds);
+            var lost = Chance(problems.LostDecisionRate);
+            var orderMix = Chance(problems.OrderMixRate);
+            var duplicate = Chance(problems.DuplicateRate);
+            var duplicateDelay = Seconds(0, 2);
+            var approvalDelay = Seconds(settings.SecondEventMinSeconds, settings.SecondEventMaxSeconds);
+
+            var cancelled = CreateDelivery(invoice, ErpEventType.Cancelled, dueAt, cancelledAt, null,
+                lost ? DeliveryKind.LostDecision : DeliveryKind.Normal, cancelledAt);
+            if (lost)
+            {
+                cancelled.Status = DeliveryStatus.Skipped;
+                return [cancelled];
+            }
+
+            var rows = new List<WebhookDelivery> { cancelled };
+            if (duplicate)
+                rows.Add(CopyDelivery(cancelled, DeliveryKind.Duplicate, dueAt + duplicateDelay));
+
+            var approvalToCome = planned.Any(d => d.EventType == ErpEventType.Approved && d.Kind == DeliveryKind.Normal && d.OccurredAt > cancelledAt);
+            if (orderMix && approvalToCome)
+            {
+                rows.Add(CreateDelivery(invoice, ErpEventType.Approved, dueAt + approvalDelay, cancelledAt.AddMilliseconds(-1), null,
+                    DeliveryKind.Normal, cancelledAt));
+            }
+
+            return rows;
+        }
+    }
+
     private bool Chance(double percent) => _random.NextDouble() * 100 < percent;
 
     /// <summary>Whole milliseconds in [min, max] seconds.</summary>

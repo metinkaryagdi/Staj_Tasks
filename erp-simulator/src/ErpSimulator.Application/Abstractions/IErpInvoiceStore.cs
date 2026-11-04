@@ -5,7 +5,9 @@ namespace ErpSimulator.Application.Abstractions;
 
 /// <param name="Items">The requested page.</param>
 /// <param name="TotalCount">All records in the range, not only this page.</param>
-public sealed record InvoicePage(IReadOnlyList<ErpInvoice> Items, int TotalCount);
+/// <param name="Cancellations">The cancellations of the page's invoice numbers, by invoice number.</param>
+public sealed record InvoicePage(
+    IReadOnlyList<ErpInvoice> Items, int TotalCount, IReadOnlyDictionary<string, ErpCancellation> Cancellations);
 
 /// <summary>Storage of the ERP's invoice records (the invoices table).</summary>
 public interface IErpInvoiceStore
@@ -34,7 +36,10 @@ public interface IErpInvoiceStore
     /// <summary>The invoice number's cancellation, not tracked; null if it is not cancelled.</summary>
     Task<ErpCancellation?> FindCancellationAsync(string invoiceNumber, CancellationToken ct);
 
-    /// <summary>Saves the cancellation and commits the invoice number lock's transaction. Not cancellable, like
-    /// <see cref="SaveAsync"/>.</summary>
-    Task SaveCancellationAsync(ErpCancellation cancellation);
+    /// <summary>
+    /// In the invoice number lock's transaction, and commits it: saves the cancellation and <paramref name="events"/>, and
+    /// makes every event of the invoice number planned for after the cancellation Skipped, so a cancelled invoice is not
+    /// approved or rejected later. Not cancellable, like <see cref="SaveAsync"/>.
+    /// </summary>
+    Task SaveCancellationAsync(ErpCancellation cancellation, IReadOnlyList<WebhookDelivery> events);
 }

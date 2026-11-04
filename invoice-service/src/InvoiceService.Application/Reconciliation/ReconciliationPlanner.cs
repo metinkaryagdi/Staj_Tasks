@@ -21,7 +21,8 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
 
     /// <summary>The invoices whose decision the ERP must be asked for before <see cref="Plan"/>.</summary>
     public IReadOnlyList<string> InvoicesToAsk(ReconciliationSnapshot snapshot) =>
-        Pair(snapshot).Where(p => p.Invoice is not null && WantsDecision(p.Invoice, p.Records, snapshot.Now))
+        Pair(snapshot).Where(p => p.Invoice is not null
+                && (WantsDecision(p.Invoice, p.Records, snapshot.Now) || CancelledOnlyHere(p.Invoice, p.Records)))
             .Select(p => p.Number).ToList();
 
     /// <param name="decisions">By invoice number, for the invoices <see cref="InvoicesToAsk"/> returned.</param>
@@ -55,6 +56,12 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
             if (records.Count > 1)
                 findings.Add(DuplicateInErp(number, records));
 
+            if (CancellationFinding(invoice, records, decisions) is { } cancellation)
+            {
+                findings.Add(cancellation);
+                continue;
+            }
+
             var differences = Differences(invoice, records[0]);
             if (differences.Count > 0)
             {
@@ -86,9 +93,37 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
     /// the ERP has several records of it: which one is the right one is not known, so that invoice is only reported.
     /// </summary>
     private bool WantsDecision(Invoice invoice, IReadOnlyList<ErpRecord> records, DateTimeOffset now) =>
-        records.Count == 1 && Differences(invoice, records[0]).Count == 0 &&
+        records.Count == 1 && !records[0].Cancelled && Differences(invoice, records[0]).Count == 0 &&
         (invoice.Status == InvoiceStatus.Failed
          || (invoice.Status is InvoiceStatus.Sent or InvoiceStatus.Processing && now - invoice.UpdatedAt > StuckAfter));
+
+    private static bool CancelledOnlyHere(Invoice invoice, IReadOnlyList<ErpRecord> records) =>
+        invoice.Status == InvoiceStatus.Cancelled && records.Count > 0 && !records.Any(r => r.Cancelled);
+
+    /// <summary>The two sides disagree about the cancellation; null if they agree. No time limit: the ERP's record is the
+    /// answer, and an event arriving later changes nothing.</summary>
+    private static PlannedFinding? CancellationFinding(
+        Invoice invoice, IReadOnlyList<ErpRecord> records, IReadOnlyDictionary<string, ErpDecision> decisions)
+    {
+        var number = invoice.InvoiceNumber;
+
+        if (CancelledOnlyHere(invoice, records))
+        {
+            var decision = decisions.GetValueOrDefault(number, ErpDecision.None);
+            return decision.Kind == ErpDecisionKind.Rejected
+                ? new(number, FindingType.CancelledInService, "Serviste İptal Edildi, ERP faturayı reddetmiş; iptal edilemez.")
+                : new(number, FindingType.CancelledInService, "Serviste İptal Edildi, ERP'de iptal edilmemiş; iptal yeniden kuyruğa alındı.",
+                    new Fix(FixKind.RequeueCancellation, number, InvoiceStatus.Cancelled));
+        }
+
+        if (invoice.Status == InvoiceStatus.Cancelled || !records.Any(r => r.Cancelled))
+            return null;
+
+        return invoice.Status == InvoiceStatus.Rejected
+            ? new(number, FindingType.CancelledInErp, "ERP'de iptal edilmiş, serviste Reddedildi; düzeltilemez.")
+            : new(number, FindingType.CancelledInErp, $"ERP'de iptal edilmiş, serviste {invoice.Status}; İptal Edildi yapıldı.",
+                new Fix(FixKind.ApplyCancellation, number, invoice.Status, records[0].ErpReference));
+    }
 
     private PlannedFinding? FixFor(Invoice invoice, ErpRecord erp, ErpDecision decision, DateTimeOffset now)
     {

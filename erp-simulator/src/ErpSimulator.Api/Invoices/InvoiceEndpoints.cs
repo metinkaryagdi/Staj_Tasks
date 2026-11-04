@@ -41,7 +41,8 @@ public static class InvoiceEndpoints
             .WithDescription(
                 "Every record whose receivedAt is in [from, to), ordered by receivedAt then id, one page at a time " +
                 "(page starts at 1; pageSize defaults to 100, at most 500, above that is a 400). A duplicated invoice number " +
-                "is listed once per record. No faults are injected here. Write a '+' in a time offset as %2B.")
+                "is listed once per record, with cancelReference once it is cancelled. No faults are injected here. " +
+                "Write a '+' in a time offset as %2B.")
             .Produces<InvoiceListResponse>()
             .ProducesValidationProblem();
 
@@ -52,7 +53,8 @@ public static class InvoiceEndpoints
                 "Returns the ERP reference(s) recorded for the invoice number. No faults are injected here. " +
                 "erpReference is the first record; records lists all of them when duplicates exist. " +
                 "decision (none, received, approved, rejected) is the first record's, with reason (rejected only) and decided_at; " +
-                "it shows once its time has come, even if the event was never sent. " +
+                "it shows once its time has come, even if the event was never sent. Once the invoice is cancelled the decision " +
+                "is cancelled. " +
                 "cancelReference and cancelled_at are set once the invoice is cancelled.")
             .Produces<InvoiceLookupResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound);
@@ -65,6 +67,7 @@ public static class InvoiceEndpoints
                 "Shares the invoice POST's rate limit. Only a recorded invoice that is not rejected is cancelled: an unknown " +
                 "invoice number gets 404, a rejected invoice 409 (no behavior is drawn for either). An invoice is cancelled " +
                 "once: a repeated request gets 202 with the existing cancel reference and saves nothing (no behavior is drawn). " +
+                "A saved cancellation plans invoice.cancelled, and the events planned for after it are not sent. " +
                 "A new cancellation goes through the same behaviors as an invoice POST: Success (202, saved), Busy (429 + " +
                 "Retry-After, not saved), ServerError (500, not saved), SaveThenError (500, but saved), LateResponse (saved, " +
                 "202 after the configured delay).")
@@ -166,7 +169,8 @@ public static class InvoiceEndpoints
 
         var items = result.Page!.Items
             .Select(i => new InvoiceListItemResponse(
-                i.InvoiceNumber, i.ErpReference, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.ReceivedAt))
+                i.InvoiceNumber, i.ErpReference, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.ReceivedAt,
+                result.Page.Cancellations.GetValueOrDefault(i.InvoiceNumber)?.CancelReference))
             .ToList();
         return Results.Ok(new InvoiceListResponse(page, pageSize, result.Page.TotalCount, items));
     }

@@ -53,8 +53,9 @@ public static class WebhookEventType
     public const string Received = "invoice.received";
     public const string Approved = "invoice.approved";
     public const string Rejected = "invoice.rejected";
+    public const string Cancelled = "invoice.cancelled";
 
-    public static readonly string[] All = [Received, Approved, Rejected];
+    public static readonly string[] All = [Received, Approved, Rejected, Cancelled];
 }
 
 public static class WebhookEventStatus

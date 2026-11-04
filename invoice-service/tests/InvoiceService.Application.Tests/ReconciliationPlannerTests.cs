@@ -43,6 +43,70 @@ public class ReconciliationPlannerTests
 
     private static ErpDecision Decided(string kind, string? reason = null) => new(kind, reason, Now.AddMinutes(-5));
 
+    // --- İptaller --------------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(InvoiceStatus.Sent)]
+    [InlineData(InvoiceStatus.Processing)]
+    [InlineData(InvoiceStatus.Approved)]
+    [InlineData(InvoiceStatus.Failed)]
+    public void An_invoice_the_erp_has_cancelled_becomes_cancelled_with_no_time_limit(string status)
+    {
+        var snapshot = Snapshot([Invoice("F-1", status, minutesInStatus: 0)], [Erp("F-1") with { Cancelled = true }]);
+
+        var finding = Assert.Single(Plan(snapshot).Findings);
+
+        Assert.Equal(FindingType.CancelledInErp, finding.FindingType);
+        Assert.Equal(new Fix(FixKind.ApplyCancellation, "F-1", status, "ERP-1"), finding.Fix);
+        Assert.Empty(Planner.InvoicesToAsk(snapshot));
+    }
+
+    [Fact]
+    public void A_rejected_invoice_the_erp_has_cancelled_is_only_reported()
+    {
+        var finding = Assert.Single(Plan(Snapshot([Invoice("F-1", InvoiceStatus.Rejected)], [Erp("F-1") with { Cancelled = true }])).Findings);
+
+        Assert.Equal(FindingType.CancelledInErp, finding.FindingType);
+        Assert.Null(finding.Fix);
+    }
+
+    [Theory]
+    [InlineData(ErpDecisionKind.None)]
+    [InlineData(ErpDecisionKind.Received)]
+    [InlineData(ErpDecisionKind.Approved)]
+    public void A_cancelled_invoice_the_erp_has_not_cancelled_gets_its_cancellation_queued_again(string kind)
+    {
+        var snapshot = Snapshot([Invoice("F-1", InvoiceStatus.Cancelled)], [Erp("F-1")]);
+
+        Assert.Equal(["F-1"], Planner.InvoicesToAsk(snapshot));
+        var finding = Assert.Single(Plan(snapshot, ("F-1", Decided(kind))).Findings);
+
+        Assert.Equal(FindingType.CancelledInService, finding.FindingType);
+        Assert.Equal(FixKind.RequeueCancellation, finding.Fix!.Kind);
+    }
+
+    [Fact]
+    public void A_cancelled_invoice_the_erp_rejected_is_only_reported()
+    {
+        var snapshot = Snapshot([Invoice("F-1", InvoiceStatus.Cancelled)], [Erp("F-1")]);
+
+        var finding = Assert.Single(Plan(snapshot, ("F-1", Decided(ErpDecisionKind.Rejected, "Mükerrer fatura"))).Findings);
+
+        Assert.Equal(FindingType.CancelledInService, finding.FindingType);
+        Assert.Null(finding.Fix);
+    }
+
+    [Fact]
+    public void Both_sides_cancelled_and_a_cancelled_invoice_the_erp_never_had_are_no_difference()
+    {
+        var snapshot = Snapshot(
+            [Invoice("F-1", InvoiceStatus.Cancelled), Invoice("F-2", InvoiceStatus.Cancelled)],
+            [Erp("F-1") with { Cancelled = true }]);
+
+        Assert.Empty(Plan(snapshot).Findings);
+        Assert.Empty(Planner.InvoicesToAsk(snapshot));
+    }
+
     // --- Gönderildi ya da İşleme Alındı'da 2 dakikadan uzun kalan ---------------------------------------------------
 
     [Theory]

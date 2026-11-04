@@ -2,6 +2,7 @@ using InvoiceService.Application.Abstractions;
 using InvoiceService.Application.Metrics;
 using InvoiceService.Application.Tracing;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Outbox;
 
 namespace InvoiceService.Application.Outbox;
 
@@ -21,8 +22,8 @@ public enum SendPath
     /// <summary>The ERP could not be asked: nothing sent.</summary>
     Unknown,
 
-    /// <summary>Cancellation only: the ERP does not have the invoice, so there is nothing to cancel; nothing
-    /// sent.</summary>
+    /// <summary>The invoice has a cancellation and the ERP does not have the invoice: nothing sent, neither the invoice
+    /// nor its cancellation.</summary>
     InvoiceNotFound,
 
     /// <summary>The entry was no longer held with this claim: nothing sent, nothing to write.</summary>
@@ -45,8 +46,9 @@ public sealed record SendAttempt(ErpSendResult Result, SendPath Path)
 }
 
 /// <summary>
-/// Makes one attempt to get an invoice to the ERP: the first time it POSTs; later it asks the ERP first and POSTs
-/// only if the ERP clearly does not have the invoice. Every POST waits for its turn (<see cref="IErpSendPacer"/>).
+/// Makes one attempt to get an invoice to the ERP: the first time it POSTs; later, or once the invoice has a cancellation, it
+/// asks the ERP first. It POSTs only if the ERP clearly does not have the invoice and the invoice has no cancellation. Every
+/// POST waits for its turn (<see cref="IErpSendPacer"/>).
 /// Does not retry and writes nothing.
 /// </summary>
 public sealed class ErpSendStrategy(
@@ -76,20 +78,30 @@ public sealed class ErpSendStrategy(
         // send_attempt_count already includes this attempt and is never reset: 1 means the ERP cannot have the
         // invoice yet.
         // The turn is waited for before the claim is checked, so the check is the last thing before the POST.
-        if (invoice.SendAttemptCount <= 1)
+        // A cancellation can arrive during the wait, so it is checked again after it.
+        var cancelRequested = await CancelRequestedAsync(invoice);
+        if (invoice.SendAttemptCount <= 1 && !cancelRequested)
         {
             await WaitForTurnAsync();
-            return await StillHeldAsync(entry)
-                ? new(await PostAsync(invoice), SendPath.First)
-                : new(new ErpSendResult(false, null, null, null, TimeSpan.Zero), SendPath.NotHeld);
+            if (!await StillHeldAsync(entry))
+                return new(new ErpSendResult(false, null, null, null, TimeSpan.Zero), SendPath.NotHeld);
+
+            cancelRequested = await CancelRequestedAsync(invoice);
+            if (!cancelRequested)
+                return new(await PostAsync(invoice), SendPath.First);
         }
 
         var lookup = await erp.FindAsync(invoice.InvoiceNumber, CancellationToken.None);
+        if (lookup.Lookup == ErpLookup.NotFound && cancelRequested)
+            return new(new ErpSendResult(false, null, lookup.HttpStatus, null, lookup.Elapsed), SendPath.InvoiceNotFound);
+
         if (lookup.Lookup == ErpLookup.NotFound)
         {
             await WaitForTurnAsync();
             if (!await StillHeldAsync(entry))
                 return new(new ErpSendResult(false, null, null, null, lookup.Elapsed), SendPath.NotHeld);
+            if (await CancelRequestedAsync(invoice))
+                return new(new ErpSendResult(false, null, lookup.HttpStatus, null, lookup.Elapsed), SendPath.InvoiceNotFound);
         }
 
         return lookup.Lookup switch
@@ -144,6 +156,9 @@ public sealed class ErpSendStrategy(
             "ERP faturayı bilmiyor; iptal edilecek kayıt yok, iptal gönderilmedi.", lookup.Elapsed), SendPath.InvoiceNotFound),
         _ => new(new ErpSendResult(false, null, null, lookup.Error ?? lastError, lookup.Elapsed, NoAnswer: lookup.NoAnswer), SendPath.Unknown)
     };
+
+    private async Task<bool> CancelRequestedAsync(Invoice invoice) =>
+        await outbox.FindAsync(invoice.InvoiceNumber, CancellationToken.None, OutboxKind.Cancel) is not null;
 
     private async Task WaitForTurnAsync()
     {

@@ -33,6 +33,8 @@ public sealed class FixApplier(
             FixKind.ApplyDecision => await ApplyDecisionAsync(fix),
             FixKind.RecoverFailed => await RecoverFailedAsync(fix),
             FixKind.IgnoreEvent => await events.IgnoreUnknownInvoiceAsync(fix.EventId!, CancellationToken.None),
+            FixKind.ApplyCancellation => await ApplyCancellationAsync(fix),
+            FixKind.RequeueCancellation => await RequeueCancellationAsync(fix),
             _ => throw new ArgumentOutOfRangeException(nameof(finding), fix.Kind, "Unknown fix.")
         };
         if (!done)
@@ -88,6 +90,31 @@ public sealed class FixApplier(
 
         TryApplyDecision(invoice, fix.Decision!);
         return true;
+    }
+
+    private async Task<bool> ApplyCancellationAsync(Fix fix)
+    {
+        var invoice = await invoices.LockAsync(fix.InvoiceNumber, CancellationToken.None);
+        if (invoice is null || invoice.Status != fix.ExpectedStatus)
+            return false;
+
+        var now = time.GetUtcNow();
+        invoice.Status = InvoiceStatus.Cancelled;
+        invoice.ErpReference ??= fix.ErpReference;
+        invoice.LastError = null;
+        invoice.UpdatedAt = now;
+        await unitOfWork.SaveChangesAsync(CancellationToken.None);
+
+        await webhooks.SettleCancelledAsync(fix.InvoiceNumber, now, CancellationToken.None);
+        return true;
+    }
+
+    /// <summary>A cancellation that is already waiting is left alone: false.</summary>
+    private async Task<bool> RequeueCancellationAsync(Fix fix)
+    {
+        var invoice = await invoices.LockAsync(fix.InvoiceNumber, CancellationToken.None);
+        return invoice?.Status == InvoiceStatus.Cancelled
+            && await outbox.RequeueCancelAsync(fix.InvoiceNumber, time.GetUtcNow(), CancellationToken.None);
     }
 
     /// <summary>Moves the invoice the way the ERP's decision would as an event; false if that changes

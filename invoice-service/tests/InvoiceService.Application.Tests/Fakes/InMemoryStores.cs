@@ -179,7 +179,7 @@ public sealed class FakeOutboxStore : IOutboxStore
 
     public Task<bool> AddCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
     {
-        if (CancelEntries.ContainsKey(invoiceNumber))
+        if (CancelEntries.TryGetValue(invoiceNumber, out var existing) && existing.Status != OutboxStatus.Failed)
             return Task.FromResult(false);
         CancelEntries[invoiceNumber] = new ErpOutboxEntry
         {
@@ -194,6 +194,28 @@ public sealed class FakeOutboxStore : IOutboxStore
         return Task.FromResult(new OutboxQueueStats(
             queued.Count, queued.Count == 0 ? null : queued.Min(e => e.CreatedAt),
             Entries.Values.Count(e => e.Status == OutboxStatus.Completed && e.ProcessedAt >= completedSince)));
+    }
+
+    public Task<IReadOnlyDictionary<string, string>> CancelStatusesAsync(IReadOnlyCollection<string> invoiceNumbers, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyDictionary<string, string>>(CancelEntries.Values
+            .Where(e => invoiceNumbers.Contains(e.InvoiceNumber)).ToDictionary(e => e.InvoiceNumber, e => e.Status));
+
+    public Task<bool> RequeueCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
+    {
+        if (CancelEntries.TryGetValue(invoiceNumber, out var existing) && existing.Status == OutboxStatus.Pending)
+            return Task.FromResult(false);
+        CancelEntries[invoiceNumber] = new ErpOutboxEntry
+        {
+            InvoiceNumber = invoiceNumber, Kind = OutboxKind.Cancel, Status = OutboxStatus.Pending, NextAttemptAt = now, CreatedAt = now
+        };
+        return Task.FromResult(true);
+    }
+
+    public Task CompleteCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
+    {
+        if (CancelEntries.TryGetValue(invoiceNumber, out var entry))
+            entry.Status = OutboxStatus.Completed;
+        return Task.CompletedTask;
     }
 
     public Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
@@ -288,9 +310,13 @@ public sealed class FakeErpSendPacer(FakeErpGateway erp) : IErpSendPacer
 {
     public List<int> TurnsAtCall { get; } = [];
 
+    /// <summary>Runs during the wait for the turn.</summary>
+    public Action? OnTurn { get; set; }
+
     public Task WaitForTurnAsync(CancellationToken ct)
     {
         TurnsAtCall.Add(erp.Calls.Count);
+        OnTurn?.Invoke();
         return Task.CompletedTask;
     }
 }
@@ -425,7 +451,7 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
 
     public Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(DateTimeOffset since, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values
-            .Where(i => i.CreatedAt >= since || InvoiceStatus.Unsettled.Contains(i.Status)).ToList());
+            .Where(i => i.CreatedAt >= since || InvoiceStatus.CheckedAtAnyAge.Contains(i.Status)).ToList());
 
     public Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values.Where(i => numbers.Contains(i.InvoiceNumber)).ToList());

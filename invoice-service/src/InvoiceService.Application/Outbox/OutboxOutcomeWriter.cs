@@ -8,17 +8,23 @@ namespace InvoiceService.Application.Outbox;
 /// <summary>
 /// Writes the outcome of an attempt to erp_outbox and invoices in one transaction, and applies the ERP events that were
 /// waiting for the invoice when it becomes Gönderildi. A cancellation's outcome is written to its outbox entry only: the
-/// invoice's status is not changed by it.
+/// ERP's cancellation event changes the invoice's status. When nothing goes to the ERP there is no such event, so the
+/// invoice is made İptal Edildi here.
 /// </summary>
 public sealed class OutboxOutcomeWriter(
     IUnitOfWork unitOfWork, IOutboxStore outbox, IInvoiceStore invoices, WebhookEventProcessor events)
 {
+    private const string NotSent = "Fatura iptal edildi, ERP'ye gönderilmedi.";
+
     /// <summary>
     /// Returns false when the entry no longer carries this claim: nothing was written (see
     /// <see cref="IOutboxStore.WriteOutcomeAsync"/>).
     /// </summary>
     public async Task<bool> WriteAsync(ClaimedEntry entry, RetryDecision decision, ErpSendResult result, DateTimeOffset now)
     {
+        if (decision.Outcome == SendOutcome.Cancelled)
+            return await WriteCancelledAsync(entry, now);
+
         var (invoiceStatus, outboxStatus) = decision.Outcome switch
         {
             SendOutcome.Sent => (InvoiceStatus.Sent, OutboxStatus.Completed),
@@ -50,6 +56,27 @@ public sealed class OutboxOutcomeWriter(
             if (invoiceStatus == InvoiceStatus.Sent)
                 await events.ApplyWaitingAsync(entry.InvoiceNumber, now, CancellationToken.None);
 
+            await transaction.CommitAsync(CancellationToken.None);
+        }
+
+        return owned;
+    }
+
+    /// <summary>
+    /// The ERP does not have the invoice and nothing was sent: the cancellation is done and the invoice İptal Edildi. A send
+    /// entry ends Başarısız, not Tamamlandı: the invoice never reached the ERP.
+    /// </summary>
+    private async Task<bool> WriteCancelledAsync(ClaimedEntry entry, DateTimeOffset now)
+    {
+        await using var transaction = await unitOfWork.BeginAsync(CancellationToken.None);
+
+        var owned = await outbox.WriteOutcomeAsync(
+            entry.Id, entry.ClaimToken, entry.IsCancel ? OutboxStatus.Completed : OutboxStatus.Failed,
+            entry.IsCancel ? null : NotSent, now, now, CancellationToken.None);
+        if (owned)
+        {
+            await outbox.CompleteCancelAsync(entry.InvoiceNumber, now, CancellationToken.None);
+            await invoices.WriteSendOutcomeAsync(entry.InvoiceNumber, InvoiceStatus.Cancelled, null, null, now, CancellationToken.None);
             await transaction.CommitAsync(CancellationToken.None);
         }
 

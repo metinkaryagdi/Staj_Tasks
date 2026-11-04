@@ -11,6 +11,10 @@ public class InvoiceTransitionsTests
     [InlineData(InvoiceStatus.Sent, WebhookEventType.Rejected, InvoiceStatus.Rejected)]
     [InlineData(InvoiceStatus.Processing, WebhookEventType.Approved, InvoiceStatus.Approved)]
     [InlineData(InvoiceStatus.Processing, WebhookEventType.Rejected, InvoiceStatus.Rejected)]
+    [InlineData(InvoiceStatus.Sent, WebhookEventType.Cancelled, InvoiceStatus.Cancelled)]
+    [InlineData(InvoiceStatus.Processing, WebhookEventType.Cancelled, InvoiceStatus.Cancelled)]
+    [InlineData(InvoiceStatus.Approved, WebhookEventType.Cancelled, InvoiceStatus.Cancelled)]
+    [InlineData(InvoiceStatus.Failed, WebhookEventType.Cancelled, InvoiceStatus.Cancelled)]
     public void Forward_events_are_applied(string status, string eventType, string expected)
     {
         Assert.Equal(new Transition(TransitionOutcome.Apply, expected), InvoiceTransitions.For(status, eventType));
@@ -24,6 +28,11 @@ public class InvoiceTransitionsTests
     [InlineData(InvoiceStatus.Approved, WebhookEventType.Rejected, IgnoreReason.Final)]
     [InlineData(InvoiceStatus.Rejected, WebhookEventType.Approved, IgnoreReason.Final)]
     [InlineData(InvoiceStatus.Rejected, WebhookEventType.Rejected, IgnoreReason.Final)]
+    [InlineData(InvoiceStatus.Rejected, WebhookEventType.Cancelled, IgnoreReason.Final)]
+    [InlineData(InvoiceStatus.Cancelled, WebhookEventType.Received, IgnoreReason.Backward)]
+    [InlineData(InvoiceStatus.Cancelled, WebhookEventType.Approved, IgnoreReason.Final)]
+    [InlineData(InvoiceStatus.Cancelled, WebhookEventType.Rejected, IgnoreReason.Final)]
+    [InlineData(InvoiceStatus.Cancelled, WebhookEventType.Cancelled, IgnoreReason.Final)]
     public void Events_that_do_not_move_forward_are_ignored(string status, string eventType, string reason)
     {
         Assert.Equal(new Transition(TransitionOutcome.Ignore, IgnoreReason: reason), InvoiceTransitions.For(status, eventType));
@@ -33,6 +42,7 @@ public class InvoiceTransitionsTests
     [InlineData(InvoiceStatus.Pending, WebhookEventType.Received)]
     [InlineData(InvoiceStatus.Pending, WebhookEventType.Approved)]
     [InlineData(InvoiceStatus.Pending, WebhookEventType.Rejected)]
+    [InlineData(InvoiceStatus.Pending, WebhookEventType.Cancelled)]
     [InlineData(InvoiceStatus.Failed, WebhookEventType.Received)]
     [InlineData(InvoiceStatus.Failed, WebhookEventType.Approved)]
     [InlineData(InvoiceStatus.Failed, WebhookEventType.Rejected)]

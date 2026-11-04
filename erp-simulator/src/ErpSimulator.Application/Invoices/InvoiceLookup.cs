@@ -4,7 +4,8 @@ using ErpSimulator.Domain.Invoices;
 namespace ErpSimulator.Application.Invoices;
 
 /// <param name="Records">Oldest first; empty if the invoice number has no record.</param>
-/// <param name="Decision">Of the first record; <see cref="InvoiceDecision.None"/> when there is no record.</param>
+/// <param name="Decision">Of the first record, or cancelled once the invoice number is;
+/// <see cref="InvoiceDecision.None"/> when there is no record.</param>
 /// <param name="Cancellation">The invoice number's cancellation; null if it is not cancelled.</param>
 public sealed record InvoiceLookupResult(IReadOnlyList<ErpInvoice> Records, InvoiceDecision Decision, ErpCancellation? Cancellation = null);
 
@@ -19,6 +20,9 @@ public sealed class InvoiceLookup(IErpInvoiceStore invoices, IWebhookDeliverySto
 
         var planned = await deliveries.ListForInvoiceAsync(records[0].Id, ct);
         var cancellation = await invoices.FindCancellationAsync(invoiceNumber, ct);
-        return new InvoiceLookupResult(records, InvoiceDecisions.Resolve(planned, time.GetUtcNow()), cancellation);
+        var decision = cancellation is not null
+            ? new InvoiceDecision(DecisionKind.Cancelled)
+            : InvoiceDecisions.Resolve(planned, time.GetUtcNow());
+        return new InvoiceLookupResult(records, decision, cancellation);
     }
 }

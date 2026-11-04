@@ -111,7 +111,38 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
         await db.Database.ExecuteSqlAsync($"""
             INSERT INTO erp_outbox (invoice_number, kind, status, attempt_count, next_attempt_at, created_at)
             VALUES ({invoiceNumber}, {OutboxKind.Cancel}, {OutboxStatus.Pending}, 0, {now}, {now})
-            ON CONFLICT (invoice_number, kind) DO NOTHING
+            ON CONFLICT (invoice_number, kind) DO UPDATE
+            SET status = EXCLUDED.status,
+                attempt_count = 0,
+                next_attempt_at = EXCLUDED.next_attempt_at,
+                last_error = NULL,
+                processed_at = NULL,
+                locked_until = NULL,
+                locked_by = NULL,
+                claim_token = NULL
+            WHERE erp_outbox.status = {OutboxStatus.Failed}
+            """, ct) == 1;
+
+    public async Task<IReadOnlyDictionary<string, string>> CancelStatusesAsync(
+        IReadOnlyCollection<string> invoiceNumbers, CancellationToken ct) =>
+        await db.ErpOutbox.AsNoTracking()
+            .Where(o => o.Kind == OutboxKind.Cancel && invoiceNumbers.Contains(o.InvoiceNumber))
+            .ToDictionaryAsync(o => o.InvoiceNumber, o => o.Status, ct);
+
+    public async Task<bool> RequeueCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct) =>
+        await db.Database.ExecuteSqlAsync($"""
+            INSERT INTO erp_outbox (invoice_number, kind, status, attempt_count, next_attempt_at, created_at)
+            VALUES ({invoiceNumber}, {OutboxKind.Cancel}, {OutboxStatus.Pending}, 0, {now}, {now})
+            ON CONFLICT (invoice_number, kind) DO UPDATE
+            SET status = EXCLUDED.status,
+                attempt_count = 0,
+                next_attempt_at = EXCLUDED.next_attempt_at,
+                last_error = NULL,
+                processed_at = NULL,
+                locked_until = NULL,
+                locked_by = NULL,
+                claim_token = NULL
+            WHERE erp_outbox.status <> {OutboxStatus.Pending}
             """, ct) == 1;
 
     public async Task CompleteFailedAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct) =>
@@ -121,4 +152,15 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
                 .SetProperty(o => o.Status, OutboxStatus.Completed)
                 .SetProperty(o => o.LastError, (string?)null)
                 .SetProperty(o => o.ProcessedAt, now), ct);
+
+    public async Task CompleteCancelAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct) =>
+        await db.ErpOutbox
+            .Where(o => o.InvoiceNumber == invoiceNumber && o.Kind == OutboxKind.Cancel && o.Status != OutboxStatus.Completed)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.Status, OutboxStatus.Completed)
+                .SetProperty(o => o.LastError, (string?)null)
+                .SetProperty(o => o.ProcessedAt, now)
+                .SetProperty(o => o.LockedUntil, (DateTimeOffset?)null)
+                .SetProperty(o => o.LockedBy, (string?)null)
+                .SetProperty(o => o.ClaimToken, (Guid?)null), ct);
 }

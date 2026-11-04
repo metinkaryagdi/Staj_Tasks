@@ -12,7 +12,11 @@ public enum SendOutcome
     Retry,
 
     /// <summary>Permanent: Başarısız on both the invoice and the outbox entry.</summary>
-    Failed
+    Failed,
+
+    /// <summary>The invoice has a cancellation and the ERP does not have the invoice: nothing goes to the ERP, the invoice
+    /// is İptal Edildi.</summary>
+    Cancelled
 }
 
 /// <param name="Reason">Why this decision, for the log.</param>

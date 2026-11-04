@@ -63,9 +63,20 @@ public static class FindingType
     /// </summary>
     public const string NoErpDecision = "ERP Karar Vermedi";
 
+    /// <summary>The ERP has cancelled the invoice, the service has not: İptal Edildi. Fixed; reported if the service has it
+    /// as Reddedildi.</summary>
+    public const string CancelledInErp = "ERP İptal Etmiş";
+
+    /// <summary>İptal Edildi here, the ERP has the invoice and has not cancelled it: the cancellation is queued again. Fixed;
+    /// reported if the ERP rejected the invoice, which cannot be cancelled.</summary>
+    public const string CancelledInService = "Serviste İptal Edilmiş";
+
     public static readonly string[] All =
-        [StuckInvoice, FailedButInErp, UnknownEvent, MissingInService, MissingInErp, DuplicateInErp, FieldMismatch, NoErpDecision];
+    [
+        StuckInvoice, FailedButInErp, UnknownEvent, MissingInService, MissingInErp, DuplicateInErp, FieldMismatch, NoErpDecision,
+        CancelledInErp, CancelledInService
+    ];
 
     /// <summary>The types a run fixes; every other type is only reported.</summary>
-    public static readonly string[] Fixable = [StuckInvoice, FailedButInErp, UnknownEvent];
+    public static readonly string[] Fixable = [StuckInvoice, FailedButInErp, UnknownEvent, CancelledInErp, CancelledInService];
 }

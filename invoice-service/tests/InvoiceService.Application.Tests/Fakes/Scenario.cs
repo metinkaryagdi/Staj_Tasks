@@ -46,7 +46,7 @@ public sealed class Scenario
     };
 
     public WebhookEventProcessor WebhookEventProcessor() => new(
-        UnitOfWork, Events, Invoices, new InvoiceEventApplier(NullLogger<InvoiceEventApplier>.Instance), Time,
+        UnitOfWork, Events, Invoices, Outbox, new InvoiceEventApplier(NullLogger<InvoiceEventApplier>.Instance), Time,
         Options.Create(WebhookSettings), NullLogger<WebhookEventProcessor>.Instance);
 
     public OutboxProcessor OutboxProcessor() => new(

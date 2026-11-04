@@ -91,11 +91,17 @@ public sealed class OutboxProcessor(
         if (!entry.IsCancel && SendAttemptResult.Of(sent) is { } result)
             metrics.SendAttempt(result);
 
+        if (NothingAtTheErp(invoice, entry, sent))
+            return CancelledOutcome(sent);
+
         var decision = policy.Decide(sent.Result, entry.Attempt, time.GetUtcNow(), Random.Shared.NextDouble());
         if (!decision.AttemptsUsedUp)
             return new AttemptOutcome(sent.Result, decision, sent.Check, sent.Result.HttpStatus);
 
         var final = await ConfirmAsync(invoice, entry, sent.Result.Error);
+        if (NothingAtTheErp(invoice, entry, final))
+            return CancelledOutcome(final);
+
         return new AttemptOutcome(
             final.Result, FinalDecision(final.Result, $"all {policy.MaxAttempts} attempts used; ERP asked before giving up"),
             $"{sent.Check},final:{final.Check}", sent.Result.HttpStatus);
@@ -107,10 +113,24 @@ public sealed class OutboxProcessor(
     private async Task<AttemptOutcome> ConfirmCutOffAttemptAsync(Invoice invoice, ClaimedEntry entry)
     {
         var final = await ConfirmAsync(invoice, entry, "Son deneme yarıda kaldı (servis durdu).");
+        if (NothingAtTheErp(invoice, entry, final))
+            return CancelledOutcome(final);
+
         return new AttemptOutcome(
             final.Result, FinalDecision(final.Result, "last attempt was cut off; ERP asked, not sent again"),
             $"final:{final.Check}", final.Result.HttpStatus);
     }
+
+    /// <summary>
+    /// The ERP does not have an invoice that has a cancellation. A send entry only gets this answer then. A cancellation's
+    /// entry counts for a Başarısız invoice, which the service does not believe is at the ERP; any other is a different problem.
+    /// </summary>
+    private static bool NothingAtTheErp(Invoice invoice, ClaimedEntry entry, SendAttempt attempt) =>
+        attempt.Path == SendPath.InvoiceNotFound && (!entry.IsCancel || invoice.Status == InvoiceStatus.Failed);
+
+    private static AttemptOutcome CancelledOutcome(SendAttempt attempt) => new(
+        attempt.Result, new RetryDecision(SendOutcome.Cancelled, TimeSpan.Zero, "the ERP does not have the invoice; nothing sent"),
+        attempt.Check, attempt.Result.HttpStatus);
 
     private Task<SendAttempt> ConfirmAsync(Invoice invoice, ClaimedEntry entry, string? lastError) => entry.IsCancel
         ? strategy.ConfirmCancelAsync(entry.InvoiceNumber, lastError)
@@ -133,7 +153,7 @@ public sealed class OutboxProcessor(
         span.SetTag("erp.http_status", outcome.HttpStatus);
         span.SetTag("erp.retry_after", result.RetryAfter?.ToString());
         span.SetTag("erp.reference", result.ErpReference);
-        if (decision.Outcome != SendOutcome.Sent)
+        if (decision.Outcome is not (SendOutcome.Sent or SendOutcome.Cancelled))
             span.SetStatus(ActivityStatusCode.Error, result.Error);
     }
 

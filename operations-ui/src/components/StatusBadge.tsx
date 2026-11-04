@@ -6,6 +6,7 @@ const tones: Record<string, string> = {
   Onaylandı: 'ok',
   Reddedildi: 'bad',
   Başarısız: 'bad',
+  'İptal Edildi': 'neutral',
   Çalışıyor: 'info',
   Tamamlandı: 'ok',
   İşlendi: 'ok',

@@ -1,4 +1,6 @@
 using InvoiceService.Application.Abstractions;
+using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Webhooks;
 
 namespace InvoiceService.Application.Webhooks;
 
@@ -11,7 +13,7 @@ public sealed record EventResult(string EventId, string Status, bool Repeat);
 /// same lock the outbox takes when it makes the invoice Gönderildi, so the two can never interleave.
 /// </summary>
 public sealed class WebhookEventProcessor(
-    IUnitOfWork unitOfWork, IWebhookEventStore events, IInvoiceStore invoices, InvoiceEventApplier applier,
+    IUnitOfWork unitOfWork, IWebhookEventStore events, IInvoiceStore invoices, IOutboxStore outbox, InvoiceEventApplier applier,
     TimeProvider time, IOptions<WebhookOptions> options, ILogger<WebhookEventProcessor> logger)
 {
     /// <summary>
@@ -52,6 +54,9 @@ public sealed class WebhookEventProcessor(
         }
 
         await unitOfWork.SaveChangesAsync(ct);
+        if (invoice?.Status == InvoiceStatus.Cancelled && erpEvent.Status == WebhookEventStatus.Processed)
+            await SettleCancelledAsync(invoice.InvoiceNumber, now, ct);
+
         await transaction.CommitAsync(ct);
         return new EventResult(erpEvent.EventId, erpEvent.Status, Repeat: false);
     }
@@ -71,9 +76,29 @@ public sealed class WebhookEventProcessor(
             return;
 
         // The waiting events are applied in the transaction that made the invoice Gönderildi: same moment.
+        var wasCancelled = invoice.Status == InvoiceStatus.Cancelled;
         foreach (var erpEvent in waiting)
             applier.Apply(invoice, erpEvent, sentAt, afterSend: true);
         await unitOfWork.SaveChangesAsync(ct);
+        if (!wasCancelled && invoice.Status == InvoiceStatus.Cancelled)
+            await CloseCancelledAsync(invoiceNumber, sentAt, ct);
+    }
+
+    /// <summary>
+    /// The invoice just became İptal Edildi by the ERP's word: the outbox entries agree, and the events that were waiting
+    /// while it was Başarısız are settled (İptal Edildi ignores them). Called in the transaction that changed it.
+    /// </summary>
+    public async Task SettleCancelledAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
+    {
+        await CloseCancelledAsync(invoiceNumber, now, ct);
+        await ApplyWaitingAsync(invoiceNumber, now, ct);
+    }
+
+    /// <summary>The ERP has cancelled the invoice, so it has the invoice and the cancellation.</summary>
+    private async Task CloseCancelledAsync(string invoiceNumber, DateTimeOffset now, CancellationToken ct)
+    {
+        await outbox.CompleteFailedAsync(invoiceNumber, now, ct);
+        await outbox.CompleteCancelAsync(invoiceNumber, now, ct);
     }
 
     /// <summary>Lets the database itself stop this transaction if a lock wait or a statement takes too long.</summary>

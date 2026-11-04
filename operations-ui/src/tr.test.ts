@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from './api/client'
-import { describeError, describeFollowUpError, describeResendError, describeResendRefusal, describeStartRunError } from './tr'
+import { describeCancelError, describeError, describeFollowUpError, describeResendError, describeResendRefusal, describeStartRunError } from './tr'
 
 describe('hata mesajları', () => {
   it('servise ulaşılamayınca anlaşılır bir mesaj verir ve ham hata göstermez', () => {
@@ -39,6 +39,15 @@ describe('hata mesajları', () => {
   it('toplu gönderimde reddedilen her fatura için nedenini yazar', () => {
     expect(describeResendRefusal({ invoiceNumber: 'A', result: 'not_found', currentStatus: null })).toContain('bulunamadı')
     expect(describeResendRefusal({ invoiceNumber: 'A', result: 'not_failed', currentStatus: 'Onaylandı' })).toContain('"Onaylandı"')
+    expect(describeResendRefusal({ invoiceNumber: 'A', result: 'cancelled', currentStatus: null })).toContain('İptali istendiği')
     expect(describeResendRefusal({ invoiceNumber: 'A', result: 'error', currentStatus: null })).toContain('hata verdi')
+  })
+  it('iptali istenmiş faturanın yeniden gönderilemediğini söyler', () => {
+    expect(describeResendError(new ApiError('rejected', 409, 'invoice_cancelled'))).toContain('İptali istendiği')
+  })
+  it('iptalin reddini nedeniyle anlatır', () => {
+    expect(describeCancelError(new ApiError('rejected', 409, 'invoice_rejected'))).toContain('reddetti')
+    expect(describeCancelError(new ApiError('rejected', 409, 'invoice_cancelled'))).toContain('zaten istendi')
+    expect(describeCancelError(new ApiError('unreachable', null))).toContain('belli değil')
   })
 })

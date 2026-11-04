@@ -62,10 +62,13 @@ public sealed class WebhookProblems
     /// <summary>Per event: the event is sent twice with the same event_id.</summary>
     public double DuplicateRate { get; set; }
 
-    /// <summary>Per invoice: the decision is sent before invoice.received.</summary>
+    /// <summary>
+    /// Per invoice: the decision is sent before invoice.received. Per cancellation: a coming approval is taken as made
+    /// just before the cancellation, and its event is sent after invoice.cancelled.
+    /// </summary>
     public double OrderMixRate { get; set; }
 
-    /// <summary>Per invoice: the decision is never sent.</summary>
+    /// <summary>Per invoice: the decision is never sent. Per cancellation: invoice.cancelled is never sent.</summary>
     public double LostDecisionRate { get; set; }
 
     /// <summary>Per invoice: a decision with a wrong signature is sent for it.</summary>

@@ -44,8 +44,8 @@ public interface IReconciliationStore
     Task<IReadOnlyList<ReconciliationFinding>> ListFindingsOfInvoiceAsync(string invoiceNumber, CancellationToken ct);
 
     /// <summary>
-    /// Invoices created at or after <paramref name="since"/>, and every <see cref="InvoiceStatus.Unsettled"/> invoice
-    /// however old, not tracked.
+    /// Invoices created at or after <paramref name="since"/>, and every invoice in a
+    /// <see cref="InvoiceStatus.CheckedAtAnyAge"/> status however old, not tracked.
     /// </summary>
     Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(DateTimeOffset since, CancellationToken ct);
 

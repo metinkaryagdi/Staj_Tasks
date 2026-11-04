@@ -124,13 +124,12 @@ public sealed class ReconciliationRunner(
         var checks = new List<ErpCheck>();
         var skipped = 0;
 
-        // An unsettled invoice older than the window is not in the ERP's list: ask the ERP for it, so a long outage of
-        // the runs cannot leave it unseen. The answer also carries the decision.
+        // An invoice older than the window is not in the ERP's list: ask the ERP for it, so a long outage of the runs or a
+        // lost event cannot leave it unseen. The answer also carries the decision.
         var listedNumbers = records.Select(r => r.InvoiceNumber).ToHashSet();
-        foreach (var old in invoices.Where(i => i.CreatedAt < since && InvoiceStatus.Unsettled.Contains(i.Status)
-                                                && !listedNumbers.Contains(i.InvoiceNumber)))
+        foreach (var old in invoices.Where(i => i.CreatedAt < since && !listedNumbers.Contains(i.InvoiceNumber)))
         {
-            if (RecentlyNotFound(old, now))
+            if (RecentlyNotFound(old, now) || AgreedCancelled(old))
             {
                 skipped++;
                 continue;
@@ -179,16 +178,24 @@ public sealed class ReconciliationRunner(
     }
 
     /// <summary>
-    /// A Başarısız invoice the ERP said "not there" about, recently enough and with nothing changed on it since: asking
-    /// again would only get the same answer. Only Başarısız: an old Gönderildi the ERP does not have is "ERP Kaydı Yok"
-    /// and must be reported by every run.
+    /// A Başarısız or İptal Edildi invoice the ERP said "not there" about, recently enough and with nothing changed on it
+    /// since: asking again would only get the same answer. Only these: an old Gönderildi the ERP does not have is "ERP Kaydı
+    /// Yok" and must be reported by every run.
     /// </summary>
     private bool RecentlyNotFound(Invoice invoice, DateTimeOffset now) =>
-        invoice.Status == InvoiceStatus.Failed
+        invoice.Status is InvoiceStatus.Failed or InvoiceStatus.Cancelled
         && invoice.ErpCheckResult == ErpCheckResult.NotFound
         && invoice.ErpCheckedAt is { } checkedAt
         && checkedAt >= invoice.UpdatedAt
         && now - checkedAt < options.Value.NotFoundRecheck;
+
+    /// <summary>İptal Edildi here and the ERP said it has cancelled it too, with nothing changed since: final on both
+    /// sides, so it is not asked again.</summary>
+    private static bool AgreedCancelled(Invoice invoice) =>
+        invoice.Status == InvoiceStatus.Cancelled
+        && invoice.ErpCheckResult == ErpCheckResult.Found(ErpDecisionKind.Cancelled)
+        && invoice.ErpCheckedAt is { } checkedAt
+        && checkedAt >= invoice.UpdatedAt;
 
     /// <summary>
     /// One statement per invoice, and one that fails is only logged: an invoice whose row cannot be written (locked too

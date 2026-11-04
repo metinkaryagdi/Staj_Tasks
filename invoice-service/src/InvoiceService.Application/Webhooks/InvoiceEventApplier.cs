@@ -15,8 +15,10 @@ public sealed class InvoiceEventApplier(ILogger<InvoiceEventApplier> logger)
         var before = invoice.Status;
         var transition = InvoiceTransitions.For(invoice.Status, erpEvent.EventType);
 
-        // Only an invoice the ERP has (Gönderildi or later) has a reference to compare with.
-        if (transition.Outcome != TransitionOutcome.Wait && erpEvent.ErpReference != invoice.ErpReference)
+        // Only an invoice the ERP has (Gönderildi or later) has a reference to compare with; a Başarısız one takes the
+        // event's reference.
+        if (transition.Outcome != TransitionOutcome.Wait && invoice.Status != InvoiceStatus.Failed
+            && erpEvent.ErpReference != invoice.ErpReference)
             transition = new Transition(TransitionOutcome.Ignore, IgnoreReason: IgnoreReason.ReferenceMismatch);
 
         switch (transition.Outcome)
@@ -25,6 +27,11 @@ public sealed class InvoiceEventApplier(ILogger<InvoiceEventApplier> logger)
                 invoice.Status = transition.NewStatus!;
                 if (erpEvent.EventType == WebhookEventType.Rejected)
                     invoice.RejectReason = ReadReason(erpEvent.Payload);
+                if (invoice.Status == InvoiceStatus.Cancelled)
+                {
+                    invoice.ErpReference ??= erpEvent.ErpReference;
+                    invoice.LastError = null;
+                }
                 invoice.UpdatedAt = now;
                 erpEvent.Status = WebhookEventStatus.Processed;
                 erpEvent.ProcessedAt = now;

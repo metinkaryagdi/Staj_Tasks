@@ -57,7 +57,7 @@ public static class ErpCheckResult
 {
     public const string NotFound = "Kayıt yok";
 
-    /// <param name="decision">The ERP's decision: none, received, approved or rejected.</param>
+    /// <param name="decision">The ERP's decision: none, received, approved, rejected or cancelled.</param>
     public static string Found(string decision) => $"Kayıtlı, karar: {decision}";
 }
 
@@ -70,7 +70,7 @@ public static class InvoiceStatus
     /// <summary>The ERP reported invoice.received.</summary>
     public const string Processing = "İşleme Alındı";
 
-    /// <summary>Final: the ERP reported invoice.approved; no event can change it.</summary>
+    /// <summary>Final for decisions: the ERP reported invoice.approved; only the ERP's cancellation can change it.</summary>
     public const string Approved = "Onaylandı";
 
     /// <summary>Final: the ERP reported invoice.rejected (reason in reject_reason); no event can change it.</summary>
@@ -79,13 +79,19 @@ public static class InvoiceStatus
     /// <summary>Permanent: every attempt is used up (or the ERP rejected it); only a resend queues it again.</summary>
     public const string Failed = "Başarısız";
 
-    public static readonly string[] All = [Pending, Sent, Processing, Approved, Rejected, Failed];
+    /// <summary>Final: the cancellation is complete; no event or operation can change it.</summary>
+    public const string Cancelled = "İptal Edildi";
+
+    public static readonly string[] All = [Pending, Sent, Processing, Approved, Rejected, Failed, Cancelled];
 
     /// <summary>The statuses that mean the ERP has accepted the invoice.</summary>
     public static readonly string[] ErpHasIt = [Sent, Processing, Approved, Rejected];
 
-    /// <summary>Neither final nor waiting in the outbox: reconciliation checks these however old they are.</summary>
-    public static readonly string[] Unsettled = [Sent, Processing, Failed];
+    /// <summary>
+    /// Reconciliation checks these however old they are: neither final nor waiting in the outbox, or (Onaylandı, İptal Edildi)
+    /// a cancellation the two sides can disagree about. Reddedildi and Bekliyor have no such disagreement.
+    /// </summary>
+    public static readonly string[] CheckedAtAnyAge = [Sent, Processing, Failed, Approved, Cancelled];
 }
 
 public static class InvoiceNumber

@@ -112,4 +112,16 @@ public class InvoiceListingTests
         Assert.Contains(nameof(InvoiceListRequest.To), reversed.Errors!.Keys);
         Assert.Contains(nameof(InvoiceListRequest.To), empty.Errors!.Keys);
     }
+
+    [Fact]
+    public async Task The_page_carries_the_cancellations_of_its_invoices()
+    {
+        await AddAsync("INV-1", 1);
+        await AddAsync("INV-2", 2);
+        await _store.SaveCancellationAsync(new ErpCancellation { InvoiceNumber = "INV-2", CancelledAt = Start.AddMinutes(3) }, []);
+
+        var page = (await Listing.ListAsync(Range(0, 10), CancellationToken.None)).Page!;
+
+        Assert.Equal("INV-2", Assert.Single(page.Cancellations).Key);
+    }
 }

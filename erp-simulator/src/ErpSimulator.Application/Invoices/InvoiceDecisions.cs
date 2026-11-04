@@ -11,6 +11,9 @@ public static class DecisionKind
     public const string Received = "received";
     public const string Approved = "approved";
     public const string Rejected = "rejected";
+
+    /// <summary>The invoice number is cancelled; nothing planned for later changes that.</summary>
+    public const string Cancelled = "cancelled";
 }
 
 /// <param name="Kind">One of <see cref="DecisionKind"/>.</param>

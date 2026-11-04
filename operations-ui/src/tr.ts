@@ -89,6 +89,7 @@ export const tr = {
       status: 'Durum',
       attempts: 'Deneme Sayısı',
       lastError: 'Son Hata',
+      cancellation: 'İptal',
       updatedAt: 'Son Güncelleme',
       detail: 'Detay',
     },
@@ -119,6 +120,12 @@ export const tr = {
     resend: 'Yeniden Gönder',
     resending: 'Gönderiliyor…',
     resendQueued: 'Fatura yeniden gönderilmek üzere kuyruğa alındı. Durumu bu sayfada izleyebilirsiniz.',
+    cancel: 'Faturayı İptal Et',
+    retryCancel: 'İptali Yeniden Dene',
+    cancelling: 'Gönderiliyor…',
+    cancelQueued: 'İptal kuyruğa alındı. Durumu bu sayfada izleyebilirsiniz.',
+    cancelSection: 'İptal',
+    noCancellation: 'Bu fatura için iptal istenmedi.',
     followUpSection: 'Takip',
     takeFollowUp: 'Takibe Al',
     closeFollowUp: 'Takibi Kapat',
@@ -223,6 +230,7 @@ const eventTypeLabels: Record<string, string> = {
   'invoice.received': 'Fatura alındı',
   'invoice.approved': 'Fatura onaylandı',
   'invoice.rejected': 'Fatura reddedildi',
+  'invoice.cancelled': 'Fatura iptal edildi',
 }
 
 export function eventTypeLabel(eventType: string): string {
@@ -263,6 +271,16 @@ export function describeResendError(error: unknown): string {
         'Başka biri faturayı az önce yeniden göndermiş olabilir; yeniden gönderme yapılmadı.'
       )
     }
+    if (error.code === 'invoice_cancelled') return 'İptali istendiği için yeniden gönderilemez.'
+    if (error.kind === 'unreachable') return unknownOutcome
+  }
+  return describeError(error)
+}
+
+export function describeCancelError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === 'invoice_rejected') return 'ERP bu faturayı reddetti; iptal edilemez.'
+    if (error.code === 'invoice_cancelled') return 'Bu faturanın iptali zaten istendi. Sayfa güncellendiğinde durumu görünecek.'
     if (error.kind === 'unreachable') return unknownOutcome
   }
   return describeError(error)
@@ -294,6 +312,8 @@ export function describeResendRefusal(item: ResendItem): string {
       return 'Fatura bulunamadı.'
     case 'not_failed':
       return `Başarısız durumda değil, şu an "${item.currentStatus}". Başka biri yeniden göndermiş olabilir.`
+    case 'cancelled':
+      return 'İptali istendiği için yeniden gönderilemez.'
     default:
       return 'Kuyruğa alınamadı: Fatura Servisi hata verdi.'
   }

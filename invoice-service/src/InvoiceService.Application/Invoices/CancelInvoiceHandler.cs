@@ -7,7 +7,7 @@ namespace InvoiceService.Application.Invoices;
 
 public enum CancelStatus
 {
-    /// <summary>The cancellation is queued in erp_outbox (202).</summary>
+    /// <summary>The cancellation is queued in erp_outbox, new or a Başarısız one again (202).</summary>
     Queued,
 
     /// <summary>There is no such invoice (404).</summary>
@@ -16,15 +16,15 @@ public enum CancelStatus
     /// <summary>The ERP rejected the invoice (409).</summary>
     Rejected,
 
-    /// <summary>The invoice already has a cancellation, whatever its state (409).</summary>
+    /// <summary>The invoice is İptal Edildi, or its cancellation is waiting or done (409).</summary>
     AlreadyRequested
 }
 
 /// <summary>
 /// Queues an invoice's cancellation in erp_outbox. Does not call the ERP; the worker sends it once the invoice's own send
-/// is done, so the ERP never sees the cancellation before the invoice. The invoice's row is locked first, so a resend of
-/// the same invoice waits for this and then sees the cancellation. Who asked for it and how it ended is recorded in
-/// operator_actions, in the same transaction.
+/// is done, so the ERP never sees the cancellation before the invoice. The same request queues a Başarısız cancellation
+/// again, under the same rule. The invoice's row is locked first, so a resend of the same invoice waits for this and then
+/// sees the cancellation. Who asked for it and how it ended is recorded in operator_actions, in the same transaction.
 /// </summary>
 public sealed class CancelInvoiceHandler(
     IUnitOfWork unitOfWork, IInvoiceStore invoices, IOutboxStore outbox, IOperatorActionStore actions, TimeProvider time,
@@ -40,6 +40,7 @@ public sealed class CancelInvoiceHandler(
         var invoice = await invoices.LockAsync(invoiceNumber, CancellationToken.None);
         var status = invoice is null ? CancelStatus.NotFound
             : invoice.Status == InvoiceStatus.Rejected ? CancelStatus.Rejected
+            : invoice.Status == InvoiceStatus.Cancelled ? CancelStatus.AlreadyRequested
             : await outbox.AddCancelAsync(invoiceNumber, now, CancellationToken.None) ? CancelStatus.Queued
             : CancelStatus.AlreadyRequested;
 

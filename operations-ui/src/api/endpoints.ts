@@ -36,6 +36,11 @@ export function resendInvoice(invoiceNumber: string) {
   return postJson<Invoice>(`${invoices}/${encodeURIComponent(invoiceNumber)}/resend`)
 }
 
+// Aynı istek başarısız bir iptali yeniden kuyruğa alır.
+export function cancelInvoice(invoiceNumber: string) {
+  return postJson<Invoice>(`${invoices}/${encodeURIComponent(invoiceNumber)}/cancel`)
+}
+
 export function openInvoiceFollowUp(invoiceNumber: string, note: string) {
   return postJson<InvoiceFollowUp>(`${invoices}/${encodeURIComponent(invoiceNumber)}/follow-up`, { note })
 }

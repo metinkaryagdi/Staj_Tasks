@@ -128,7 +128,8 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
                     return ListFailed($"Sayfa {page} okunamadı: cevap beklenen biçimde değil.");
 
                 records.AddRange(body.Items.Select(i => new ErpRecord(
-                    i.InvoiceNumber, i.ErpReference, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.ReceivedAt)));
+                    i.InvoiceNumber, i.ErpReference, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.ReceivedAt,
+                    i.CancelReference is not null)));
                 if (records.Count >= body.TotalCount)
                     return new ErpListResult(true, records, null);
 
@@ -161,7 +162,8 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         {
             var answer = JsonSerializer.Deserialize<ErpLookupBody>(body, JsonSerializerOptions.Web);
             return answer?.Records?.Select(r => new ErpRecord(
-                invoiceNumber, r.ErpReference, r.CustomerCode, r.Amount, r.Currency, r.InvoiceDate, r.ReceivedAt)).ToList();
+                invoiceNumber, r.ErpReference, r.CustomerCode, r.Amount, r.Currency, r.InvoiceDate, r.ReceivedAt,
+                answer.CancelReference is not null)).ToList();
         }
         catch (JsonException)
         {
@@ -239,7 +241,7 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         return body.Length <= MaxBodyInError ? body : body[..MaxBodyInError] + "...";
     }
 
-    private sealed record ErpLookupBody(List<ErpLookupRecord>? Records);
+    private sealed record ErpLookupBody(List<ErpLookupRecord>? Records, string? CancelReference);
 
     private sealed record ErpLookupRecord(
         string ErpReference, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate, DateTimeOffset ReceivedAt);
@@ -248,7 +250,7 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
 
     private sealed record ErpListItem(
         string InvoiceNumber, string ErpReference, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate,
-        DateTimeOffset ReceivedAt);
+        DateTimeOffset ReceivedAt, string? CancelReference);
 
     private sealed record ErpInvoiceRequest(
         string InvoiceNumber, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate);
