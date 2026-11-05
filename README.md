@@ -307,7 +307,8 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar (`MaxConcurrentSends`)
   varsa referans alınır (POST yok), açıkça `404` ise gönderilir, sorulamazsa gönderilmez ve sonra tekrar denenir.
   Haklar bitince `Başarısız` yapmadan önce bir kez daha sorulur.
 - **Sıra:** zamanı gelmiş kayıtlar kuyruğa giriş sırasıyla (`created_at`, sonra `id`) alınır. `next_attempt_at` yalnızca kaydın ne
-  zaman alınabileceğini belirler: bekleme süresi dolan tekrar deneme, kendisinden sonra kuyruğa girenlerin önüne geçer.
+  zaman alınabileceğini belirler: bekleme süresi dolan tekrar deneme, kendisinden sonra kuyruğa girenlerin önüne geçer. Bekleyen iptali
+  olan faturanın satırları (iptal ve kendi gönderimi) diğerlerinin önüne geçer: sıra şartı yalnız bir fatura ile kendi iptali arasındadır.
 - **Gönderim hızı:** bütün servis kopyalarının POST'ları saniyede `Outbox:SendsPerSecond`'a (18) göre sıraya konur; ERP Simulator'ın
   sınırı 20'dir, ağ gecikmesi için biraz altında. Her POST, `erp_send_pace` satırını tek bir `UPDATE … RETURNING` ile bir sıra
   ilerletir ve sırası gelene kadar bekler; sıra ve "şimdi" veritabanı saatinden alınır. Sıra bekledikten sonra kaydın hâlâ o alıma
@@ -349,9 +350,9 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar (`MaxConcurrentSends`)
 ### Mutabakat
 
 `ReconciliationWorker` ayardaki aralıkta çalışır (varsayılan 60 dk; ilk çalışma servis açıldıktan bir aralık sonra); aynı iş
-`POST /api/v1/reconciliation-runs` ile elle de başlar. Çalışma son `LookbackHours` saatte oluşan faturaları ve durumu kesinleşmemiş
-(`Gönderildi`, `İşleme Alındı`, `Başarısız`) bütün faturaları ve iptalin iki tarafta farklı olabileceği `Onaylandı` ve `İptal Edildi` faturaları, yaşına bakmadan, ERP Simulator'ın kayıtlarıyla karşılaştırır. Önce her şeyi okur, sonra yazar: ERP Simulator'a ulaşılamazsa çalışma `Başarısız` olur ve
-hiçbir fatura değişmemiştir.
+`POST /api/v1/reconciliation-runs` ile elle de başlar. Çalışma son `LookbackHours` saatte oluşan faturaları ERP Simulator'ın listesiyle karşılaştırır; pencereden eski
+`Gönderildi`, `İşleme Alındı`, `Başarısız`, `Onaylandı` ve `İptal Edildi` faturalardan da en çok `MaxErpLookupsPerRun` tanesini, en uzun süredir sorulmayandan başlayarak ERP'ye sorar. Önce okur, sonra yazar: ERP listesi alınamazsa
+çalışma `Başarısız` olur ve hiçbir fatura değişmemiştir. Tek bir faturanın cevabı alınamazsa o fatura bu çalışmada karşılaştırılmaz, değişmez, loga yazılır (`Reconciliation left an invoice out`) ve sonraki çalışmada yine ilk sıradadır; diğerleri sürer.
 
 | Bulgu türü | Eylem |
 |---|---|
@@ -360,11 +361,11 @@ hiçbir fatura değişmemiştir.
 | `Tanınmayan Haber`: serviste olmayan faturaya ait, `UnknownEventAfterMinutes`'tan eski bekleyen event | `Yok Sayıldı` (`Fatura Yok`) (**Düzeltildi**) |
 | `ERP İptal Etmiş`: ERP'de iptal edilmiş, serviste edilmemiş (zaman eşiği yok) | `İptal Edildi` olur, iptal satırı `Tamamlandı` (**Düzeltildi**); fatura `Reddedildi` ise Raporlandı |
 | `Serviste İptal Edilmiş`: serviste `İptal Edildi`, ERP'de kayıt var ama iptal yok | İptal yeniden kuyruğa alınır, bekleyen iptal sıfırlanmaz (**Düzeltildi**); ERP faturayı reddettiyse Raporlandı |
-| `Serviste Yok`: ERP'de var, serviste hiç yok | Raporlandı |
+| `Serviste Yok`: ERP'de var, serviste hiç yok | Raporlandı; ERP kaydı iptal edilmişse ayrıntıda yazar |
 | `ERP Çift Kayıt`: ERP'de birden fazla kaydı olan fatura | Raporlandı |
 | `Alan Farkı`: tutar, para birimi, müşteri kodu ya da `erp_reference` farklı | Raporlandı |
 | `ERP Kaydı Yok`: serviste `Gönderildi` ya da sonrası, ERP'de kayıt yok | Raporlandı |
-| `ERP Karar Vermedi`: takılı fatura `NoDecisionAfterMinutes`'tan uzun aynı durumda, ERP'ye soruldu ve cevap faturayı ilerletmiyor (`none`, ya da `İşleme Alındı` faturada `received`) | Raporlandı; ERP sessiz kaldıkça her çalışmada yeniden yazılır, karar gelince sonraki çalışma `Takılı Fatura` olarak düzeltir |
+| `ERP Karar Vermedi`: takılı fatura `NoDecisionAfterMinutes`'tan uzun aynı durumda, ERP'ye soruldu ve cevap faturayı ilerletmiyor (`none`, ya da `İşleme Alındı` faturada `received`) | Raporlandı; ERP sessiz kaldıkça pencere içinde her çalışmada, eski faturada sırası geldiğinde yeniden yazılır, karar gelince sonraki çalışma `Takılı Fatura` olarak düzeltir |
 
 - **Aynı anda tek çalışma:** PostgreSQL advisory lock. Zamanlanmış çalışma, elle başlatma ve servisin ikinci kopyası
   aynı kilidi kullanır; kilit başkasındaysa `POST` `409` alır, zamanlanmış tur atlanır. Kilit bağlantıya bağlıdır:
@@ -373,12 +374,11 @@ hiçbir fatura değişmemiştir.
   alır, resend ise aynı satırı güncellediği için lock tutulurken bekler. Lock alındıktan sonra fatura planın gördüğü
   durumda değilse o fatura bırakılır.
 - Düzeltilmeyenler hangi tarafın doğru olduğunu bilmeyi gerektirir; bu yüzden yalnızca raporlanır.
-- **ERP'ye tek tek sorulan faturalar:** pencerenin dışındaki kesinleşmemiş, `Onaylandı` ve `İptal Edildi` faturalar; takılı faturaların ve ERP'de iptal görünmeyen `İptal Edildi` faturaların kararı. İki tarafta da iptal edildiği görülmüş fatura yeniden sorulmaz. Her sorgu
+- **ERP'ye tek tek sorulan faturalar:** pencerenin dışındaki faturalar (çalışma başına en çok `MaxErpLookupsPerRun`, en uzun süredir sorulmayan önce; hiç sorulmamışsa oluşturulma zamanı sayılır) ile pencere içindeki takılı faturaların ve ERP'de iptal görünmeyen `İptal Edildi` faturaların kararı. Bir çalışmanın sorgu sayısı geçmişle büyümez; bedeli, eski faturanın hemen değil sırası gelince sorulmasıdır: bir tur, eski fatura sayısı / `MaxErpLookupsPerRun` çalışma sürer (saatte bir çalışmayla 100.000 faturada yaklaşık 10 saat; günde 240.000'den fazla fatura pencereden eskiye geçerse tur bitmez). İki tarafta da iptal edildiği görülmüş fatura yeniden sorulmaz. Her sorgu
   loga (`Reconciliation asked the ERP run=… invoice=… answer=…`) ve faturaya (`erp_checked_at`, `erp_check_result`) yazılır;
-  çalışma başına özet: `Reconciliation ERP lookups run=… asked=… notFound=… skippedRecentlyNotFound=…`. ERP'nin "yok" dediği
+  çalışma başına özet: `Reconciliation ERP lookups run=… asked=… notFound=… unanswered=…`. ERP'nin "yok" dediği
   `Başarısız` ya da `İptal Edildi` fatura `NotFoundRecheckHours` boyunca yeniden sorulmaz; fatura bu arada değişirse (`updated_at` cevaptan
-  yeniyse, örn. resend) ilk çalışmada yine sorulur. Eski `Gönderildi` fatura için "yok" `ERP Kaydı Yok` demektir ve her
-  çalışmada sorulup raporlanır.
+  yeniyse, örn. resend) ilk çalışmada yine sorulur. Eski `Gönderildi` fatura için "yok" `ERP Kaydı Yok` demektir ve sırası her geldiğinde raporlanır.
 - **Düzeltmesi hata veren fatura:** düzeltmenin transaction'ı geri alınır, fatura değişmez, kalan düzeltmeler sürer. Fatura aynı
   türde, `Raporlandı` olarak ve ayrıntısı "Düzeltme uygulanamadı: <neden>" diye kaydedilir; bir sonraki çalışma yeniden dener.
 
@@ -393,9 +393,25 @@ adresidir (`http://localhost:5100`); ekran başka bir adresten açılacaksa bura
 `Keycloak:ClockSkewSeconds` 30: süresi dolan token'ın kabul edilmeye devam ettiği süre.
 
 Mutabakat ayarları: `IntervalMinutes` 60, `LookbackHours` 24, `StuckAfterMinutes` 2, `UnknownEventAfterMinutes` 60,
-`NoDecisionAfterMinutes` 30 (`StuckAfterMinutes`'tan küçük olamaz), `NotFoundRecheckHours` 24. Metrik ayarı:
+`NoDecisionAfterMinutes` 30 (`StuckAfterMinutes`'tan küçük olamaz), `NotFoundRecheckHours` 24, `MaxErpLookupsPerRun` 10000. Metrik ayarı:
 `Metrics:DatabaseReadSeconds` 15 ([İzleme](#i̇zleme)).
 Testler bunları `Reconciliation__…` ortam değişkenleriyle değiştirir (örn. aralığı 1 dk'ya çeker; `docker-compose.yml`'de geçişi var).
+
+### Yedekleme
+
+`invoice-db-backup` servisi veritabanının tam yedeğini (`pg_dump`) 5 dakikada bir `./backups/invoice-db` klasörüne alır, en yeni 36
+dosyayı tutar (`docker-compose.yml`: `BACKUP_INTERVAL_SECONDS`, `BACKUP_KEEP_FILES`, `INVOICE_BACKUP_DIR`). Klasör veritabanı volume'ünden ayrıdır, git'e girmez, aynı
+makinededir. Yarım yedek son yedek sayılmaz; fatura yokken yedek alınmaz; eski dosya yalnız yeni yedek başarılı olunca silinir.
+
+Geri dönüş tek betiktir, ne zaman çalıştırılacağı [FELAKET-KITAPCIGI.md](FELAKET-KITAPCIGI.md)'de:
+
+```bash
+scripts/restore-invoice-db.sh
+```
+
+Betik servisleri durdurur, veritabanını boş kurar, yedeği yükler, `invoice-migrate`'i çalıştırır ([`after-restore.sql`](scripts/after-restore.sql) ile) numara sayacını
+ileri atlatır ve bekleyen faturaları gönderilmeden önce ERP'ye sorulacak hale getirir, servisleri açar. Yedek ERP'nin gerisinde kaldığı için bu iki adım ERP'de çift
+fatura oluşmasını önler.
 
 ### İkinci instance
 
@@ -589,6 +605,7 @@ trace'idir:
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
 | Gün 21 kontrol listesi: kapatılan bulguların önce/sonra istekleri (Grafana, kaba kuvvet ve şifre politikası, offline token ve refresh token'ın ikinci kullanımı, ekranın başlıkları, veritabanı kullanıcıları, izleme araçlarına kimliksiz ve başka origin'den istek), yük testi | [`manual-tests/gun21/`](manual-tests/gun21/) |
+| Gün 24 kontrol listesi: mutabakat sorgu sınırı ve kaybolan iptal; dünkü yük testiyle iptal beklemesi; yük altında felaket ve geri dönüş | [`manual-tests/gun24/`](manual-tests/gun24/) |
 | Gün 23 kontrol listesi: yeniden deneme, ERP'de iptal edilen fatura, ERP'ye hiç gitmemiş fatura, iptal haberi, kayıp haber ve mutabakat; ekran verisi; yük testi | [`manual-tests/gun23/`](manual-tests/gun23/) |
 | Gün 22 kontrol listesi: hesap kilitleme, iptal (onaylanmış fatura, tekrar denemedeki fatura, iptal gönderilirken servisin öldürülmesi); ek canlı kontroller, dünkü veriyle migration, yük testi | [`manual-tests/gun22/`](manual-tests/gun22/) |
 | Gün 19 kontrol listesi (ekranda işlemsizlik süresi, kısaltılmış süreyle; rol ve audience kontrolü kaldırılınca kırılan testler; bütün testlerin 10 kez koşulması) ve Keycloak kapalıyken açılan servisin log satırı | [`manual-tests/gun19/`](manual-tests/gun19/) |
@@ -687,30 +704,21 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 23 — İptal Faturası ve Sıra Garantisi (2/2)
+## Gün 24 — Felaket Senaryosu
 
-Bugünün işi: ERP'nin iptal hakkında verdiği haberler, faturanın serviste İptal Edildi görünmesi, mutabakat ve ekran; dünkü
-değerlendirmedeki üç konunun kapatılması.
+Bugünün işi: Fatura Servisi veritabanı kaybedildiğinde son yedekten dönmek ve servisin bildiğiyle ERP'nin bildiği arasındaki farkı güvenle kapatmak; dünden kalan iki konu.
 
-- **Yeniden deneme:** operatör aynı iptal isteğini gönderir, `Başarısız` satır yeniden kuyruğa girer; aynı claim sorgusundan geçer ve
-  `operator_actions`'a yazılır ([Endpoint'ler](#endpointler-1)).
-- **ERP'de iptal edilen fatura:** sonradan onaylanmaz ya da reddedilmez; GET cevabındaki karar `cancelled` ([Webhook'lar](#webhooklar)).
-- **ERP'ye hiç gitmemiş fatura:** ERP'de fatura yoksa ERP'ye hiçbir şey gitmez, fatura `İptal Edildi` olur; `Gönderim` satırı `Başarısız`
-  kalır, kuyruktaki ve tekrar denemedeki faturada açıklaması gönderilmediğini söyler, `Başarısız` biten faturada son gönderim hatası kalır
-  ([Outbox Worker](#outbox-worker)).
-- **Durumu değiştiren:** ERP'nin iptal haberi, haber gelmezse mutabakat ([ERP webhook'ları](#erp-webhookları), [Mutabakat](#mutabakat)).
-- **Ekran:** iptal düğmesi, iptal bölümü, İptal sütunu ve İptal Edildi rozeti ([Operasyon Ekranı](#operasyon-ekranı)).
+- **Mutabakat:** eski faturalar için çalışma başına sorgu sınırı, tek cevabın alınamaması diğerlerini durdurmaz ([Mutabakat](#mutabakat)).
+- **İptalin sırası:** iptal ilgisiz faturaları beklemez, yalnız kendi faturasını bekler ([Outbox Worker](#outbox-worker)).
+- **Yedek ve geri dönüş:** [Yedekleme](#yedekleme), [FELAKET-KITAPCIGI.md](FELAKET-KITAPCIGI.md).
 
-Kontrol listesi ([`manual-tests/gun23/`](manual-tests/gun23/)): 1-5 `1-kontrol-listesi.ps1`; 6 `2-ekran-verisi.ps1` ve tarayıcı; 7
-`3-yuk-testi.ps1`; 8 [Testler](#testler).
+Kontrol listesi ([`manual-tests/gun24/`](manual-tests/gun24/)): 1 `1-mutabakat-siniri.ps1` ve `ReconciliationLimitTests`; 2 `2-yuk-testi.ps1`; 3-6 `3-felaket.ps1`, `4-felaket-ek-olcum.ps1`; 8 [Testler](#testler).
 
 ### Bilinen sınırlar
 
-- **Kuyruktaki fatura:** iptal sırayı beklediği için fatura hemen değil, sırası geldiğinde `İptal Edildi` olur. Yoğun kuyrukta bu süre
-  uzar; yük testinde kuyruk, yük bittikten yaklaşık 13,5 dakika sonra boşaldı. ERP'ye ulaşmış faturanın iptali de aynı sırayı bekledi (yük
-  testinde ERP'ye giden 253 iptalde ortalama 267, en çok 534 sn).
-- **Eski Onaylandı fatura:** karşılaştırma penceresinden eski her `Onaylandı` fatura her mutabakatta ERP'ye tek tek sorulur; tek bir
-  cevabın alınamaması çalışmayı `Başarısız` yapar. Bu yol canlı koşularda çalışmadı, bütün faturalar pencere içindeydi.
+- **Yedeğin yeri:** yedek aynı makinededir, makine kaybına karşı korumaz.
+- **Tam yedeğin süresi:** veritabanıyla büyür; satırları kopyalanarak çoğaltılmış 447.400 fatura ve 613 MB ile yük altında 3-4 sn sürdü. Dosya yaklaşık 15 MB oldu; satırlar kopya olduğu için gerçek veride daha büyük olabilir. RAM'i aşan veritabanı denenmedi.
+- **Yedekten sonrası:** ERP'ye ulaşmamış fatura ve iptal isteği geri gelmez; `Serviste Yok` kayıtları yalnız raporlanır.
 
 ---
 
@@ -740,3 +748,4 @@ Kontrol listesi ([`manual-tests/gun23/`](manual-tests/gun23/)): 1-5 `1-kontrol-l
 | `gun-20` | Güvenlik Gözden Geçirmesi | [tree/gun-20](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-20) |
 | `gun-21` | Güvenlik Bulgularını Kapatmak | [tree/gun-21](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-21) |
 | `gun-22` | İptal Faturası ve Sıra Garantisi | [tree/gun-22](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-22) |
+| `gun-23` | İptal Faturası ve Sıra Garantisi (2/2) | [tree/gun-23](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-23) |

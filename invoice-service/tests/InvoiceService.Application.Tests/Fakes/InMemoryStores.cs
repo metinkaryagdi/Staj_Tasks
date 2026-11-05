@@ -449,9 +449,20 @@ public sealed class FakeReconciliationStore(FakeInvoiceStore invoices, FakeWebho
         Task.FromResult<IReadOnlyList<ReconciliationFinding>>(
             Findings.Where(f => f.InvoiceNumber == invoiceNumber).OrderByDescending(f => f.Id).ToList());
 
-    public Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(DateTimeOffset since, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values
-            .Where(i => i.CreatedAt >= since || InvoiceStatus.CheckedAtAnyAge.Contains(i.Status)).ToList());
+    public Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(
+        DateTimeOffset since, DateTimeOffset notFoundSince, int oldLimit, CancellationToken ct)
+    {
+        var old = invoices.Invoices.Values
+            .Where(i => i.CreatedAt < since && InvoiceStatus.CheckedAtAnyAge.Contains(i.Status))
+            .Where(i => !(i.Status == InvoiceStatus.Cancelled && i.ErpCheckResult == ErpCheckResult.Found(ErpDecisionKind.Cancelled)
+                          && i.ErpCheckedAt >= i.UpdatedAt))
+            .Where(i => !(i.Status is InvoiceStatus.Failed or InvoiceStatus.Cancelled && i.ErpCheckResult == ErpCheckResult.NotFound
+                          && i.ErpCheckedAt >= i.UpdatedAt && i.ErpCheckedAt > notFoundSince))
+            .OrderBy(i => i.ErpCheckedAt ?? i.CreatedAt).ThenBy(i => i.InvoiceNumber, StringComparer.Ordinal)
+            .Take(oldLimit);
+        return Task.FromResult<IReadOnlyList<Invoice>>(
+            [.. invoices.Invoices.Values.Where(i => i.CreatedAt >= since), .. old]);
+    }
 
     public Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Invoice>>(invoices.Invoices.Values.Where(i => numbers.Contains(i.InvoiceNumber)).ToList());

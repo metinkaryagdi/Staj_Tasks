@@ -10,6 +10,8 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
     /// <summary>
     /// Takes entries whose time has come, the one that entered the queue first going first. next_attempt_at only says when an
     /// entry may be taken: ordering by it would put a retry behind everything that was queued while it waited.
+    /// An invoice with a waiting cancellation goes before the others, both its cancellation and its own send entry: the
+    /// order that matters is only between an invoice and its cancellation, so neither waits for unrelated invoices.
     /// A cancellation is not taken while its invoice's send row is Bekliyor (waiting for a retry, being sent, or held by a
     /// worker that was killed): the cancellation never reaches the ERP before the invoice. A send row leaves Bekliyor
     /// only by a committed outcome, and an invoice with a cancellation cannot be resent, so the row cannot become Bekliyor
@@ -28,7 +30,10 @@ public sealed class OutboxStore(InvoiceDbContext db) : IOutboxStore
                       WHERE s.invoice_number = erp_outbox.invoice_number
                         AND s.kind = {OutboxKind.Send}
                         AND s.status = {OutboxStatus.Pending}))
-                ORDER BY created_at, id
+                ORDER BY invoice_number IN (
+                             SELECT c.invoice_number FROM erp_outbox c
+                             WHERE c.kind = {OutboxKind.Cancel} AND c.status = {OutboxStatus.Pending}) DESC,
+                         created_at, id
                 LIMIT {limit}
                 FOR UPDATE SKIP LOCKED
             ), claimed AS (

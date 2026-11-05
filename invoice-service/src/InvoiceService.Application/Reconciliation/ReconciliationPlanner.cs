@@ -35,8 +35,9 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
         {
             if (invoice is null)
             {
+                var cancelled = records.Any(r => r.Cancelled) ? " ERP'de iptal edilmiş." : "";
                 findings.Add(new(number, FindingType.MissingInService,
-                    $"ERP'de var ({records[0].ErpReference}, {Money(records[0].Amount)} {records[0].Currency}), serviste yok."));
+                    $"ERP'de var ({records[0].ErpReference}, {Money(records[0].Amount)} {records[0].Currency}), serviste yok.{cancelled}"));
                 if (records.Count > 1)
                     findings.Add(DuplicateInErp(number, records));
                 continue;

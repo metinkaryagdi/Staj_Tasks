@@ -70,10 +70,23 @@ public sealed class ReconciliationStore(InvoiceDbContext db) : IReconciliationSt
             .OrderByDescending(f => f.Id)
             .ToListAsync(ct);
 
-    public async Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(DateTimeOffset since, CancellationToken ct) =>
-        await db.Invoices.AsNoTracking()
-            .Where(i => i.CreatedAt >= since || InvoiceStatus.CheckedAtAnyAge.Contains(i.Status))
+    public async Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(
+        DateTimeOffset since, DateTimeOffset notFoundSince, int oldLimit, CancellationToken ct)
+    {
+        var recent = await db.Invoices.AsNoTracking().Where(i => i.CreatedAt >= since).ToListAsync(ct);
+        var cancelledThere = ErpCheckResult.Found(ErpDecisionKind.Cancelled);
+        var old = await db.Invoices.AsNoTracking()
+            .Where(i => i.CreatedAt < since && InvoiceStatus.CheckedAtAnyAge.Contains(i.Status))
+            .Where(i => !(i.Status == InvoiceStatus.Cancelled && i.ErpCheckResult == cancelledThere && i.ErpCheckedAt >= i.UpdatedAt))
+            .Where(i => !((i.Status == InvoiceStatus.Failed || i.Status == InvoiceStatus.Cancelled)
+                          && i.ErpCheckResult == ErpCheckResult.NotFound
+                          && i.ErpCheckedAt >= i.UpdatedAt && i.ErpCheckedAt > notFoundSince))
+            .OrderBy(i => i.ErpCheckedAt ?? i.CreatedAt)
+            .ThenBy(i => i.InvoiceNumber)
+            .Take(oldLimit)
             .ToListAsync(ct);
+        return [.. recent, .. old];
+    }
 
     public async Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct) =>
         await db.Invoices.AsNoTracking().Where(i => numbers.Contains(i.InvoiceNumber)).ToListAsync(ct);

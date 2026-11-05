@@ -30,6 +30,13 @@ public sealed class FakeErp : IAsyncDisposable
     /// <summary>How many cancellation records the fake ERP holds.</summary>
     public int CancellationCount { get { lock (_lock) return _cancelled.Count; } }
 
+    /// <summary>When set, the answer to GET api/v1/invoices/{number}; every question is listed in
+    /// <see cref="Lookups"/>.</summary>
+    public Func<string, IResult>? OnGet { get; set; }
+
+    /// <summary>The invoice numbers asked with <see cref="OnGet"/> set, in the order they were asked.</summary>
+    public List<string> Lookups { get; } = [];
+
     /// <summary>The answer to POST api/v1/invoices, by invoice number.</summary>
     public Func<string, IResult> OnPost { get; set; } = number => Results.Json(new { erpReference = $"ERP-{number}" }, statusCode: 202);
 
@@ -63,6 +70,7 @@ public sealed class FakeErp : IAsyncDisposable
 
         FakeErp? erp = null;
         app.MapPost("api/v1/invoices", (PostedInvoice body) => erp!.Post(body.InvoiceNumber));
+        app.MapGet("api/v1/invoices", () => Results.Ok(new { totalCount = 0, items = Array.Empty<object>() }));
         app.MapGet("api/v1/invoices/{number}", (string number) => erp!.Get(number));
         app.MapPost("api/v1/invoices/{number}/cancel", (string number) => erp!.Cancel(number));
 
@@ -87,6 +95,11 @@ public sealed class FakeErp : IAsyncDisposable
     {
         lock (_lock)
         {
+            if (OnGet is not null)
+            {
+                Lookups.Add(number);
+                return OnGet(number);
+            }
             if (!KeepRecords || !_accepted.Contains(number))
                 return Results.NotFound();
             return Results.Ok(new { erpReference = $"ERP-{number}", cancelReference = _cancelled.GetValueOrDefault(number) });

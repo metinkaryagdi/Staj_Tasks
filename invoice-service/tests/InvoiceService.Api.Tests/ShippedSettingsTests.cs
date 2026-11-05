@@ -92,6 +92,7 @@ public class ShippedSettingsTests
         Assert.Equal(60, options.UnknownEventAfterMinutes);
         Assert.Equal(30, options.NoDecisionAfterMinutes);
         Assert.Equal(24, options.NotFoundRecheckHours);
+        Assert.Equal(10000, options.MaxErpLookupsPerRun);
     }
 
     [Fact]

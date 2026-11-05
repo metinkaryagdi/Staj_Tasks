@@ -90,6 +90,52 @@ public class CancelOrderTests(PostgresFixture postgres) : IntegrationTest(postgr
     }
 
     [Fact]
+    public async Task The_cancellation_of_an_invoice_at_the_erp_goes_before_the_unrelated_invoices_queued_before_it()
+    {
+        var number = await InvoiceAtTheErpAsync();
+        var unrelated = await CreateInvoiceAsync();
+        await CancelAsync(number);
+
+        var first = Assert.Single(await ClaimOneAsync());
+
+        Assert.Equal((number, OutboxKind.Cancel), (first.InvoiceNumber, first.Kind));
+        Assert.Equal(OutboxStatus.Pending, await OutboxStatusAsync(unrelated, OutboxKind.Send));
+    }
+
+    [Fact]
+    public async Task A_queued_invoice_with_a_cancellation_goes_before_the_unrelated_ones_and_its_cancellation_still_waits_for_it()
+    {
+        var unrelated = await CreateInvoiceAsync();
+        var cancelled = await CreateInvoiceAsync();
+        await CancelAsync(cancelled);
+
+        var first = Assert.Single(await ClaimOneAsync());
+        Assert.Equal((cancelled, OutboxKind.Send), (first.InvoiceNumber, first.Kind));
+
+        // Its send entry is held: the next one out is the unrelated invoice, not the cancellation.
+        var second = Assert.Single(await ClaimOneAsync());
+        Assert.Equal((unrelated, OutboxKind.Send), (second.InvoiceNumber, second.Kind));
+    }
+
+    [Fact]
+    public async Task Invoices_without_a_cancellation_keep_the_order_they_were_queued_in()
+    {
+        var older = await CreateInvoiceAsync();
+        var newer = await CreateInvoiceAsync();
+
+        Assert.Equal(older, Assert.Single(await ClaimOneAsync()).InvoiceNumber);
+        Assert.Equal(newer, Assert.Single(await ClaimOneAsync()).InvoiceNumber);
+    }
+
+    private async Task<IReadOnlyList<ClaimedEntry>> ClaimOneAsync()
+    {
+        await using var scope = NewScope();
+        var now = DateTimeOffset.UtcNow;
+        return await scope.ServiceProvider.GetRequiredService<IOutboxStore>()
+            .ClaimAsync(1, "A", now, now.AddSeconds(60), 10, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task Two_workers_taking_at_the_same_moment_never_take_a_cancellation_whose_invoice_is_being_sent()
     {
         var numbers = new List<string>();
@@ -376,7 +422,7 @@ public class CancelOrderTests(PostgresFixture postgres) : IntegrationTest(postgr
 
         await using var scope = NewScope();
         var read = await scope.ServiceProvider.GetRequiredService<Application.Abstractions.IReconciliationStore>()
-            .InvoicesToCheckAsync(DateTimeOffset.UtcNow.AddHours(1), CancellationToken.None);
+            .InvoicesToCheckAsync(DateTimeOffset.UtcNow.AddHours(1), DateTimeOffset.UtcNow.AddHours(-24), 1000, CancellationToken.None);
 
         Assert.Equal(new[] { approved, cancelled }.Order(), read.Select(i => i.InvoiceNumber).Order());
     }

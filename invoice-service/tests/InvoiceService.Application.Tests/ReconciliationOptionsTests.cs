@@ -14,7 +14,8 @@ public class ReconciliationOptionsTests
             ["Reconciliation:StuckAfterMinutes"] = "2",
             ["Reconciliation:UnknownEventAfterMinutes"] = "60",
             ["Reconciliation:NoDecisionAfterMinutes"] = "30",
-            ["Reconciliation:NotFoundRecheckHours"] = "24"
+            ["Reconciliation:NotFoundRecheckHours"] = "24",
+            ["Reconciliation:MaxErpLookupsPerRun"] = "1000"
         };
         foreach (var (key, value) in overrides)
             values[key] = value;
@@ -41,6 +42,7 @@ public class ReconciliationOptionsTests
     [InlineData("Reconciliation:UnknownEventAfterMinutes")]
     [InlineData("Reconciliation:NoDecisionAfterMinutes")]
     [InlineData("Reconciliation:NotFoundRecheckHours")]
+    [InlineData("Reconciliation:MaxErpLookupsPerRun")]
     public void A_missing_value_is_refused_and_named(string key)
     {
         var result = Validate(Settings((key, null)));
@@ -78,6 +80,7 @@ public class ReconciliationOptionsTests
     [InlineData("Reconciliation:UnknownEventAfterMinutes", "-5")]
     [InlineData("Reconciliation:NoDecisionAfterMinutes", "0")]
     [InlineData("Reconciliation:NotFoundRecheckHours", "0")]
+    [InlineData("Reconciliation:MaxErpLookupsPerRun", "0")]
     public void A_value_that_is_not_greater_than_0_is_refused_and_named(string key, string value)
     {
         var result = Validate(Settings((key, value)));

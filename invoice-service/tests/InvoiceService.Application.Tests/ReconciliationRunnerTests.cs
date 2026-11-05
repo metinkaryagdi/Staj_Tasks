@@ -309,33 +309,86 @@ public class ReconciliationRunnerTests
     }
 
     [Fact]
-    public async Task When_an_old_invoice_cannot_be_asked_for_the_run_fails_and_nothing_is_changed()
+    public async Task When_an_old_invoice_cannot_be_asked_for_the_other_old_invoices_are_still_compared()
     {
-        AddInvoice("F-OLD", InvoiceStatus.Sent, minutesInStatus: 100 * 60, reference: "ERP-1", createdHoursAgo: 100);
-        AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-2");
-        _s.Erp.ListResult = new ErpListResult(true, [Erp("F-1", "ERP-2")], null);
+        AddInvoice("F-OLD", InvoiceStatus.Approved, reference: "ERP-1", createdHoursAgo: 101);
+        AddInvoice("F-OLD2", InvoiceStatus.Approved, reference: "ERP-2", createdHoursAgo: 100);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.Unknown());
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(
+            new ErpDecision(ErpDecisionKind.Cancelled, null, Now), OldErp("F-OLD2", "ERP-2") with { Cancelled = true }));
+
+        var run = await RunAsync();
+
+        Assert.Equal(ReconciliationStatus.Completed, run.Status);
+        Assert.Null(run.Error);
+        // No answer: not compared, not "ERP Kaydı Yok", unchanged, and its turn stays first.
+        Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices["F-OLD"].Status);
+        Assert.Null(_s.Invoices.Invoices["F-OLD"].ErpCheckedAt);
+        Assert.Equal(InvoiceStatus.Cancelled, _s.Invoices.Invoices["F-OLD2"].Status);
+        Assert.Equal(FindingType.CancelledInErp, Assert.Single(_s.Reconciliation.Findings).FindingType);
+    }
+
+    [Fact]
+    public async Task An_old_cancelled_invoice_without_an_answer_does_not_get_its_cancellation_queued_again()
+    {
+        AddInvoice("F-OLD", InvoiceStatus.Cancelled, reference: "ERP-1", createdHoursAgo: 100);
         _s.Erp.LookupResults.Enqueue(FakeErpGateway.Unknown());
 
         var run = await RunAsync();
 
-        Assert.Equal(ReconciliationStatus.Failed, run.Status);
-        Assert.Contains("F-OLD", run.Error);
-        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-OLD"].Status);
-        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-1"].Status);
+        Assert.Equal(ReconciliationStatus.Completed, run.Status);
         Assert.Empty(_s.Reconciliation.Findings);
     }
 
     [Fact]
-    public async Task An_answer_for_an_old_invoice_without_readable_records_fails_the_run()
+    public async Task One_run_asks_at_most_the_limit_and_the_next_run_goes_on_with_the_ones_asked_longest_ago()
+    {
+        _s.ReconciliationSettings.MaxErpLookupsPerRun = 2;
+        AddInvoice("F-1", InvoiceStatus.Approved, reference: "ERP-1", createdHoursAgo: 103);
+        AddInvoice("F-2", InvoiceStatus.Approved, reference: "ERP-2", createdHoursAgo: 102);
+        AddInvoice("F-3", InvoiceStatus.Approved, reference: "ERP-3", createdHoursAgo: 101);
+        AddInvoice("F-4", InvoiceStatus.Approved, reference: "ERP-4", createdHoursAgo: 100);
+        foreach (var (number, reference) in new[] { ("F-1", "ERP-1"), ("F-2", "ERP-2"), ("F-3", "ERP-3"), ("F-4", "ERP-4") })
+            _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(new ErpDecision(ErpDecisionKind.Approved, null, Now), OldErp(number, reference)));
+
+        var first = await RunAsync();
+        Assert.Equal(["LIST", "GET F-1", "GET F-2"], _s.Erp.Calls);
+        Assert.Equal(2, first.CheckedCount);
+        // Not asked yet: not compared, so not "ERP Kaydı Yok".
+        Assert.Empty(_s.Reconciliation.Findings);
+
+        _s.Erp.Calls.Clear();
+        await RunAsync();
+        Assert.Equal(["LIST", "GET F-3", "GET F-4"], _s.Erp.Calls);
+    }
+
+    [Fact]
+    public async Task The_limit_is_only_for_old_invoices_a_recent_stuck_invoice_is_always_asked_for()
+    {
+        _s.ReconciliationSettings.MaxErpLookupsPerRun = 1;
+        AddInvoice("F-OLD", InvoiceStatus.Approved, reference: "ERP-1", createdHoursAgo: 100);
+        AddInvoice("F-NEW", InvoiceStatus.Sent, reference: "ERP-2");
+        _s.Erp.ListResult = new ErpListResult(true, [Erp("F-NEW", "ERP-2")], null);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(new ErpDecision(ErpDecisionKind.Approved, null, Now), OldErp("F-OLD", "ERP-1")));
+        _s.Erp.LookupResults.Enqueue(Decided(ErpDecisionKind.Approved, "ERP-2"));
+
+        await RunAsync();
+
+        Assert.Equal(["LIST", "GET F-OLD", "GET F-NEW"], _s.Erp.Calls);
+        Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices["F-NEW"].Status);
+    }
+
+    [Fact]
+    public async Task An_answer_for_an_old_invoice_without_readable_records_leaves_it_out_of_the_run()
     {
         AddInvoice("F-OLD", InvoiceStatus.Sent, minutesInStatus: 100 * 60, reference: "ERP-1", createdHoursAgo: 100);
         _s.Erp.LookupResults.Enqueue(FakeErpGateway.Found("ERP-1"));
 
         var run = await RunAsync();
 
-        Assert.Equal(ReconciliationStatus.Failed, run.Status);
-        Assert.Contains("F-OLD", run.Error);
+        Assert.Equal(ReconciliationStatus.Completed, run.Status);
         Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-OLD"].Status);
+        Assert.Empty(_s.Reconciliation.Findings);
     }
 
     // --- Simülatöre ulaşılamazsa
@@ -360,7 +413,7 @@ public class ReconciliationRunnerTests
     }
 
     [Fact]
-    public async Task When_one_decision_cannot_be_asked_for_not_even_the_invoices_asked_before_it_are_changed()
+    public async Task When_one_decision_cannot_be_asked_for_the_other_invoices_are_still_fixed()
     {
         AddInvoice("F-1", InvoiceStatus.Sent, reference: "ERP-1");
         AddInvoice("F-2", InvoiceStatus.Sent, reference: "ERP-2");
@@ -370,11 +423,10 @@ public class ReconciliationRunnerTests
 
         var run = await RunAsync();
 
-        Assert.Equal(ReconciliationStatus.Failed, run.Status);
-        Assert.Contains("F-2", run.Error);
-        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-1"].Status);
+        Assert.Equal(ReconciliationStatus.Completed, run.Status);
+        Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices["F-1"].Status);
         Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-2"].Status);
-        Assert.Empty(_s.Reconciliation.Findings);
+        Assert.Equal("F-1", Assert.Single(_s.Reconciliation.Findings).InvoiceNumber);
     }
 
     [Fact]

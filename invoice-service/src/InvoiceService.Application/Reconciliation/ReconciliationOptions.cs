@@ -40,6 +40,12 @@ public sealed class ReconciliationOptions
     public int NotFoundRecheckHours { get; set; }
 
     public TimeSpan NotFoundRecheck => TimeSpan.FromHours(NotFoundRecheckHours);
+
+    /// <summary>
+    /// At most this many invoices older than the window are asked for in one run, the one asked longest ago first: the
+    /// questions of a run do not grow with the history, and every old invoice still gets its turn.
+    /// </summary>
+    public int MaxErpLookupsPerRun { get; set; }
 }
 
 public sealed class ReconciliationOptionsValidator(IConfiguration configuration) : IValidateOptions<ReconciliationOptions>
@@ -55,7 +61,8 @@ public sealed class ReconciliationOptionsValidator(IConfiguration configuration)
     [
         nameof(ReconciliationOptions.IntervalMinutes), nameof(ReconciliationOptions.LookbackHours),
         nameof(ReconciliationOptions.StuckAfterMinutes), nameof(ReconciliationOptions.UnknownEventAfterMinutes),
-        nameof(ReconciliationOptions.NoDecisionAfterMinutes), nameof(ReconciliationOptions.NotFoundRecheckHours)
+        nameof(ReconciliationOptions.NoDecisionAfterMinutes), nameof(ReconciliationOptions.NotFoundRecheckHours),
+        nameof(ReconciliationOptions.MaxErpLookupsPerRun)
     ];
 
     public ValidateOptionsResult Validate(string? name, ReconciliationOptions options)
@@ -78,7 +85,8 @@ public sealed class ReconciliationOptionsValidator(IConfiguration configuration)
                      (nameof(options.StuckAfterMinutes), options.StuckAfterMinutes),
                      (nameof(options.UnknownEventAfterMinutes), options.UnknownEventAfterMinutes),
                      (nameof(options.NoDecisionAfterMinutes), options.NoDecisionAfterMinutes),
-                     (nameof(options.NotFoundRecheckHours), options.NotFoundRecheckHours)
+                     (nameof(options.NotFoundRecheckHours), options.NotFoundRecheckHours),
+                     (nameof(options.MaxErpLookupsPerRun), options.MaxErpLookupsPerRun)
                  })
         {
             if (value <= 0)

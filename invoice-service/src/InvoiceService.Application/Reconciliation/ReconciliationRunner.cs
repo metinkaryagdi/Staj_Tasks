@@ -8,14 +8,16 @@ using Microsoft.Extensions.Options;
 namespace InvoiceService.Application.Reconciliation;
 
 /// <summary>
-/// The run cannot go on; the message is stored as the run's error. Nothing was changed yet when this is thrown.
+/// The run cannot go on (the ERP's list cannot be read); the message is stored as the run's error. Nothing was changed
+/// yet when this is thrown.
 /// </summary>
 public sealed class ReconciliationFailedException(string message) : Exception(message);
 
 /// <summary>
-/// One reconciliation run. It first reads both sides completely (the service's data, the ERP's list, the ERP's
-/// decisions) and only then writes: if the ERP cannot be reached at any point of the reading, the run is Başarısız
-/// and no invoice has been changed.
+/// One reconciliation run. It first reads both sides (the service's data, the ERP's list, the ERP's decisions) and only
+/// then writes. If the ERP's list cannot be read the run is Başarısız and no invoice has been changed. An invoice whose
+/// own answer cannot be had is left out of this run's comparison, unchanged, and keeps its turn for the next run; the
+/// others go on.
 /// </summary>
 public sealed class ReconciliationRunner(
     IReconciliationStore store, IErpGateway erp, IUnitOfWork unitOfWork, ReconciliationPlanner planner,
@@ -102,11 +104,12 @@ public sealed class ReconciliationRunner(
     {
         var now = time.GetUtcNow();
         var since = now - TimeSpan.FromHours(options.Value.LookbackHours);
+        var notFoundSince = now - options.Value.NotFoundRecheck;
 
         // The service's side is read before the ERP's, and the ERP's list runs up to a moment taken after that
         // reading: an invoice that is Gönderildi in the service's data was accepted by the ERP before then, so it is
         // in the list.
-        var invoices = (await store.InvoicesToCheckAsync(since, ct)).ToList();
+        var invoices = (await store.InvoicesToCheckAsync(since, notFoundSince, options.Value.MaxErpLookupsPerRun, ct)).ToList();
         var unknownEvents = await store.WaitingEventsOfUnknownInvoicesAsync(ct);
 
         var listed = await erp.ListAsync(since, time.GetUtcNow(), ct);
@@ -122,19 +125,13 @@ public sealed class ReconciliationRunner(
         var records = listed.Records.ToList();
         var decisions = new Dictionary<string, ErpDecision>();
         var checks = new List<ErpCheck>();
-        var skipped = 0;
+        var unanswered = new HashSet<string>();
 
         // An invoice older than the window is not in the ERP's list: ask the ERP for it, so a long outage of the runs or a
         // lost event cannot leave it unseen. The answer also carries the decision.
         var listedNumbers = records.Select(r => r.InvoiceNumber).ToHashSet();
         foreach (var old in invoices.Where(i => i.CreatedAt < since && !listedNumbers.Contains(i.InvoiceNumber)))
         {
-            if (RecentlyNotFound(old, now) || AgreedCancelled(old))
-            {
-                skipped++;
-                continue;
-            }
-
             var found = await erp.FindAsync(old.InvoiceNumber, ct);
             LogLookup(runId, old.InvoiceNumber, found);
             switch (found.Lookup)
@@ -148,8 +145,9 @@ public sealed class ReconciliationRunner(
                     checks.Add(new(old.InvoiceNumber, ErpCheckResult.NotFound));
                     break;
                 default:
-                    throw new ReconciliationFailedException(
-                        $"{old.InvoiceNumber} için ERP'den kayıt alınamadı: {found.Error ?? "cevaptaki kayıtlar okunamadı"}");
+                    LogUnanswered(runId, old.InvoiceNumber, found.Error ?? "cevaptaki kayıtlar okunamadı");
+                    unanswered.Add(old.InvoiceNumber);
+                    break;
             }
         }
 
@@ -164,38 +162,37 @@ public sealed class ReconciliationRunner(
             LogLookup(runId, number, found);
             if (found.Lookup != ErpLookup.Found)
             {
-                throw new ReconciliationFailedException(
-                    $"{number} için ERP'den karar alınamadı: {found.Error ?? "ERP kaydı bulunamadı"}");
+                LogUnanswered(runId, number, found.Error ?? "ERP kaydı bulunamadı");
+                unanswered.Add(number);
+                continue;
             }
             decisions[number] = found.Decision ?? ErpDecision.None;
             checks.Add(new(number, ErpCheckResult.Found(decisions[number].Kind)));
         }
 
         logger.LogInformation(
-            "Reconciliation ERP lookups run={RunId} asked={Asked} notFound={NotFound} skippedRecentlyNotFound={Skipped}",
-            runId, checks.Count, checks.Count(c => c.Result == ErpCheckResult.NotFound), skipped);
-        return (planner.Plan(snapshot, decisions), checks);
+            "Reconciliation ERP lookups run={RunId} asked={Asked} notFound={NotFound} unanswered={Unanswered}",
+            runId, checks.Count, checks.Count(c => c.Result == ErpCheckResult.NotFound), unanswered.Count);
+        return (planner.Plan(WithoutUnanswered(snapshot, unanswered), decisions), checks);
     }
 
     /// <summary>
-    /// A Başarısız or İptal Edildi invoice the ERP said "not there" about, recently enough and with nothing changed on it
-    /// since: asking again would only get the same answer. Only these: an old Gönderildi the ERP does not have is "ERP Kaydı
-    /// Yok" and must be reported by every run.
+    /// An invoice the ERP gave no answer about is not compared: with its answer missing it would look like an invoice the
+    /// ERP does not have, or a cancellation that never reached the ERP. Its record goes too, so it is not "not in the
+    /// service" either.
     /// </summary>
-    private bool RecentlyNotFound(Invoice invoice, DateTimeOffset now) =>
-        invoice.Status is InvoiceStatus.Failed or InvoiceStatus.Cancelled
-        && invoice.ErpCheckResult == ErpCheckResult.NotFound
-        && invoice.ErpCheckedAt is { } checkedAt
-        && checkedAt >= invoice.UpdatedAt
-        && now - checkedAt < options.Value.NotFoundRecheck;
+    private static ReconciliationSnapshot WithoutUnanswered(ReconciliationSnapshot snapshot, HashSet<string> unanswered) =>
+        unanswered.Count == 0
+            ? snapshot
+            : snapshot with
+            {
+                Invoices = snapshot.Invoices.Where(i => !unanswered.Contains(i.InvoiceNumber)).ToList(),
+                ErpRecords = snapshot.ErpRecords.Where(r => !unanswered.Contains(r.InvoiceNumber)).ToList()
+            };
 
-    /// <summary>İptal Edildi here and the ERP said it has cancelled it too, with nothing changed since: final on both
-    /// sides, so it is not asked again.</summary>
-    private static bool AgreedCancelled(Invoice invoice) =>
-        invoice.Status == InvoiceStatus.Cancelled
-        && invoice.ErpCheckResult == ErpCheckResult.Found(ErpDecisionKind.Cancelled)
-        && invoice.ErpCheckedAt is { } checkedAt
-        && checkedAt >= invoice.UpdatedAt;
+    private void LogUnanswered(long runId, string invoiceNumber, string error) =>
+        logger.LogWarning("Reconciliation left an invoice out, no answer from the ERP run={RunId} invoice={InvoiceNumber}: {Error}",
+            runId, invoiceNumber, error);
 
     /// <summary>
     /// One statement per invoice, and one that fails is only logged: an invoice whose row cannot be written (locked too

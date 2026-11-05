@@ -26,8 +26,8 @@ public static class SettingsLogger
         var reconciliation = app.Services.GetRequiredService<IOptions<ReconciliationOptions>>().Value;
         app.Logger.LogInformation(
             "Reconciliation settings: interval={Interval}min lookback={Lookback}h stuckAfter={Stuck}min unknownEventAfter={Unknown}min " +
-            "noDecisionAfter={NoDecision}min notFoundRecheck={NotFoundRecheck}h",
+            "noDecisionAfter={NoDecision}min notFoundRecheck={NotFoundRecheck}h maxErpLookups={MaxErpLookups}",
             reconciliation.IntervalMinutes, reconciliation.LookbackHours, reconciliation.StuckAfterMinutes, reconciliation.UnknownEventAfterMinutes,
-            reconciliation.NoDecisionAfterMinutes, reconciliation.NotFoundRecheckHours);
+            reconciliation.NoDecisionAfterMinutes, reconciliation.NotFoundRecheckHours, reconciliation.MaxErpLookupsPerRun);
     }
 }

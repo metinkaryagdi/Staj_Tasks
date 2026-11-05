@@ -132,6 +132,32 @@ services:
       invoice-db:
         condition: service_healthy
 
+  # Fatura Servisi veritabanının düzenli yedeği (scripts/backup-invoice-db.sh). Yedek klasörü host'tadır, veritabanı
+  # volume'ünden ayrıdır: veritabanı ya da volume silinse, `docker compose down -v` çalışsa da yedekler durur. Aynı
+  # makinede olduğu için makine kaybına karşı korumaz. Geri dönüş: scripts/restore-invoice-db.sh.
+  invoice-db-backup:
+    image: postgres:17-alpine
+    command: ["sh", "/scripts/backup-invoice-db.sh"]
+    environment:
+      PGHOST: invoice-db
+      PGDATABASE: invoice_service
+      PGUSER: invoice
+      PGPASSWORD: ${INVOICE_DB_PASSWORD:?}
+      # İki yedek arası, saniye. En kötü durumda bu kadar süre + yedek süresi kadar veri kaybolur. Her yedek bütün
+      # veritabanını yazdığından çok kısa tutulmaz; veritabanı büyüdükçe yedek süresiyle birlikte yeniden değerlendirilir.
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-300}
+      # Tutulan en yeni yedek sayısı: 5 dakikada bir alınınca 3 saat geri gider, disk bu sayı x tek yedek boyutuyla
+      # sınırlı kalır. Son yedek bozuk çıkarsa bir öncekine dönmek için birden fazla tutulur.
+      BACKUP_KEEP_FILES: ${BACKUP_KEEP_FILES:-36}
+    volumes:
+      - ./scripts:/scripts:ro
+      - ${INVOICE_BACKUP_DIR:-./backups/invoice-db}:/backups
+    networks:
+      - invoice-data
+    depends_on:
+      invoice-db:
+        condition: service_healthy
+
   invoice-service:
     build: ./invoice-service
     ports:
@@ -152,6 +178,7 @@ services:
       Reconciliation__UnknownEventAfterMinutes:
       Reconciliation__NoDecisionAfterMinutes:
       Reconciliation__NotFoundRecheckHours:
+      Reconciliation__MaxErpLookupsPerRun:
     networks:
       - invoice-data
       - apps
@@ -229,6 +256,7 @@ services:
       Reconciliation__UnknownEventAfterMinutes:
       Reconciliation__NoDecisionAfterMinutes:
       Reconciliation__NotFoundRecheckHours:
+      Reconciliation__MaxErpLookupsPerRun:
     networks:
       - invoice-data
       - apps

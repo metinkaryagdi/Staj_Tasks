@@ -278,6 +278,15 @@ public class ReconciliationPlannerTests
     }
 
     [Fact]
+    public void An_erp_record_the_service_does_not_have_says_when_the_erp_has_cancelled_it()
+    {
+        var finding = Assert.Single(Plan(Snapshot(erp: [Erp("X-1", "ERP-5") with { Cancelled = true }])).Findings);
+
+        Assert.Equal(FindingType.MissingInService, finding.FindingType);
+        Assert.Contains("ERP'de iptal edilmiş", finding.Details);
+    }
+
+    [Fact]
     public void An_invoice_the_service_says_was_sent_but_the_erp_does_not_have_is_reported()
     {
         var snapshot = Snapshot([Invoice("F-1", InvoiceStatus.Sent), Invoice("F-2", InvoiceStatus.Approved),

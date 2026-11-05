@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Veritabanı yedekleri: fatura verisi içerir
+backups/
+
 # User-specific files
 *.rsuser
 *.suo

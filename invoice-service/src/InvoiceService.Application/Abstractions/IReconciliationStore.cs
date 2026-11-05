@@ -44,10 +44,14 @@ public interface IReconciliationStore
     Task<IReadOnlyList<ReconciliationFinding>> ListFindingsOfInvoiceAsync(string invoiceNumber, CancellationToken ct);
 
     /// <summary>
-    /// Invoices created at or after <paramref name="since"/>, and every invoice in a
-    /// <see cref="InvoiceStatus.CheckedAtAnyAge"/> status however old, not tracked.
+    /// Invoices created at or after <paramref name="since"/>, and at most <paramref name="oldLimit"/> older ones in a
+    /// <see cref="InvoiceStatus.CheckedAtAnyAge"/> status, the one asked longest ago first (one never asked counts from
+    /// its creation), not tracked. Left out, since asking again would only get the same answer, with nothing changed on
+    /// the invoice since the answer: an İptal Edildi invoice the ERP said it has cancelled too, and a Başarısız or İptal
+    /// Edildi invoice the ERP said "not there" about after <paramref name="notFoundSince"/>.
     /// </summary>
-    Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(DateTimeOffset since, CancellationToken ct);
+    Task<IReadOnlyList<Invoice>> InvoicesToCheckAsync(
+        DateTimeOffset since, DateTimeOffset notFoundSince, int oldLimit, CancellationToken ct);
 
     /// <summary>The invoices with these numbers (the ones that exist), not tracked.</summary>
     Task<IReadOnlyList<Invoice>> InvoicesByNumberAsync(IReadOnlyCollection<string> numbers, CancellationToken ct);

@@ -137,7 +137,7 @@ flowchart LR
     P --> F["FixApplier<br/>fatura başına bir transaction<br/>satır kilidi altında"]
 ```
 
-ERP'ye ulaşılamazsa çalışma Başarısız olur ve hiçbir fatura değişmemiştir (yazma henüz başlamamıştır).
+ERP listesi alınamazsa çalışma Başarısız olur ve hiçbir fatura değişmemiştir (yazma henüz başlamamıştır). Tek bir faturanın cevabı alınamazsa o fatura karşılaştırılmaz, diğerleri sürer.
 
 **Yeniden gönderme** — `POST /api/v1/invoices/{n}/resend` → endpoint operatörün adını ve sub'ını token'dan okur (`OperatorName`,
 `preferred_username` ve `sub`; kullanılabilir ad yoksa `403`) → `ResendInvoiceHandler`: yalnızca Başarısız fatura Bekliyor'a döner ve outbox kaydı sıfırlanır; `operator_actions`
@@ -278,7 +278,8 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
 - **Kuyruk sırası, kuyruğa giriş sırasıdır.** Zamanı gelmiş kayıtlar `created_at, id` sırasıyla alınır. `next_attempt_at`
   yalnızca kaydın ne zaman alınabileceğini söyler; ona göre sıralamak, bekleme süresi dolan tekrar denemeyi beklerken
   kuyruğa girenlerin arkasına atar (yük testinde fatura kuyruğu iki kez bekliyordu). Bedeli: tekrar deneme öne geçtiği için
-  sonradan giren, hiç hata almayan faturalar yük testinde ortalama yaklaşık 4 dakika daha geç gider.
+  sonradan giren, hiç hata almayan faturalar yük testinde ortalama yaklaşık 4 dakika daha geç gider. Bekleyen iptali olan faturanın
+  satırları diğerlerinin önüne geçer: sıra şartı yalnız bir fatura ile kendi iptali arasındadır, iptal ilgisiz faturaları beklemez.
 - **Claim token.** Her alımda yeni bir kimlik yazılır. Kilidi süresi dolmuş (örneğin takılıp kalmış) bir worker'ın
   kimliği artık eşleşmez; ne POST edebilir ne de sonucu, kaydı ondan sonra alanın sonucunun üzerine yazabilir.
 - **Kilit süresi.** `Outbox:LockSeconds`, bir denemenin en uzun süresinden (sor + gönder + son kez sor =
@@ -314,8 +315,9 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   yalnızca biri alır. Bağlantı havuzsuzdur: kopya durur ya da çökerse oturum biter ve kilidi veritabanı bırakır. Bağlantı çalışma boyunca boşta kaldığı için keepalive açıktır;
   ağ gerçekten kopmuşsa kilit düşer ve bunu yakalayan ek bir kontrol yoktur (bilinen sınır). Kilidi alan,
   `Çalışıyor` kalmış kayıtları (önceki sahibi öldü) Başarısız yapar; kilit `Çalışıyor` kaydına bağlı olsaydı çöken kopya o kaydı bırakmaz, yeni çalışma engellenirdi; advisory lock'u ise oturum bitince veritabanı bırakır.
-- **Önce oku, sonra yaz.** ERP'nin her okuması (liste, takılı faturaların kararı) yazmadan önce biter; biri başarısızsa çalışma Başarısız olur.
+- **Önce oku, sonra yaz.** ERP'nin her okuması (liste, takılı faturaların kararı) yazmadan önce biter. Liste alınamazsa çalışma Başarısız olur; bir faturanın cevabı alınamazsa yalnız o fatura bu çalışmada karşılaştırılmaz, çünkü cevabı eksik fatura ERP'de yokmuş gibi görünürdü.
   Servisin tarafı ERP'den önce okunur: araya giren bir Gönderildi, ERP listesinde zaten vardır (tersi, onu ERP'de yokmuş gösterirdi).
+- **Eski faturalara sorgu sınırı.** Pencereden eski faturalardan çalışma başına en çok `MaxErpLookupsPerRun` tanesi sorulur, en uzun süredir sorulmayan önce. Sorgu sayısı geçmişle büyümez; bedeli, eski faturadaki kayıp iptalin sırası gelene kadar görülmemesidir.
 - **Düzeltilenler ve yalnızca raporlananlar.** Düzeltme, servisin kendi kuralıyla (`InvoiceTransitions`) ya da ERP'nin açıkça söylediği bir
   şeyle yapılabilenlerdir: takılı fatura kararı alır, Başarısız ama ERP'de kayıtlı fatura referansıyla Gönderildi olur, tanınmayan faturanın
   eski haberi Yok Sayıldı olur. Tutar, para birimi, müşteri kodu ve referans farkı, çift kayıt ve karşı tarafta olmayan fatura hangi tarafın
@@ -337,14 +339,14 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   çevirir, her faturanın `stuck` alanı (ekrandaki rozet) aynı ifadeyi derleyip kullanır; süre `ReconciliationOptions.StuckAfter`.
   Rozeti ekran kendi saatiyle hesaplasaydı tarayıcı saati farklıyken süzgeçle çelişebilirdi.
 - **ERP Karar Vermedi.** Takılı fatura için ERP'nin cevabı faturayı ilerletmiyorsa (kararı yok ya da yalnızca `received`) ve fatura
-  `NoDecisionAfterMinutes`'tan uzun aynı durumdaysa raporlanır; düzeltme yoktur. Bulgu her çalışmada yeniden yazılır (o çalışmanın
+  `NoDecisionAfterMinutes`'tan uzun aynı durumdaysa raporlanır; düzeltme yoktur. Bulgu pencere içinde her çalışmada, eski faturada sırası geldiğinde yeniden yazılır (o çalışmanın
   raporu eksik kalmasın), fatura detayı yalnızca en sonuncusunu gösterir. Yalnızca `none` sayılsaydı, `received` haberi gelmiş ve
   İşleme Alındı'da kalmış fatura bu bulguyu hiç almazdı.
 - **"Yok" cevabı faturada tutulur.** `erp_checked_at` / `erp_check_result` ayrı bir tabloya değil faturaya yazılır; geçerliliği
   `updated_at` ile karşılaştırılarak anlaşılır: fatura cevaptan sonra değiştiyse (resend gibi) cevap eskidir ve ayrıca temizlenmesi
   gerekmez. Yazma `updated_at`'e dokunmaz, düzeltmelerden önce ve fatura başına ayrı yapılır; yazılamayan cevap (satırı
-  kilitli kalan ya da veritabanının reddettiği fatura) yalnızca loga düşer, çalışmayı durdurmaz, o fatura sonraki çalışmada yine sorulur. Yalnızca Başarısız faturada atlanır; eski Gönderildi
-  için "yok", her çalışmada raporlanması gereken `ERP Kaydı Yok`'tur. Aynı veri fatura detayında "ERP'ye son soru" olarak görünür.
+  kilitli kalan ya da veritabanının reddettiği fatura) yalnızca loga düşer, çalışmayı durdurmaz, o fatura sonraki çalışmada yine sorulur. Yalnızca Başarısız ve İptal Edildi faturada atlanır; eski Gönderildi
+  için "yok", sırası her geldiğinde raporlanması gereken `ERP Kaydı Yok`'tur. Aynı veri fatura detayında "ERP'ye son soru" olarak görünür.
 - **Varsayılan aralık 60 dakika, ilk çalışma bir aralık sonra.** Daha kısa bir aralık, haberi yalnızca geç gelen faturaları da düzeltir ve
   önceki günlerin sayımlarını (karar haberi gönderilmeyen fatura sayısı) değiştirirdi; 7. ve 8. maddenin testleri aralığı ortam değişkeniyle kısaltır.
 

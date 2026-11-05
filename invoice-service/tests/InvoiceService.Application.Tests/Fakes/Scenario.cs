@@ -60,7 +60,7 @@ public sealed class Scenario
     public ReconciliationOptions ReconciliationSettings { get; } = new()
     {
         IntervalMinutes = 1, LookbackHours = 24, StuckAfterMinutes = 2, UnknownEventAfterMinutes = 60,
-        NoDecisionAfterMinutes = 30, NotFoundRecheckHours = 24
+        NoDecisionAfterMinutes = 30, NotFoundRecheckHours = 24, MaxErpLookupsPerRun = 1000
     };
 
     public Scenario()
