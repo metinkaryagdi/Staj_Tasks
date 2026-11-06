@@ -71,6 +71,7 @@ app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
 app.MapInvoiceEndpoints();
+app.MapInvoiceEndpointsV2();
 
 app.Run();
 

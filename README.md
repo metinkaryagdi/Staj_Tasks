@@ -87,6 +87,16 @@ POST /api/v1/invoices
 { "erpReference": "ERP-00000001", "invoiceNumber": "INV-2026-0001", "receivedAt": "2026-09-29T07:00:00+00:00" }
 ```
 
+### Yeni sürüm (`/api/v2`)
+
+`POST`, `GET` (tek fatura ve liste) ve `POST …/cancel`, v1 ile aynı kayıtlar üzerinde, aynı hız sınırı ve davranışlarla çalışır. Farklar:
+
+- **Tutar:** kuruş cinsinden tam sayı olarak alınır ve verilir (`amountKurus`); ondalık değer `400`.
+- **Aynı numara:** ikinci kez gönderilirse yeni kayıt açılmaz, `202` ile mevcut kayıt döner; içerik farklı olsa da. Numara v1 ile alınmış olabilir. Davranış seçilmez.
+- **Haberler:** v2 ile alınan faturanın haberleri yeni biçimdedir ([Webhook'lar](#webhooklar)).
+
+**v1'i kapatma:** `Simulator:V1Enabled=false` iken v1'in her ucu `410` döner (`API version closed`), hız sınırından düşmez. Aldığı faturaların haberleri gönderilmeye devam eder. Sırası: [ERP-GECIS.md](ERP-GECIS.md).
+
 ### Davranışlar
 
 Geçerli POST için aşağıdaki davranışlardan biri seed'li rastgele seçimle seçilir (aynı seed + aynı istek sırası = aynı
@@ -119,7 +129,13 @@ dizi; yeniden başlayınca dizi baştan başlar). Oranlar gerçek yüzdedir:
 Kaydedilen her fatura için iki event planlanır ve faturayla aynı transaction'da `webhook_deliveries` tablosuna yazılır:
 önce `invoice.received` (kayıttan 2–10 sn sonra), sonra `invoice.approved` (%80) ya da `invoice.rejected` (%20, `reason`
 ile; 2–20 sn sonra). Arka plandaki gönderici zamanı gelen event'i Invoice Service'in `POST /api/v1/erp-webhooks`
-adresine gönderir.
+adresine gönderir. Biçim faturanın alındığı sürüme bağlıdır (faturanın `api_version` kolonu): v2 ile iptal edilen v1 faturasının haberi v1 biçimindedir.
+
+```json
+{ "schema": "erp.invoice-event.v2", "id": "evt-…", "type": "invoice.rejected", "occurredAt": "2026-11-06T07:00:00+00:00",
+  "invoice": { "number": "FTR-000001", "erpReference": "ERP-00000001" }, "reason": "Vergi numarası geçersiz" }
+```
+
 
 - Body: `event_id`, `event_type`, `invoice_number`, `erp_reference`, `occurred_at`, `invoice.rejected`'de `reason`.
 - İmza: `X-Erp-Signature` = `HMAC-SHA256(secret, "{X-Erp-Timestamp}.{raw body}")`, küçük harfli hex; timestamp Unix saniye.
@@ -169,6 +185,16 @@ ve sonucu yazar. ERP'nin gönderdiği webhook event'leri imza doğrulandıktan s
 da başka nedenle ERP'den ayrışan faturalar için mutabakat işi servisin içinde belirli aralıklarla çalışır
 ([Mutabakat](#mutabakat)). Webhook ve `/health` dışındaki bütün endpoint'ler Keycloak'ın verdiği JWT'yi ister
 ([Kimlik doğrulama](#kimlik-doğrulama)).
+
+### ERP sürümü
+
+Servis iki sürümle de çalışır. `GET` / `PUT /api/v1/erp-version` (`{"v2Percent": 0-100}`) ERP isteklerinin yüzde kaçının v2 kullanacağını okur ve değiştirir; değer
+veritabanındadır (`erp_version_setting`), yeniden başlatma gerekmez, her kopya sonraki isteğinden itibaren kullanır. Sürüm faturanın numarasından hesaplanır ve faturaya bağlanmaz: yüzde artarken fatura yalnız v1'den v2'ye geçer, yüzde 0'da her istek v1'e döner. Toplu liste yüzde 100'de v2'den, altında v1'den okunur.
+
+- **v1 kapalıysa:** `410` alan istek aynı denemede v2 ile yapılır; deneme hakkı harcamaz, fatura ya da iptal Başarısız olmaz.
+- **ERP'nin kendi cevabı olmayan 404** (`Invoice not found` değilse) "kayıt yok" ya da kalıcı hata sayılmaz, tekrar denenir: v2 kurulmadan yüzde açılsa da fatura zarar görmez.
+- **Haberler:** webhook ucu iki biçimi de her zaman kabul eder; bilinmeyen `schema` `400`.
+- **Geçiş ve geri dönüş:** [ERP-GECIS.md](ERP-GECIS.md).
 
 ### Veri
 
@@ -327,8 +353,8 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar (`MaxConcurrentSends`)
   (`404`) ERP'ye hiçbir şey gitmez: iptal `Tamamlandı`, fatura `İptal Edildi`, `Gönderim` satırı `Başarısız` ("Fatura iptal edildi,
   ERP'ye gönderilmedi."). `Başarısız` faturanın iptali de aynı sonuca varır, `Gönderim` satırında son gönderim hatası kalır. Fatura ERP'de varsa gönderim `Tamamlandı` olur, yalnız
   iptal gider. Servis faturayı ERP'de sanıyorsa (ör. `Onaylandı`) ve ERP `404` dönerse iptal `Başarısız` olur.
-- **Bilinen sınır:** ilk POST ERP'de henüz kaydedilmeden timeout olursa sonraki `GET` `404` dönebilir ve ikinci POST çift
-  kayıt oluşturabilir; bunu alıcı tarafta yalnızca ERP Simulator'daki `IdempotentInvoices=true` önler.
+- **Çift kayıt:** ilk POST ERP'de henüz kaydedilmeden timeout olursa sonraki `GET` `404` dönebilir ve ikinci POST çift
+  kayıt oluşturabilir. v2 aynı numaraya yeni kayıt açmadığı için bu yalnız v1 açıkken mümkündür; v1'de `IdempotentInvoices=true` da önler.
 
 ### ERP webhook'ları
 
@@ -352,7 +378,7 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar (`MaxConcurrentSends`)
 `ReconciliationWorker` ayardaki aralıkta çalışır (varsayılan 60 dk; ilk çalışma servis açıldıktan bir aralık sonra); aynı iş
 `POST /api/v1/reconciliation-runs` ile elle de başlar. Çalışma son `LookbackHours` saatte oluşan faturaları ERP Simulator'ın listesiyle karşılaştırır; pencereden eski
 `Gönderildi`, `İşleme Alındı`, `Başarısız`, `Onaylandı` ve `İptal Edildi` faturalardan da en çok `MaxErpLookupsPerRun` tanesini, en uzun süredir sorulmayandan başlayarak ERP'ye sorar. Önce okur, sonra yazar: ERP listesi alınamazsa
-çalışma `Başarısız` olur ve hiçbir fatura değişmemiştir. Tek bir faturanın cevabı alınamazsa o fatura bu çalışmada karşılaştırılmaz, değişmez, loga yazılır (`Reconciliation left an invoice out`) ve sonraki çalışmada yine ilk sıradadır; diğerleri sürer.
+çalışma `Başarısız` olur ve hiçbir fatura değişmemiştir. Tek bir faturanın cevabı alınamazsa o fatura bu çalışmada karşılaştırılmaz, değişmez, `Cevap Alınamadı` bulgusu olarak raporlanır ve sonraki çalışmada yine ilk sıradadır; diğerleri sürer.
 
 | Bulgu türü | Eylem |
 |---|---|
@@ -365,6 +391,7 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar (`MaxConcurrentSends`)
 | `ERP Çift Kayıt`: ERP'de birden fazla kaydı olan fatura | Raporlandı |
 | `Alan Farkı`: tutar, para birimi, müşteri kodu ya da `erp_reference` farklı | Raporlandı |
 | `ERP Kaydı Yok`: serviste `Gönderildi` ya da sonrası, ERP'de kayıt yok | Raporlandı |
+| `Cevap Alınamadı`: ERP bu fatura için cevap vermedi, karşılaştırılmadı | Raporlandı; cevap alınamadıkça her çalışmada yeniden yazılır ve operasyon ekranının Raporlanan bulgular bölümünde görünür |
 | `ERP Karar Vermedi`: takılı fatura `NoDecisionAfterMinutes`'tan uzun aynı durumda, ERP'ye soruldu ve cevap faturayı ilerletmiyor (`none`, ya da `İşleme Alındı` faturada `received`) | Raporlandı; ERP sessiz kaldıkça pencere içinde her çalışmada, eski faturada sırası geldiğinde yeniden yazılır, karar gelince sonraki çalışma `Takılı Fatura` olarak düzeltir |
 
 - **Aynı anda tek çalışma:** PostgreSQL advisory lock. Zamanlanmış çalışma, elle başlatma ve servisin ikinci kopyası
@@ -412,6 +439,8 @@ scripts/restore-invoice-db.sh
 Betik servisleri durdurur, veritabanını boş kurar, yedeği yükler, `invoice-migrate`'i çalıştırır ([`after-restore.sql`](scripts/after-restore.sql) ile) numara sayacını
 ileri atlatır ve bekleyen faturaları gönderilmeden önce ERP'ye sorulacak hale getirir, servisleri açar. Yedek ERP'nin gerisinde kaldığı için bu iki adım ERP'de çift
 fatura oluşmasını önler.
+
+Yedek aynı makinededir, makine kaybına karşı korumaz. Yedekten sonra alınıp ERP'ye ulaşmamış fatura ve iptal isteği geri gelmez; `Serviste Yok` kayıtları yalnız raporlanır.
 
 ### İkinci instance
 
@@ -606,6 +635,7 @@ trace'idir:
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
 | Gün 21 kontrol listesi: kapatılan bulguların önce/sonra istekleri (Grafana, kaba kuvvet ve şifre politikası, offline token ve refresh token'ın ikinci kullanımı, ekranın başlıkları, veritabanı kullanıcıları, izleme araçlarına kimliksiz ve başka origin'den istek), yük testi | [`manual-tests/gun21/`](manual-tests/gun21/) |
 | Gün 24 kontrol listesi: mutabakat sorgu sınırı ve kaybolan iptal; dünkü yük testiyle iptal beklemesi; yük altında felaket ve geri dönüş | [`manual-tests/gun24/`](manual-tests/gun24/) |
+| Gün 25 kontrol listesi: cevapsız fatura ekranda; v2 uçları; yük altında kademeli geçiş, geri dönüş ve v1'in kapatılması; doküman komutları | [`manual-tests/gun25/`](manual-tests/gun25/) |
 | Gün 23 kontrol listesi: yeniden deneme, ERP'de iptal edilen fatura, ERP'ye hiç gitmemiş fatura, iptal haberi, kayıp haber ve mutabakat; ekran verisi; yük testi | [`manual-tests/gun23/`](manual-tests/gun23/) |
 | Gün 22 kontrol listesi: hesap kilitleme, iptal (onaylanmış fatura, tekrar denemedeki fatura, iptal gönderilirken servisin öldürülmesi); ek canlı kontroller, dünkü veriyle migration, yük testi | [`manual-tests/gun22/`](manual-tests/gun22/) |
 | Gün 19 kontrol listesi (ekranda işlemsizlik süresi, kısaltılmış süreyle; rol ve audience kontrolü kaldırılınca kırılan testler; bütün testlerin 10 kez koşulması) ve Keycloak kapalıyken açılan servisin log satırı | [`manual-tests/gun19/`](manual-tests/gun19/) |
@@ -704,21 +734,15 @@ Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ---
 
-## Gün 24 — Felaket Senaryosu
+## Gün 25 — ERP Sürüm Değişikliği
 
-Bugünün işi: Fatura Servisi veritabanı kaybedildiğinde son yedekten dönmek ve servisin bildiğiyle ERP'nin bildiği arasındaki farkı güvenle kapatmak; dünden kalan iki konu.
+Bugünün işi: Fatura Servisi'ni ERP'nin yeni sürümüne, servisi durdurmadan, fatura kaybetmeden ve çiftlemeden geçirmek; sorun çıkarsa eski sürüme dönebilmek. Dünden kalan iki konu.
 
-- **Mutabakat:** eski faturalar için çalışma başına sorgu sınırı, tek cevabın alınamaması diğerlerini durdurmaz ([Mutabakat](#mutabakat)).
-- **İptalin sırası:** iptal ilgisiz faturaları beklemez, yalnız kendi faturasını bekler ([Outbox Worker](#outbox-worker)).
-- **Yedek ve geri dönüş:** [Yedekleme](#yedekleme), [FELAKET-KITAPCIGI.md](FELAKET-KITAPCIGI.md).
+- **Cevapsız fatura:** `Cevap Alınamadı` bulgusu, operasyon ekranında ([Mutabakat](#mutabakat)).
+- **ERP'nin yeni sürümü:** [Yeni sürüm](#yeni-sürüm-apiv2).
+- **Geçiş:** [ERP sürümü](#erp-sürümü), [ERP-GECIS.md](ERP-GECIS.md).
 
-Kontrol listesi ([`manual-tests/gun24/`](manual-tests/gun24/)): 1 `1-mutabakat-siniri.ps1` ve `ReconciliationLimitTests`; 2 `2-yuk-testi.ps1`; 3-6 `3-felaket.ps1`, `4-felaket-ek-olcum.ps1`; 8 [Testler](#testler).
-
-### Bilinen sınırlar
-
-- **Yedeğin yeri:** yedek aynı makinededir, makine kaybına karşı korumaz.
-- **Tam yedeğin süresi:** veritabanıyla büyür; satırları kopyalanarak çoğaltılmış 447.400 fatura ve 613 MB ile yük altında 3-4 sn sürdü. Dosya yaklaşık 15 MB oldu; satırlar kopya olduğu için gerçek veride daha büyük olabilir. RAM'i aşan veritabanı denenmedi.
-- **Yedekten sonrası:** ERP'ye ulaşmamış fatura ve iptal isteği geri gelmez; `Serviste Yok` kayıtları yalnız raporlanır.
+Kontrol listesi ([`manual-tests/gun25/`](manual-tests/gun25/)): 1 `3-cevapsiz-ekran.ps1`; 3-6 `2-gecis.ps1`; 7 `4-dokuman-komutlari.sh`; ERP Simulator maddeleri `1-v2-uclari.ps1`; 4 ayrıca `5-eski-fatura-iptalleri.py`; 8 [Testler](#testler).
 
 ---
 
@@ -749,3 +773,5 @@ Kontrol listesi ([`manual-tests/gun24/`](manual-tests/gun24/)): 1 `1-mutabakat-s
 | `gun-21` | Güvenlik Bulgularını Kapatmak | [tree/gun-21](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-21) |
 | `gun-22` | İptal Faturası ve Sıra Garantisi | [tree/gun-22](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-22) |
 | `gun-23` | İptal Faturası ve Sıra Garantisi (2/2) | [tree/gun-23](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-23) |
+| `gun-24` | Felaket Senaryosu | [tree/gun-24](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-24) |
+| `gun-25` | ERP Sürüm Değişikliği | [tree/gun-25](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-25) |

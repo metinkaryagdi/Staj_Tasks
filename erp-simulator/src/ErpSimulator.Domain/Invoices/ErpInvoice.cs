@@ -28,4 +28,14 @@ public sealed class ErpInvoice
     public required string Behavior { get; set; }
 
     public long RequestSequence { get; set; }
+
+    /// <summary>The API version the record was received with; its events are sent in that version's format, whichever
+    /// version later cancels it.</summary>
+    public int ApiVersion { get; set; } = ErpApiVersion.V1;
+}
+
+public static class ErpApiVersion
+{
+    public const int V1 = 1;
+    public const int V2 = 2;
 }

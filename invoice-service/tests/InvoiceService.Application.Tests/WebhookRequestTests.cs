@@ -9,6 +9,44 @@ public class WebhookRequestTests
     private static ErpWebhookRequest Valid(string type = "invoice.approved", string? reason = null) =>
         new("e-1", type, "FTR-000001", "ERP-1", At, reason);
 
+    private static byte[] Utf8(string json) => System.Text.Encoding.UTF8.GetBytes(json);
+
+    [Fact]
+    public void An_event_in_the_new_format_reads_the_same_as_in_the_old()
+    {
+        var parsed = ErpWebhookRequest.Parse(Utf8("""
+            {"schema":"erp.invoice-event.v2","id":"e-1","type":"invoice.rejected","occurredAt":"2026-10-01T12:00:00+00:00",
+             "invoice":{"number":"FTR-000001","erpReference":"ERP-1"},"reason":"Vergi"}
+            """));
+
+        Assert.Equal(new ErpWebhookRequest("e-1", "invoice.rejected", "FTR-000001", "ERP-1", At, "Vergi"), parsed);
+        Assert.Empty(parsed!.Validate());
+    }
+
+    [Fact]
+    public void An_event_in_the_old_format_still_reads()
+    {
+        var parsed = ErpWebhookRequest.Parse(Utf8("""
+            {"event_id":"e-1","event_type":"invoice.approved","invoice_number":"FTR-000001","erp_reference":"ERP-1","occurred_at":"2026-10-01T12:00:00+00:00"}
+            """));
+
+        Assert.Equal(new ErpWebhookRequest("e-1", "invoice.approved", "FTR-000001", "ERP-1", At, null), parsed);
+    }
+
+    [Fact]
+    public void An_unknown_schema_is_not_read()
+    {
+        Assert.Null(ErpWebhookRequest.Parse(Utf8("""{"schema":"erp.invoice-event.v9","id":"e-1"}""")));
+    }
+
+    [Fact]
+    public void A_new_format_event_without_its_invoice_fails_validation()
+    {
+        var parsed = ErpWebhookRequest.Parse(Utf8("""{"schema":"erp.invoice-event.v2","id":"e-1","type":"invoice.approved"}"""));
+
+        Assert.Contains("invoice_number", parsed!.Validate().Keys);
+    }
+
     [Theory]
     [InlineData("invoice.received")]
     [InlineData("invoice.approved")]

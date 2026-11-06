@@ -31,6 +31,7 @@ public static class DependencyInjection
         services.AddScoped<IInvoiceStore, InvoiceStore>();
         services.AddScoped<IOutboxStore, OutboxStore>();
         services.AddScoped<IErpSendPacer, PostgresSendPacer>();
+        services.AddSingleton<IErpVersionSetting, ErpVersionSetting>();
         services.AddScoped<IWebhookEventStore, WebhookEventStore>();
         services.AddScoped<IReconciliationStore, ReconciliationStore>();
         services.AddScoped<IOperatorActionStore, OperatorActionStore>();

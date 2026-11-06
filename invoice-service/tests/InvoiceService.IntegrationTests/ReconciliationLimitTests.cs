@@ -103,14 +103,22 @@ public class ReconciliationLimitTests(PostgresFixture postgres) : IntegrationTes
         Assert.Null(run.Error);
         Assert.Equal(10, Erp.Lookups.Count);
         Assert.Equal(InvoiceStatus.Cancelled, await StatusAsync(cancelled));
-        // Left out, unchanged, no finding that would be wrong without its answer.
+        // Left out and unchanged; the only finding about it says that it was skipped.
         Assert.Equal(InvoiceStatus.Approved, await StatusAsync(failing));
-        Assert.Equal(0L, await ScalarAsync<long>("SELECT count(*) FROM reconciliation_findings WHERE invoice_number = @n", ("n", failing)));
+        Assert.Equal("Cevap Alınamadı", await ScalarAsync<string>("SELECT finding_type FROM reconciliation_findings WHERE invoice_number = @n", ("n", failing)));
+        Assert.Equal(1L, await ScalarAsync<long>("SELECT count(*) FROM reconciliation_findings WHERE invoice_number = @n", ("n", failing)));
+
+        // Still no answer: it shows again in the next run.
+        Erp.Lookups.Clear();
+        await RunAsync();
+        Assert.Equal(failing, Erp.Lookups[0]);
+        Assert.Equal(2L, await ScalarAsync<long>("SELECT count(*) FROM reconciliation_findings WHERE invoice_number = @n", ("n", failing)));
 
         Erp.Lookups.Clear();
         Erp.OnGet = number => Answer(number);
         await RunAsync();
 
         Assert.Equal(failing, Erp.Lookups[0]);
+        Assert.Equal(2L, await ScalarAsync<long>("SELECT count(*) FROM reconciliation_findings WHERE invoice_number = @n", ("n", failing)));
     }
 }

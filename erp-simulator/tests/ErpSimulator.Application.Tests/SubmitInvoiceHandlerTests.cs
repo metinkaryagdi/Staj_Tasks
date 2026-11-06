@@ -114,6 +114,75 @@ public class SubmitInvoiceHandlerTests
     }
 
     [Fact]
+    public async Task V2_repeat_returns_the_existing_record_even_with_other_content_and_saves_nothing()
+    {
+        var handler = Handler(Only(Behavior.Success));
+        var first = await handler.HandleAsync(Request(), CancellationToken.None, ErpApiVersion.V2);
+
+        var repeat = await handler.HandleAsync(Request("C-999"), CancellationToken.None, ErpApiVersion.V2);
+
+        Assert.Equal(SubmitOutcome.Duplicate, repeat.Outcome);
+        Assert.Same(first.Invoice, repeat.Invoice);
+        Assert.Null(repeat.Decision);
+        Assert.Single(_store.Records);
+    }
+
+    [Fact]
+    public async Task V2_repeat_of_a_record_received_with_v1_creates_no_record_and_the_events_keep_the_v1_format()
+    {
+        var handler = Handler(Only(Behavior.Success));
+        var first = await handler.HandleAsync(Request(), CancellationToken.None);
+
+        var repeat = await handler.HandleAsync(Request(), CancellationToken.None, ErpApiVersion.V2);
+
+        Assert.Equal(SubmitOutcome.Duplicate, repeat.Outcome);
+        Assert.Same(first.Invoice, repeat.Invoice);
+        Assert.Equal(ErpApiVersion.V1, Assert.Single(_store.Records).ApiVersion);
+    }
+
+    [Fact]
+    public async Task V1_still_creates_a_new_record_for_a_repeat_by_default()
+    {
+        var handler = Handler(Only(Behavior.Success));
+
+        await handler.HandleAsync(Request(), CancellationToken.None);
+        await handler.HandleAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(2, _store.Records.Count);
+    }
+
+    [Fact]
+    public async Task A_record_remembers_the_version_that_received_it()
+    {
+        var saved = await Handler(Only(Behavior.Success)).HandleAsync(Request(), CancellationToken.None, ErpApiVersion.V2);
+
+        Assert.Equal(ErpApiVersion.V2, saved.Invoice!.ApiVersion);
+    }
+
+    [Theory]
+    [InlineData(1050L, "10.5")]
+    [InlineData(1L, "0.01")]
+    [InlineData(99999999999999L, "999999999999.99")]
+    public void A_kurus_amount_becomes_the_same_amount_without_rounding(long kurus, string amount)
+    {
+        var request = new CreateInvoiceRequestV2("INV-1", "C-001", kurus, "TRY", new DateOnly(2026, 9, 29)).ToRequest();
+
+        Assert.Equal(decimal.Parse(amount, System.Globalization.CultureInfo.InvariantCulture), request.Amount);
+        Assert.Empty(request.Validate());
+    }
+
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(-5L)]
+    [InlineData(null)]
+    public void A_kurus_amount_that_is_not_positive_is_invalid(long? kurus)
+    {
+        var request = new CreateInvoiceRequestV2("INV-1", "C-001", kurus, "TRY", new DateOnly(2026, 9, 29)).ToRequest();
+
+        Assert.Contains(nameof(CreateInvoiceRequest.Amount), request.Validate().Keys);
+    }
+
+    [Fact]
     public async Task Idempotent_repeat_with_the_same_content_returns_the_existing_record_without_drawing()
     {
         var handler = Handler(Only(Behavior.Success), idempotent: true);

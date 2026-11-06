@@ -8,6 +8,7 @@
 //              "http://invoice-service:8080,http://invoice-service-2:8080").
 //   RATE       saniyedeki fatura sayısı.   DURATION   süre (k6 biçimi: 5m, 30s).
 //   RUN_ID     faturaların müşteri kodu; verilmezse "LOAD-<başlangıç zamanı>". Ölçümler faturaları bununla bulur.
+//   VARY_AMOUNTS  "true": her faturanın tutarı farklı (kuruş çevrimini sınamak için); verilmezse hepsi 100,50.
 //
 // İstekler sipariş sisteminin token'ıyla gider (Keycloak, client credentials); her VU token'ı bitmeden yeniler. Token ömrü
 // 5 dakika: yenilemeyi görmek için süreyi uzatın (DURATION=7m).
@@ -73,7 +74,8 @@ export function setup() {
 export default function (data) {
   if (exec.scenario.iterationInTest >= TOTAL) return;
   const base = BASES[exec.scenario.iterationInTest % BASES.length];
-  const body = JSON.stringify({ customerCode: data.runId, amount: 100.5, currency: 'TRY', invoiceDate: '2026-10-08' });
+  const amount = __ENV.VARY_AMOUNTS === 'true' ? (exec.scenario.iterationInTest % 99999 + 1) / 100 : 100.5;
+  const body = JSON.stringify({ customerCode: data.runId, amount, currency: 'TRY', invoiceDate: '2026-10-08' });
   const res = http.post(`${base}/api/v1/invoices`, body, {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${orderSystemToken()}` },
     tags: { endpoint: 'invoices' },

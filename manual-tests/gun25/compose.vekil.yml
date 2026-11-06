@@ -1,0 +1,12 @@
+# Yalnız 3-cevapsiz-ekran.ps1 içindir: servis ERP'ye vekil üzerinden gider.
+services:
+  invoice-service:
+    environment:
+      Erp__BaseUrl: http://erp-vekil:8090/
+  erp-vekil:
+    image: python:3.13-alpine
+    command: ["python", "/vekil/erp-vekil.py"]
+    volumes:
+      - ./manual-tests/gun25:/vekil:ro
+    networks:
+      - apps

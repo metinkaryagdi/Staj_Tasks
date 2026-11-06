@@ -75,8 +75,8 @@ public sealed record ErpRecord(
 public sealed record ErpListResult(bool Succeeded, IReadOnlyList<ErpRecord> Records, string? Error);
 
 /// <summary>
-/// The way out to the ERP. One call is exactly one request: deciding whether and when to try again is not done by the
-/// implementation but by the outbox (RetryPolicy).
+/// The way out to the ERP. One call is one request (and one more if the ERP's old version says it is closed): deciding
+/// whether and when to try again is not done by the implementation but by the outbox (RetryPolicy).
 /// </summary>
 public interface IErpGateway
 {

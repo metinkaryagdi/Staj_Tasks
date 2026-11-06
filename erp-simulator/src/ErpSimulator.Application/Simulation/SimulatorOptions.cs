@@ -39,6 +39,9 @@ public sealed class SimulatorOptions
     /// same content gets the existing reference (202), with different content 409.
     /// </summary>
     public bool IdempotentInvoices { get; set; }
+
+    /// <summary>Off: every request to /api/v1 gets 410. The events of invoices it received are still sent.</summary>
+    public bool V1Enabled { get; set; }
 }
 
 public sealed class BehaviorRates
@@ -76,6 +79,7 @@ public sealed class SimulatorOptionsValidator(IConfiguration configuration) : IV
         "RetryAfterMaxSeconds",
         "RetryAfterFormat",
         "IdempotentInvoices",
+        "V1Enabled",
         "ProcessingMinMilliseconds",
         "ProcessingMaxMilliseconds"
     ];

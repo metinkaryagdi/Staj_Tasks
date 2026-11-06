@@ -78,6 +78,12 @@ namespace ErpSimulator.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(18,2)")
                         .HasColumnName("amount");
 
+                    b.Property<int>("ApiVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("api_version");
+
                     b.Property<string>("Behavior")
                         .IsRequired()
                         .HasMaxLength(32)

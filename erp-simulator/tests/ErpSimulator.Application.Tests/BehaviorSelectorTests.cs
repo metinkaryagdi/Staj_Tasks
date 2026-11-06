@@ -38,6 +38,7 @@ public class BehaviorSelectorTests
             ["Simulator:RetryAfterMaxSeconds"] = "30",
             ["Simulator:RetryAfterFormat"] = "Seconds",
             ["Simulator:IdempotentInvoices"] = "false",
+            ["Simulator:V1Enabled"] = "true",
             ["Simulator:ProcessingMinMilliseconds"] = "50",
             ["Simulator:ProcessingMaxMilliseconds"] = "200"
         };
@@ -204,6 +205,7 @@ public class BehaviorSelectorTests
         Assert.Equal(30, options.RetryAfterMaxSeconds);
         Assert.Equal(RetryAfterFormat.Seconds, options.RetryAfterFormat);
         Assert.False(options.IdempotentInvoices);
+        Assert.True(options.V1Enabled);
         Assert.Equal(50, options.ProcessingMinMilliseconds);
         Assert.Equal(200, options.ProcessingMaxMilliseconds);
     }

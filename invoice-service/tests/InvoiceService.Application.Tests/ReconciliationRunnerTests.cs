@@ -325,7 +325,12 @@ public class ReconciliationRunnerTests
         Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices["F-OLD"].Status);
         Assert.Null(_s.Invoices.Invoices["F-OLD"].ErpCheckedAt);
         Assert.Equal(InvoiceStatus.Cancelled, _s.Invoices.Invoices["F-OLD2"].Status);
-        Assert.Equal(FindingType.CancelledInErp, Assert.Single(_s.Reconciliation.Findings).FindingType);
+        Assert.Equal(FindingType.CancelledInErp, _s.Reconciliation.Findings.Single(f => f.InvoiceNumber == "F-OLD2").FindingType);
+        // The skipped invoice shows on the screen: a reported finding, counted in the run.
+        var skipped = _s.Reconciliation.Findings.Single(f => f.InvoiceNumber == "F-OLD");
+        Assert.Equal(FindingType.NoErpAnswer, skipped.FindingType);
+        Assert.Equal(FindingAction.Reported, skipped.Action);
+        Assert.Equal(1, run.ReportedCount);
     }
 
     [Fact]
@@ -337,7 +342,7 @@ public class ReconciliationRunnerTests
         var run = await RunAsync();
 
         Assert.Equal(ReconciliationStatus.Completed, run.Status);
-        Assert.Empty(_s.Reconciliation.Findings);
+        Assert.Equal(FindingType.NoErpAnswer, Assert.Single(_s.Reconciliation.Findings).FindingType);
     }
 
     [Fact]
@@ -388,7 +393,7 @@ public class ReconciliationRunnerTests
 
         Assert.Equal(ReconciliationStatus.Completed, run.Status);
         Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-OLD"].Status);
-        Assert.Empty(_s.Reconciliation.Findings);
+        Assert.Equal(FindingType.NoErpAnswer, Assert.Single(_s.Reconciliation.Findings).FindingType);
     }
 
     // --- Simülatöre ulaşılamazsa
@@ -426,7 +431,8 @@ public class ReconciliationRunnerTests
         Assert.Equal(ReconciliationStatus.Completed, run.Status);
         Assert.Equal(InvoiceStatus.Approved, _s.Invoices.Invoices["F-1"].Status);
         Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices["F-2"].Status);
-        Assert.Equal("F-1", Assert.Single(_s.Reconciliation.Findings).InvoiceNumber);
+        Assert.Equal(FindingType.StuckInvoice, _s.Reconciliation.Findings.Single(f => f.InvoiceNumber == "F-1").FindingType);
+        Assert.Equal(FindingType.NoErpAnswer, _s.Reconciliation.Findings.Single(f => f.InvoiceNumber == "F-2").FindingType);
     }
 
     [Fact]

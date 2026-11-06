@@ -59,6 +59,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             entity.Property(e => e.InvoiceDate).HasColumnName("invoice_date");
             entity.Property(e => e.ReceivedAt).HasColumnName("received_at");
             entity.Property(e => e.Behavior).HasColumnName("behavior").HasMaxLength(32);
+            entity.Property(e => e.ApiVersion).HasColumnName("api_version").HasDefaultValue(ErpApiVersion.V1);
             entity.Property(e => e.RequestSequence).HasColumnName("request_sequence");
         });
 

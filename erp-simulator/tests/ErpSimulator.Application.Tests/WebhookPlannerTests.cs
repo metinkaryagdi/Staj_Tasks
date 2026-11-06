@@ -93,6 +93,38 @@ public class WebhookPlannerTests
     }
 
     [Fact]
+    public void The_events_of_a_v2_invoice_have_the_v2_format_and_a_rejection_keeps_its_reason()
+    {
+        var options = Defaults();
+        options.ApprovalRate = 0;
+        var invoice = Invoice(7);
+        invoice.ApiVersion = ErpApiVersion.V2;
+
+        var events = Planner(options).Plan(invoice, SavedAt);
+
+        using var body = JsonDocument.Parse(events[1].Payload);
+        var root = body.RootElement;
+        Assert.Equal(ErpEventBodyV2.SchemaName, root.GetProperty("schema").GetString());
+        Assert.Equal(events[1].EventId, root.GetProperty("id").GetString());
+        Assert.Equal(ErpEventType.Rejected, root.GetProperty("type").GetString());
+        Assert.Equal(invoice.InvoiceNumber, root.GetProperty("invoice").GetProperty("number").GetString());
+        Assert.Equal(invoice.ErpReference, root.GetProperty("invoice").GetProperty("erpReference").GetString());
+        Assert.False(root.TryGetProperty("event_id", out _));
+        // InvoiceDecisions reads the reason from the stored body, in either format.
+        Assert.False(string.IsNullOrEmpty(JsonSerializer.Deserialize<ErpEventBody>(events[1].Payload)!.Reason));
+    }
+
+    [Fact]
+    public void The_cancellation_of_a_v1_invoice_keeps_the_v1_format()
+    {
+        var events = Planner().PlanCancellation(Invoice(7), SavedAt, []);
+
+        using var body = JsonDocument.Parse(events[0].Payload);
+        Assert.True(body.RootElement.TryGetProperty("event_id", out _));
+        Assert.False(body.RootElement.TryGetProperty("schema", out _));
+    }
+
+    [Fact]
     public void Payload_has_the_documented_fields_in_snake_case()
     {
         var e = Planner().Plan(Invoice(7), SavedAt)[0];

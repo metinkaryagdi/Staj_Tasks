@@ -16,8 +16,8 @@ public sealed class ReconciliationFailedException(string message) : Exception(me
 /// <summary>
 /// One reconciliation run. It first reads both sides (the service's data, the ERP's list, the ERP's decisions) and only
 /// then writes. If the ERP's list cannot be read the run is Başarısız and no invoice has been changed. An invoice whose
-/// own answer cannot be had is left out of this run's comparison, unchanged, and keeps its turn for the next run; the
-/// others go on.
+/// own answer cannot be had is left out of this run's comparison, unchanged, reported as Cevap Alınamadı, and keeps its
+/// turn for the next run; the others go on.
 /// </summary>
 public sealed class ReconciliationRunner(
     IReconciliationStore store, IErpGateway erp, IUnitOfWork unitOfWork, ReconciliationPlanner planner,
@@ -125,7 +125,7 @@ public sealed class ReconciliationRunner(
         var records = listed.Records.ToList();
         var decisions = new Dictionary<string, ErpDecision>();
         var checks = new List<ErpCheck>();
-        var unanswered = new HashSet<string>();
+        var unanswered = new Dictionary<string, string>();
 
         // An invoice older than the window is not in the ERP's list: ask the ERP for it, so a long outage of the runs or a
         // lost event cannot leave it unseen. The answer also carries the decision.
@@ -145,8 +145,9 @@ public sealed class ReconciliationRunner(
                     checks.Add(new(old.InvoiceNumber, ErpCheckResult.NotFound));
                     break;
                 default:
-                    LogUnanswered(runId, old.InvoiceNumber, found.Error ?? "cevaptaki kayıtlar okunamadı");
-                    unanswered.Add(old.InvoiceNumber);
+                    var why = found.Error ?? "cevaptaki kayıtlar okunamadı";
+                    LogUnanswered(runId, old.InvoiceNumber, why);
+                    unanswered[old.InvoiceNumber] = why;
                     break;
             }
         }
@@ -162,8 +163,9 @@ public sealed class ReconciliationRunner(
             LogLookup(runId, number, found);
             if (found.Lookup != ErpLookup.Found)
             {
-                LogUnanswered(runId, number, found.Error ?? "ERP kaydı bulunamadı");
-                unanswered.Add(number);
+                var why = found.Error ?? "ERP kaydı bulunamadı";
+                LogUnanswered(runId, number, why);
+                unanswered[number] = why;
                 continue;
             }
             decisions[number] = found.Decision ?? ErpDecision.None;
@@ -173,7 +175,10 @@ public sealed class ReconciliationRunner(
         logger.LogInformation(
             "Reconciliation ERP lookups run={RunId} asked={Asked} notFound={NotFound} unanswered={Unanswered}",
             runId, checks.Count, checks.Count(c => c.Result == ErpCheckResult.NotFound), unanswered.Count);
-        return (planner.Plan(WithoutUnanswered(snapshot, unanswered), decisions), checks);
+        var plan = planner.Plan(WithoutUnanswered(snapshot, unanswered), decisions);
+        var skipped = unanswered.Select(u => new PlannedFinding(
+            u.Key, FindingType.NoErpAnswer, $"ERP'den cevap alınamadı, bu çalışmada karşılaştırılmadı: {u.Value}"));
+        return (plan with { Findings = [.. plan.Findings, .. skipped] }, checks);
     }
 
     /// <summary>
@@ -181,13 +186,13 @@ public sealed class ReconciliationRunner(
     /// ERP does not have, or a cancellation that never reached the ERP. Its record goes too, so it is not "not in the
     /// service" either.
     /// </summary>
-    private static ReconciliationSnapshot WithoutUnanswered(ReconciliationSnapshot snapshot, HashSet<string> unanswered) =>
+    private static ReconciliationSnapshot WithoutUnanswered(ReconciliationSnapshot snapshot, Dictionary<string, string> unanswered) =>
         unanswered.Count == 0
             ? snapshot
             : snapshot with
             {
-                Invoices = snapshot.Invoices.Where(i => !unanswered.Contains(i.InvoiceNumber)).ToList(),
-                ErpRecords = snapshot.ErpRecords.Where(r => !unanswered.Contains(r.InvoiceNumber)).ToList()
+                Invoices = snapshot.Invoices.Where(i => !unanswered.ContainsKey(i.InvoiceNumber)).ToList(),
+                ErpRecords = snapshot.ErpRecords.Where(r => !unanswered.ContainsKey(r.InvoiceNumber)).ToList()
             };
 
     private void LogUnanswered(long runId, string invoiceNumber, string error) =>

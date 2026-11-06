@@ -45,3 +45,28 @@ public sealed record InvoiceListItemResponse(
 
 /// <param name="TotalCount">All records in the range, not only this page.</param>
 public sealed record InvoiceListResponse(int Page, int PageSize, int TotalCount, IReadOnlyList<InvoiceListItemResponse> Items);
+
+public sealed record InvoiceAcceptedResponseV2(
+    string ErpReference, string InvoiceNumber, string CustomerCode, long AmountKurus, string Currency, DateOnly InvoiceDate,
+    DateTimeOffset ReceivedAt);
+
+public sealed record InvoiceRecordResponseV2(
+    string ErpReference, string CustomerCode, long AmountKurus, string Currency, DateOnly InvoiceDate, DateTimeOffset ReceivedAt);
+
+public sealed record InvoiceLookupResponseV2(
+    string InvoiceNumber,
+    bool Registered,
+    string ErpReference,
+    int RecordCount,
+    IReadOnlyList<InvoiceRecordResponseV2> Records,
+    string Decision,
+    string? Reason,
+    [property: JsonPropertyName("decided_at")] DateTimeOffset? DecidedAt,
+    string? CancelReference,
+    [property: JsonPropertyName("cancelled_at")] DateTimeOffset? CancelledAt);
+
+public sealed record InvoiceListItemResponseV2(
+    string InvoiceNumber, string ErpReference, string CustomerCode, long AmountKurus, string Currency, DateOnly InvoiceDate,
+    DateTimeOffset ReceivedAt, string? CancelReference);
+
+public sealed record InvoiceListResponseV2(int Page, int PageSize, int TotalCount, IReadOnlyList<InvoiceListItemResponseV2> Items);

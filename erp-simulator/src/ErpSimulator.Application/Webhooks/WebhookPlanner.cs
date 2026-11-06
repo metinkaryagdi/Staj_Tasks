@@ -16,6 +16,22 @@ public sealed record ErpEventBody(
     [property: JsonPropertyName("occurred_at")] DateTimeOffset OccurredAt,
     [property: JsonPropertyName("reason"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason);
 
+/// <summary>The event body of an invoice received with API v2: a named schema, camelCase, the invoice as an object.</summary>
+public sealed record ErpEventBodyV2(
+    [property: JsonPropertyName("schema")] string Schema,
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("occurredAt")] DateTimeOffset OccurredAt,
+    [property: JsonPropertyName("invoice")] ErpEventInvoiceV2 Invoice,
+    [property: JsonPropertyName("reason"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason)
+{
+    public const string SchemaName = "erp.invoice-event.v2";
+}
+
+public sealed record ErpEventInvoiceV2(
+    [property: JsonPropertyName("number")] string Number,
+    [property: JsonPropertyName("erpReference")] string ErpReference);
+
 /// <summary>
 /// Plans the events of a saved invoice: invoice.received, then the decision, plus the deliberate problems (order mix,
 /// lost decision, duplicate, fake, replay), each drawn independently. Uses its own seeded RNG, so it does not change
@@ -159,7 +175,10 @@ public sealed class WebhookPlanner
         ErpInvoice invoice, string type, DateTimeOffset dueAt, DateTimeOffset occurredAt, string? reason, string kind, DateTimeOffset now)
     {
         var eventId = $"evt-{Guid.NewGuid():N}";
-        var body = new ErpEventBody(eventId, type, invoice.InvoiceNumber, invoice.ErpReference, occurredAt, reason);
+        var payload = invoice.ApiVersion == ErpApiVersion.V2
+            ? JsonSerializer.Serialize(new ErpEventBodyV2(ErpEventBodyV2.SchemaName, eventId, type, occurredAt,
+                new ErpEventInvoiceV2(invoice.InvoiceNumber, invoice.ErpReference), reason))
+            : JsonSerializer.Serialize(new ErpEventBody(eventId, type, invoice.InvoiceNumber, invoice.ErpReference, occurredAt, reason));
         return new WebhookDelivery
         {
             EventId = eventId,
@@ -167,7 +186,7 @@ public sealed class WebhookPlanner
             InvoiceId = invoice.Id,
             InvoiceNumber = invoice.InvoiceNumber,
             Kind = kind,
-            Payload = JsonSerializer.Serialize(body),
+            Payload = payload,
             OccurredAt = occurredAt,
             DueAt = dueAt,
             Status = DeliveryStatus.Pending,

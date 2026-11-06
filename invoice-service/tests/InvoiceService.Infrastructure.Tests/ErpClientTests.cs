@@ -32,8 +32,14 @@ public class ErpClientTests
         }
     }
 
+    private sealed class FixedShare(int percent) : IErpVersionSetting
+    {
+        public Task<int> GetV2PercentAsync(CancellationToken ct) => Task.FromResult(percent);
+        public Task SetV2PercentAsync(int value, CancellationToken ct) => Task.CompletedTask;
+    }
+
     private static (ErpClient Client, StubHandler Handler) Create(
-        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond, TimeSpan? timeout = null)
+        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond, TimeSpan? timeout = null, int v2Percent = 0)
     {
         var handler = new StubHandler(respond);
         var http = new HttpClient(handler)
@@ -41,13 +47,112 @@ public class ErpClientTests
             BaseAddress = new Uri("http://erp.test/"),
             Timeout = timeout ?? TimeSpan.FromSeconds(10)
         };
-        return (new ErpClient(http), handler);
+        return (new ErpClient(http, new FixedShare(v2Percent)), handler);
     }
 
     private static Task<HttpResponseMessage> Reply(HttpStatusCode status, string body, string mediaType = "application/json")
     {
         var response = new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, mediaType) };
         return Task.FromResult(response);
+    }
+
+    private static Task<HttpResponseMessage> Gone() => Reply(HttpStatusCode.Gone, """{"title":"API version closed"}""");
+
+    [Fact]
+    public async Task At_100_percent_the_amount_goes_in_whole_kurus_to_v2()
+    {
+        string? path = null;
+        var (client, handler) = Create((request, _) =>
+        {
+            path = request.RequestUri!.AbsolutePath;
+            return Reply(HttpStatusCode.Accepted, """{"erpReference":"ERP-1"}""");
+        }, v2Percent: 100);
+
+        var result = await client.SendAsync(SampleInvoice(), CancellationToken.None);
+
+        Assert.True(result.Accepted);
+        Assert.Equal("/api/v2/invoices", path);
+        Assert.Contains("\"amountKurus\":125050", handler.LastBody);
+        Assert.DoesNotContain("\"amount\":", handler.LastBody);
+    }
+
+    [Fact]
+    public async Task At_0_percent_everything_goes_to_v1_with_the_decimal_amount()
+    {
+        string? path = null;
+        var (client, handler) = Create((request, _) =>
+        {
+            path = request.RequestUri!.AbsolutePath;
+            return Reply(HttpStatusCode.Accepted, """{"erpReference":"ERP-1"}""");
+        });
+
+        await client.SendAsync(SampleInvoice(), CancellationToken.None);
+
+        Assert.Equal("/api/v1/invoices", path);
+        Assert.Contains("\"amount\":1250.50", handler.LastBody);
+    }
+
+    [Fact]
+    public async Task A_closed_v1_is_asked_again_with_v2_in_the_same_call_for_every_request()
+    {
+        var paths = new List<string>();
+        Task<HttpResponseMessage> Respond(HttpRequestMessage request, CancellationToken _)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            paths.Add(path);
+            if (path.StartsWith("/api/v1"))
+                return Gone();
+            if (path.EndsWith("/cancel"))
+                return Reply(HttpStatusCode.Accepted, """{"cancelReference":"IPT-1"}""");
+            if (request.Method == HttpMethod.Post)
+                return Reply(HttpStatusCode.Accepted, """{"erpReference":"ERP-1"}""");
+            if (path == "/api/v2/invoices")
+                return Reply(HttpStatusCode.OK, """{"totalCount":0,"items":[]}""");
+            return Reply(HttpStatusCode.OK, """{"erpReference":"ERP-1"}""");
+        }
+        var (client, _) = Create(Respond);
+        var at = DateTimeOffset.UtcNow;
+
+        Assert.True((await client.SendAsync(SampleInvoice(), CancellationToken.None)).Accepted);
+        Assert.True((await client.CancelAsync("FTR-000001", CancellationToken.None)).Accepted);
+        Assert.Equal(ErpLookup.Found, (await client.FindAsync("FTR-000001", CancellationToken.None)).Lookup);
+        Assert.True((await client.ListAsync(at, at, CancellationToken.None)).Succeeded);
+
+        Assert.Equal(8, paths.Count);
+        Assert.Equal(4, paths.Count(p => p.StartsWith("/api/v2")));
+    }
+
+    [Fact]
+    public async Task Kurus_amounts_in_answers_become_the_same_amount()
+    {
+        var (client, _) = Create((request, _) => request.RequestUri!.AbsolutePath == "/api/v2/invoices"
+            ? Reply(HttpStatusCode.OK, """{"totalCount":1,"items":[{"invoiceNumber":"F","erpReference":"E","customerCode":"C","amountKurus":125050,"currency":"TRY","invoiceDate":"2026-09-30","receivedAt":"2026-09-30T07:00:00+00:00"}]}""")
+            : Reply(HttpStatusCode.OK, """{"erpReference":"E","records":[{"erpReference":"E","customerCode":"C","amountKurus":125050,"currency":"TRY","invoiceDate":"2026-09-30","receivedAt":"2026-09-30T07:00:00+00:00"}]}"""),
+            v2Percent: 100);
+        var at = DateTimeOffset.UtcNow;
+
+        Assert.Equal(1250.50m, Assert.Single((await client.ListAsync(at, at, CancellationToken.None)).Records).Amount);
+        Assert.Equal(1250.50m, Assert.Single((await client.FindAsync("F", CancellationToken.None)).Records!).Amount);
+    }
+
+    [Fact]
+    public async Task A_404_that_is_not_the_erp_s_own_says_nothing_about_the_invoice()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.NotFound, """{"title":"Not Found","status":404}"""), v2Percent: 100);
+
+        Assert.Equal(ErpLookup.Unknown, (await client.FindAsync("F", CancellationToken.None)).Lookup);
+        var sent = await client.SendAsync(SampleInvoice(), CancellationToken.None);
+        Assert.Null(sent.HttpStatus); // RetryPolicy: tried again, not Başarısız
+        Assert.Equal(ErpNoAnswer.Unreachable, sent.NoAnswer);
+        Assert.Null((await client.CancelAsync("F", CancellationToken.None)).HttpStatus);
+    }
+
+    [Fact]
+    public async Task The_erp_s_own_404_on_a_cancellation_stays_final()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.NotFound, """{"title":"Invoice not found"}"""), v2Percent: 100);
+
+        Assert.Equal(404, (await client.CancelAsync("F", CancellationToken.None)).HttpStatus);
     }
 
     [Fact]

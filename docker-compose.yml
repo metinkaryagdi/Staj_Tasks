@@ -63,6 +63,7 @@ services:
       Simulator__LateResponseDelaySeconds:
       Simulator__RetryAfterFormat:
       Simulator__IdempotentInvoices:
+      Simulator__V1Enabled:
       Simulator__ProcessingMinMilliseconds:
       Simulator__ProcessingMaxMilliseconds:
       RateLimit__PermitsPerSecond:
@@ -278,6 +279,7 @@ services:
       RATE:
       DURATION:
       RUN_ID:
+      VARY_AMOUNTS:
       # The order system's secret, for the token the load test takes.
       ORDER_SYSTEM_CLIENT_SECRET: ${ORDER_SYSTEM_CLIENT_SECRET:?}
     volumes:

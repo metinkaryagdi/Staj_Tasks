@@ -8,29 +8,59 @@ using InvoiceService.Domain.Invoices;
 namespace InvoiceService.Infrastructure.Erp;
 
 /// <summary>
-/// Talks to the ERP over HTTP, one request per call. Only a 202 with an ERP reference counts as accepted; retrying is
-/// up to the outbox.
+/// Talks to the ERP over HTTP, in the API version <see cref="IErpVersionSetting"/> gives for each request. Amounts are
+/// kuruş only in v2, and only here. One request per call, except that a v1 request answered "closed" (410) is made again
+/// with v2 in the same call: it is not the invoice's fault and uses up no attempt. Only a 202 with an ERP reference counts
+/// as accepted; retrying is up to the outbox.
 /// </summary>
-public sealed class ErpClient(HttpClient http) : IErpGateway
+public sealed class ErpClient(HttpClient http, IErpVersionSetting versions) : IErpGateway
 {
     private const int MaxBodyInError = 500;
+
+    /// <summary>The title of the ERP's own 404. Any other 404 (the version's address is not there yet) says nothing about the
+    /// invoice.</summary>
+    private const string InvoiceNotFoundTitle = "Invoice not found";
 
     /// <summary>The most records the ERP returns per page.</summary>
     private const int ListPageSize = 500;
 
-    public Task<ErpSendResult> SendAsync(Invoice invoice, CancellationToken ct)
+    private static string Invoices(int version) => $"api/v{version}/invoices";
+
+    private async Task<int> VersionForAsync(string invoiceNumber, CancellationToken ct) =>
+        ErpVersion.For(invoiceNumber, await versions.GetV2PercentAsync(ct));
+
+    /// <summary>The request in the given version; once more with v2 if v1 answers that it is closed.</summary>
+    private static async Task<HttpResponseMessage> RequestAsync(int version, Func<int, Task<HttpResponseMessage>> request)
     {
-        var request = new ErpInvoiceRequest(
-            invoice.InvoiceNumber, invoice.CustomerCode, invoice.Amount, invoice.Currency, invoice.InvoiceDate);
-        return PostAsync(() => http.PostAsJsonAsync("api/v1/invoices", request, ct), "erpReference", ct);
+        var response = await request(version);
+        if (response.StatusCode != HttpStatusCode.Gone || version != ErpVersion.V1)
+            return response;
+
+        response.Dispose();
+        return await request(ErpVersion.V2);
     }
 
-    public Task<ErpSendResult> CancelAsync(string invoiceNumber, CancellationToken ct) =>
-        PostAsync(() => http.PostAsync($"api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}/cancel", null, ct),
-            "cancelReference", ct);
+    public async Task<ErpSendResult> SendAsync(Invoice invoice, CancellationToken ct)
+    {
+        var version = await VersionForAsync(invoice.InvoiceNumber, ct);
+        return await PostAsync(version, v => v == ErpVersion.V2
+            ? http.PostAsJsonAsync(Invoices(v), new ErpInvoiceRequestV2(
+                invoice.InvoiceNumber, invoice.CustomerCode, (long)(invoice.Amount * 100m), invoice.Currency, invoice.InvoiceDate), ct)
+            : http.PostAsJsonAsync(Invoices(v), new ErpInvoiceRequest(
+                invoice.InvoiceNumber, invoice.CustomerCode, invoice.Amount, invoice.Currency, invoice.InvoiceDate), ct),
+            "erpReference", ct);
+    }
+
+    public async Task<ErpSendResult> CancelAsync(string invoiceNumber, CancellationToken ct)
+    {
+        var version = await VersionForAsync(invoiceNumber, ct);
+        return await PostAsync(version,
+            v => http.PostAsync($"{Invoices(v)}/{Uri.EscapeDataString(invoiceNumber)}/cancel", null, ct), "cancelReference", ct);
+    }
 
     /// <summary>One POST; accepted only on 202 with <paramref name="referenceField"/> in the body.</summary>
-    private async Task<ErpSendResult> PostAsync(Func<Task<HttpResponseMessage>> post, string referenceField, CancellationToken ct)
+    private async Task<ErpSendResult> PostAsync(
+        int version, Func<int, Task<HttpResponseMessage>> post, string referenceField, CancellationToken ct)
     {
         var watch = Stopwatch.StartNew();
 
@@ -38,7 +68,7 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         try
         {
             // Default completion option buffers the whole body, so HttpClient.Timeout covers headers and body.
-            response = await post();
+            response = await RequestAsync(version, post);
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -55,6 +85,9 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         {
             var body = await response.Content.ReadAsStringAsync(ct);
             var status = (int)response.StatusCode;
+
+            if (response.StatusCode == HttpStatusCode.NotFound && ReadString(body, "title") != InvoiceNotFoundTitle)
+                return Failed(null, $"ERP'nin bu adresi yok (404): {Describe(body)}", watch, ErpNoAnswer.Unreachable);
 
             if (response.StatusCode != HttpStatusCode.Accepted)
             {
@@ -75,11 +108,12 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
     public async Task<ErpLookupResult> FindAsync(string invoiceNumber, CancellationToken ct)
     {
         var watch = Stopwatch.StartNew();
+        var version = await VersionForAsync(invoiceNumber, ct);
 
         HttpResponseMessage response;
         try
         {
-            response = await http.GetAsync($"api/v1/invoices/{Uri.EscapeDataString(invoiceNumber)}", ct);
+            response = await RequestAsync(version, v => http.GetAsync($"{Invoices(v)}/{Uri.EscapeDataString(invoiceNumber)}", ct));
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -98,7 +132,7 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
             var body = await response.Content.ReadAsStringAsync(ct);
             var status = (int)response.StatusCode;
 
-            if (response.StatusCode == HttpStatusCode.NotFound)
+            if (response.StatusCode == HttpStatusCode.NotFound && ReadString(body, "title") == InvoiceNotFoundTitle)
                 return new ErpLookupResult(ErpLookup.NotFound, null, status, null, watch.Elapsed);
 
             if (response.StatusCode == HttpStatusCode.OK && ReadString(body, "erpReference") is { } reference)
@@ -113,13 +147,14 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
     public async Task<ErpListResult> ListAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
     {
         var records = new List<ErpRecord>();
+        var version = ErpVersion.ForList(await versions.GetV2PercentAsync(ct));
         for (var page = 1; ; page++)
         {
-            var url = $"api/v1/invoices?from={Uri.EscapeDataString(from.ToString("O"))}&to={Uri.EscapeDataString(to.ToString("O"))}" +
-                      $"&page={page}&pageSize={ListPageSize}";
+            var query = $"?from={Uri.EscapeDataString(from.ToString("O"))}&to={Uri.EscapeDataString(to.ToString("O"))}" +
+                        $"&page={page}&pageSize={ListPageSize}";
             try
             {
-                using var response = await http.GetAsync(url, ct);
+                using var response = await RequestAsync(version, v => http.GetAsync(Invoices(v) + query, ct));
                 if (response.StatusCode != HttpStatusCode.OK)
                     return ListFailed($"GET {(int)response.StatusCode} {response.ReasonPhrase} döndü (sayfa {page}).");
 
@@ -128,7 +163,7 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
                     return ListFailed($"Sayfa {page} okunamadı: cevap beklenen biçimde değil.");
 
                 records.AddRange(body.Items.Select(i => new ErpRecord(
-                    i.InvoiceNumber, i.ErpReference, i.CustomerCode, i.Amount, i.Currency, i.InvoiceDate, i.ReceivedAt,
+                    i.InvoiceNumber, i.ErpReference, i.CustomerCode, ReadAmount(i.Amount, i.AmountKurus), i.Currency, i.InvoiceDate, i.ReceivedAt,
                     i.CancelReference is not null)));
                 if (records.Count >= body.TotalCount)
                     return new ErpListResult(true, records, null);
@@ -162,7 +197,7 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
         {
             var answer = JsonSerializer.Deserialize<ErpLookupBody>(body, JsonSerializerOptions.Web);
             return answer?.Records?.Select(r => new ErpRecord(
-                invoiceNumber, r.ErpReference, r.CustomerCode, r.Amount, r.Currency, r.InvoiceDate, r.ReceivedAt,
+                invoiceNumber, r.ErpReference, r.CustomerCode, ReadAmount(r.Amount, r.AmountKurus), r.Currency, r.InvoiceDate, r.ReceivedAt,
                 answer.CancelReference is not null)).ToList();
         }
         catch (JsonException)
@@ -170,6 +205,10 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
             return null;
         }
     }
+
+    /// <summary>The record's amount whichever version answered; without one the answer is not readable.</summary>
+    private static decimal ReadAmount(decimal? amount, long? amountKurus) =>
+        amountKurus is { } kurus ? kurus / 100m : amount ?? throw new JsonException("The record has no amount.");
 
     /// <summary>The decision fields of a lookup answer; none when they are missing.</summary>
     private static ErpDecision ReadDecision(string body)
@@ -244,14 +283,18 @@ public sealed class ErpClient(HttpClient http) : IErpGateway
     private sealed record ErpLookupBody(List<ErpLookupRecord>? Records, string? CancelReference);
 
     private sealed record ErpLookupRecord(
-        string ErpReference, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate, DateTimeOffset ReceivedAt);
+        string ErpReference, string CustomerCode, decimal? Amount, long? AmountKurus, string Currency, DateOnly InvoiceDate,
+        DateTimeOffset ReceivedAt);
 
     private sealed record ErpListPage(int TotalCount, List<ErpListItem>? Items);
 
     private sealed record ErpListItem(
-        string InvoiceNumber, string ErpReference, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate,
-        DateTimeOffset ReceivedAt, string? CancelReference);
+        string InvoiceNumber, string ErpReference, string CustomerCode, decimal? Amount, long? AmountKurus, string Currency,
+        DateOnly InvoiceDate, DateTimeOffset ReceivedAt, string? CancelReference);
 
     private sealed record ErpInvoiceRequest(
         string InvoiceNumber, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate);
+
+    private sealed record ErpInvoiceRequestV2(
+        string InvoiceNumber, string CustomerCode, long AmountKurus, string Currency, DateOnly InvoiceDate);
 }

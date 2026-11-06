@@ -23,6 +23,15 @@ public sealed class FakeErp : IAsyncDisposable
     /// <summary>Every request in the order it arrived, e.g. "POST FTR-000001", "CANCEL FTR-000001".</summary>
     public List<string> Requests { get; } = [];
 
+    /// <summary>The path of every request to the ERP, in the order they arrived; 410s included.</summary>
+    public List<string> Paths { get; } = [];
+
+    /// <summary>The kuruş amount of each v2 POST, by invoice number.</summary>
+    public Dictionary<string, long> KurusPosted { get; } = [];
+
+    /// <summary>Every /api/v1 request gets 410, as the ERP answers when the version is closed.</summary>
+    public bool V1Closed { get; set; }
+
     /// <summary>Keep the invoices answered 202: GET finds them and a cancellation is accepted once (a repeated one gets the
     /// same reference); an unknown invoice's cancellation gets 404. Off by default: GET always answers 404.</summary>
     public bool KeepRecords { get; set; }
@@ -69,10 +78,27 @@ public sealed class FakeErp : IAsyncDisposable
         var app = builder.Build();
 
         FakeErp? erp = null;
+        app.Use(async (context, next) =>
+        {
+            var path = context.Request.Path.Value!;
+            lock (erp!._lock) erp.Paths.Add(path);
+            if (erp.V1Closed && path.StartsWith("/api/v1"))
+                await Results.Problem(statusCode: 410, title: "API version closed").ExecuteAsync(context);
+            else
+                await next();
+        });
         app.MapPost("api/v1/invoices", (PostedInvoice body) => erp!.Post(body.InvoiceNumber));
-        app.MapGet("api/v1/invoices", () => Results.Ok(new { totalCount = 0, items = Array.Empty<object>() }));
-        app.MapGet("api/v1/invoices/{number}", (string number) => erp!.Get(number));
-        app.MapPost("api/v1/invoices/{number}/cancel", (string number) => erp!.Cancel(number));
+        app.MapPost("api/v2/invoices", (PostedInvoice body) =>
+        {
+            lock (erp!._lock) erp.KurusPosted[body.InvoiceNumber] = body.AmountKurus ?? 0;
+            return erp.Post(body.InvoiceNumber);
+        });
+        foreach (var version in new[] { "v1", "v2" })
+        {
+            app.MapGet($"api/{version}/invoices", () => Results.Ok(new { totalCount = 0, items = Array.Empty<object>() }));
+            app.MapGet($"api/{version}/invoices/{{number}}", (string number) => erp!.Get(number));
+            app.MapPost($"api/{version}/invoices/{{number}}/cancel", (string number) => erp!.Cancel(number));
+        }
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
@@ -101,7 +127,7 @@ public sealed class FakeErp : IAsyncDisposable
                 return OnGet(number);
             }
             if (!KeepRecords || !_accepted.Contains(number))
-                return Results.NotFound();
+                return Results.Problem(statusCode: 404, title: "Invoice not found");
             return Results.Ok(new { erpReference = $"ERP-{number}", cancelReference = _cancelled.GetValueOrDefault(number) });
         }
     }
@@ -119,5 +145,5 @@ public sealed class FakeErp : IAsyncDisposable
         }
     }
 
-    private sealed record PostedInvoice(string InvoiceNumber);
+    private sealed record PostedInvoice(string InvoiceNumber, long? AmountKurus);
 }

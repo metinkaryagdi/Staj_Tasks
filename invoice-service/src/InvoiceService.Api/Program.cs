@@ -1,3 +1,4 @@
+using InvoiceService.Api.Erp;
 using InvoiceService.Api.Auth;
 using InvoiceService.Api.Invoices;
 using InvoiceService.Api.Reconciliation;
@@ -82,6 +83,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescri
 app.MapInvoiceEndpoints();
 app.MapWebhookEndpoints();
 app.MapReconciliationEndpoints();
+app.MapErpVersionEndpoints();
 
 app.Run();
 

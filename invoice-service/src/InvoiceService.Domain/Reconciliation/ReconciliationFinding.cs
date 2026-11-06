@@ -71,10 +71,14 @@ public static class FindingType
     /// reported if the ERP rejected the invoice, which cannot be cancelled.</summary>
     public const string CancelledInService = "Serviste İptal Edilmiş";
 
+    /// <summary>The ERP gave no answer about the invoice, so this run did not compare it. Reported, again in every run while
+    /// it lasts, so a skipped invoice shows where the operator looks.</summary>
+    public const string NoErpAnswer = "Cevap Alınamadı";
+
     public static readonly string[] All =
     [
         StuckInvoice, FailedButInErp, UnknownEvent, MissingInService, MissingInErp, DuplicateInErp, FieldMismatch, NoErpDecision,
-        CancelledInErp, CancelledInService
+        CancelledInErp, CancelledInService, NoErpAnswer
     ];
 
     /// <summary>The types a run fixes; every other type is only reported.</summary>

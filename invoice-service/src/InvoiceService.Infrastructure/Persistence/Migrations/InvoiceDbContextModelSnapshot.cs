@@ -351,7 +351,7 @@ namespace InvoiceService.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_reconciliation_findings_action", "action IN ('Düzeltildi', 'Raporlandı')");
 
-                            t.HasCheckConstraint("ck_reconciliation_findings_finding_type", "finding_type IN ('Takılı Fatura', 'Başarısız Ama ERP Kayıtlı', 'Tanınmayan Haber', 'Serviste Yok', 'ERP Kaydı Yok', 'ERP Çift Kayıt', 'Alan Farkı', 'ERP Karar Vermedi', 'ERP İptal Etmiş', 'Serviste İptal Edilmiş')");
+                            t.HasCheckConstraint("ck_reconciliation_findings_finding_type", "finding_type IN ('Takılı Fatura', 'Başarısız Ama ERP Kayıtlı', 'Tanınmayan Haber', 'Serviste Yok', 'ERP Kaydı Yok', 'ERP Çift Kayıt', 'Alan Farkı', 'ERP Karar Vermedi', 'ERP İptal Etmiş', 'Serviste İptal Edilmiş', 'Cevap Alınamadı')");
 
                             t.HasCheckConstraint("ck_reconciliation_findings_fixed_types", "action <> 'Düzeltildi' OR (finding_type IN ('Takılı Fatura', 'Başarısız Ama ERP Kayıtlı', 'Tanınmayan Haber', 'ERP İptal Etmiş', 'Serviste İptal Edilmiş'))");
                         });

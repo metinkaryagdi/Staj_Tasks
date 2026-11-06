@@ -80,6 +80,14 @@ public class RoleRuleTests(PostgresFixture postgres, KeycloakFixture keycloak) :
     [InlineData("health", "operator", 200)]
     [InlineData("health", "rolsuz", 200)]
     [InlineData("health", "siparis-sistemi", 200)]
+    [InlineData("erp sürümü", "izleyici", 200)]
+    [InlineData("erp sürümü", "operator", 200)]
+    [InlineData("erp sürümü", "rolsuz", 403)]
+    [InlineData("erp sürümü", "siparis-sistemi", 403)]
+    [InlineData("erp sürümü değiştirme", "izleyici", 403)]
+    [InlineData("erp sürümü değiştirme", "operator", 200)]
+    [InlineData("erp sürümü değiştirme", "rolsuz", 403)]
+    [InlineData("erp sürümü değiştirme", "siparis-sistemi", 403)]
     public async Task Each_endpoint_answers_each_token_by_its_role(string endpoint, string caller, int expected)
     {
         var token = caller == "siparis-sistemi"
@@ -106,6 +114,8 @@ public class RoleRuleTests(PostgresFixture postgres, KeycloakFixture keycloak) :
                 new CreateInvoiceBody("C1", 10m, "TRY", "2026-10-26")),
             "webhook" => await SendWebhookAsync(token),
             "health" => await SendAsync(HttpMethod.Get, "/health", token),
+            "erp sürümü" => await SendAsync(HttpMethod.Get, "/api/v1/erp-version", token),
+            "erp sürümü değiştirme" => await SendAsync(HttpMethod.Put, "/api/v1/erp-version", token, new { v2Percent = 0 }),
             _ => throw new ArgumentOutOfRangeException(nameof(endpoint), endpoint, null)
         };
 

@@ -44,7 +44,7 @@ public static partial class DatabaseMigrator
     // Tables whose rows the service changes. The others are only added to and read (operator_actions,
     // reconciliation_findings), so a row written there cannot be changed later. A new table the service updates goes here.
     private static readonly string[] UpdatedTables =
-        ["invoices", "erp_outbox", "erp_webhook_events", "invoice_follow_ups", "reconciliation_runs", "erp_send_pace"];
+        ["invoices", "erp_outbox", "erp_webhook_events", "invoice_follow_ups", "reconciliation_runs", "erp_send_pace", "erp_version_setting"];
 
     /// <summary>
     /// Creates the application's user (or updates its password) and grants it rows only: SELECT and INSERT on the tables,
@@ -52,7 +52,7 @@ public static partial class DatabaseMigrator
     /// nothing, so it cannot drop or alter a table, and it cannot connect to the server's other databases. Run after every
     /// migration, so new tables are covered too.
     /// </summary>
-    private static async Task GrantAppUserAsync(InvoiceDbContext db, IConfiguration configuration, ILogger logger)
+    public static async Task GrantAppUserAsync(InvoiceDbContext db, IConfiguration configuration, ILogger logger)
     {
         var user = configuration["AppDatabaseUser:Name"] ?? "";
         var password = configuration["AppDatabaseUser:Password"] ?? "";

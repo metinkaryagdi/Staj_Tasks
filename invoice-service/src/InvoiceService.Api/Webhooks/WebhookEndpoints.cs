@@ -17,6 +17,7 @@ public static class WebhookEndpoints
             .WithName("ReceiveErpEvent")
             .WithSummary("An event from the ERP about an invoice (invoice.received / approved / rejected)")
             .WithDescription(
+                "The body is in the old format or the new one (schema erp.invoice-event.v2), whichever API version is in use. " +
                 "Signed with HMAC-SHA256 over \"{X-Erp-Timestamp}.{raw body}\" (timestamp in Unix seconds, signature as hex). " +
                 "Missing headers, a wrong signature or a timestamp more than ErpWebhooks:ToleranceSeconds away from now: 401, " +
                 "nothing is stored. A valid signature with an invalid body: 400. Otherwise 200: the event is stored once " +
@@ -74,7 +75,7 @@ public static class WebhookEndpoints
         }
 
         ErpWebhookRequest? payload;
-        try { payload = JsonSerializer.Deserialize<ErpWebhookRequest>(body, JsonSerializerOptions.Web); }
+        try { payload = ErpWebhookRequest.Parse(body); }
         catch (JsonException ex)
         {
             logger.LogWarning("ERP webhook rejected http=400 reason=invalid-json error={Error}", ex.Message);
@@ -82,7 +83,7 @@ public static class WebhookEndpoints
         }
         if (payload is null)
         {
-            logger.LogWarning("ERP webhook rejected http=400 reason=invalid-json error=body is null");
+            logger.LogWarning("ERP webhook rejected http=400 reason=invalid-json error=null body or unknown schema");
             return Results.ValidationProblem(new Dictionary<string, string[]> { ["body"] = ["Not valid JSON for an ERP event."] });
         }
 

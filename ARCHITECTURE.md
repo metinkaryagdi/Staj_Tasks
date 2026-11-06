@@ -137,7 +137,7 @@ flowchart LR
     P --> F["FixApplier<br/>fatura başına bir transaction<br/>satır kilidi altında"]
 ```
 
-ERP listesi alınamazsa çalışma Başarısız olur ve hiçbir fatura değişmemiştir (yazma henüz başlamamıştır). Tek bir faturanın cevabı alınamazsa o fatura karşılaştırılmaz, diğerleri sürer.
+ERP listesi alınamazsa çalışma Başarısız olur ve hiçbir fatura değişmemiştir (yazma henüz başlamamıştır). Tek bir faturanın cevabı alınamazsa o fatura karşılaştırılmaz, `Cevap Alınamadı` olarak raporlanır, diğerleri sürer.
 
 **Yeniden gönderme** — `POST /api/v1/invoices/{n}/resend` → endpoint operatörün adını ve sub'ını token'dan okur (`OperatorName`,
 `preferred_username` ve `sub`; kullanılabilir ad yoksa `403`) → `ResendInvoiceHandler`: yalnızca Başarısız fatura Bekliyor'a döner ve outbox kaydı sıfırlanır; `operator_actions`
@@ -266,8 +266,8 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   şey göndermez, deneme sonra tekrarlanır.
 - **Bu korumanın sınırı.** ERP'nin, aldığı bir isteği sorulduğu anda göstermesine dayanır. Simülatör cevap vermeden
   önce kaydettiği için hep gösterir; ama kaydı daha da geciktiren bir ERP 404 dönebilir ve fatura iki kez kaydedilebilir.
-  Bunu yalnızca ERP'nin aynı fatura numarasına ikinci kaydı reddetmesi kesin önler (`Simulator:IdempotentInvoices`,
-  varsayılanı kapalı).
+  Bunu yalnızca ERP'nin aynı fatura numarasına ikinci kayıt açmaması kesin önler: v2 bunu her zaman yapar, v1'de
+  `Simulator:IdempotentInvoices` ile açılır (varsayılanı kapalı).
 - **Vazgeçmeden önce son kez sorma.** Son deneme ERP'de kaydedilmiş olabilir. Bu yüzden Başarısız yazmadan önce ERP'ye
   bir kez daha sorulur; kayıt varsa fatura Gönderildi olur. Son denemesi yarıda kalan kayıt (sayaç zaten sınırda) bir
   daha POST edilmez, yalnızca sorulur.
@@ -349,6 +349,15 @@ Kod içindeki açıklamalar kısa tutuldu; bir kararın neden böyle olduğu bur
   için "yok", sırası her geldiğinde raporlanması gereken `ERP Kaydı Yok`'tur. Aynı veri fatura detayında "ERP'ye son soru" olarak görünür.
 - **Varsayılan aralık 60 dakika, ilk çalışma bir aralık sonra.** Daha kısa bir aralık, haberi yalnızca geç gelen faturaları da düzeltir ve
   önceki günlerin sayımlarını (karar haberi gönderilmeyen fatura sayısı) değiştirirdi; 7. ve 8. maddenin testleri aralığı ortam değişkeniyle kısaltır.
+
+### ERP sürüm geçişi
+
+- **Sürüm faturaya bağlanmaz, her istekte hesaplanır.** Bir fatura v1 ile gönderilip v2 ile iptal edilebilir: iki sürüm aynı kayıtları gösterir. Bağlansaydı v1 kapanınca bekleyen işler takılırdı, geri dönüş de yalnız yeni faturaları kapsardı.
+- **Kademe: numaranın hash'i ve yüzde.** Sıra numarası değil SHA-256: ardışık numaralarda da yüzde tutar, her kopyada aynı sonuç çıkar, yüzde artarken fatura v2'den v1'e dönmez.
+- **Yüzde veritabanında.** İki kopya aynı değeri görür, yeniden başlatma gerekmez. Önbellek yoktur: tek satırlık okuma ERP isteğinin yanında küçüktür, geri dönüş hemen etkili olur.
+- **Kuruş çevrimi yalnız `ErpClient`'ta.** Servisin geri kalanı ve mutabakat `decimal` görür.
+- **410, faturanın hatası değildir.** `RetryPolicy` 4xx'i kalıcı sayar; bu yüzden v1'in 410'u `ErpClient` içinde v2'ye yönlendirilir, `Başarısız` üretmez.
+- **Yalnız ERP'nin kendi 404'ü "kayıt yok" demektir.** Başka 404, iptali bekleyen faturayı ERP'ye gitmeden `İptal Edildi` yapardı.
 
 ### ERP Simulator
 

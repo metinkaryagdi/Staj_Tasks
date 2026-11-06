@@ -39,7 +39,8 @@ public sealed class SubmitInvoiceHandler(
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger("ErpSimulator.Invoices");
 
-    public async Task<SubmitInvoiceResult> HandleAsync(CreateInvoiceRequest request, CancellationToken requestAborted)
+    public async Task<SubmitInvoiceResult> HandleAsync(
+        CreateInvoiceRequest request, CancellationToken requestAborted, int apiVersion = ErpApiVersion.V1)
     {
         // Invalid requests are rejected before a behavior is drawn so they don't shift the seeded sequence.
         var errors = request.Validate();
@@ -53,26 +54,26 @@ public sealed class SubmitInvoiceHandler(
         // and received_at keep the arrival time.
         var settings = options.Value;
         var processingMs = Random.Shared.Next(settings.ProcessingMinMilliseconds, settings.ProcessingMaxMilliseconds + 1);
-        var result = await CarryOutAsync(request, processingMs, requestAborted);
+        var result = await CarryOutAsync(request, apiVersion, processingMs, requestAborted);
         if (processingMs > 0)
             await Task.Delay(processingMs, CancellationToken.None);
         return result;
     }
 
-    private async Task<SubmitInvoiceResult> CarryOutAsync(CreateInvoiceRequest request, int processingMs, CancellationToken requestAborted)
+    private async Task<SubmitInvoiceResult> CarryOutAsync(CreateInvoiceRequest request, int apiVersion, int processingMs, CancellationToken requestAborted)
     {
         var settings = options.Value;
 
-        // With IdempotentInvoices on, requests for the same invoice number wait for each other (a lock held until the
-        // record is committed), so a second request always sees the first one's record, even if saving it was slow.
-        await using var invoiceLock = settings.IdempotentInvoices
+        // In v2, or with IdempotentInvoices on, requests for the same invoice number wait for each other (a lock held until
+        // the record is committed), so a second request always sees the first one's record, even if saving it was slow.
+        await using var invoiceLock = apiVersion == ErpApiVersion.V2 || settings.IdempotentInvoices
             ? await invoices.LockInvoiceNumberAsync(request.InvoiceNumber!)
             : null;
         if (invoiceLock is not null)
         {
             var existing = await invoices.FindFirstAsync(request.InvoiceNumber!);
             if (existing is not null)
-                return Duplicate(existing, request);
+                return Duplicate(existing, request, apiVersion);
         }
 
         var decision = selector.Next();
@@ -94,20 +95,20 @@ public sealed class SubmitInvoiceHandler(
         switch (decision.Behavior)
         {
             case Behavior.Success:
-                return Decided(decision, await Save(request, decision));
+                return Decided(decision, await Save(request, decision, apiVersion));
 
             case Behavior.Busy:
             case Behavior.ServerError:
                 return Decided(decision);
 
             case Behavior.SaveThenError:
-                return Decided(decision, await Save(request, decision));
+                return Decided(decision, await Save(request, decision, apiVersion));
 
             case Behavior.LateResponse:
             {
                 // Save commits (and releases the invoice number lock) before the delay, like a real ERP that answers
                 // late.
-                var invoice = await Save(request, decision);
+                var invoice = await Save(request, decision, apiVersion);
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(settings.LateResponseDelaySeconds), requestAborted);
@@ -133,7 +134,7 @@ public sealed class SubmitInvoiceHandler(
         new(SubmitOutcome.Decided, Invoice: invoice, Decision: decision, ClientGone: clientGone);
 
     /// <summary>Saves the record and plans its events (webhook_deliveries) in one transaction.</summary>
-    private async Task<ErpInvoice> Save(CreateInvoiceRequest request, BehaviorDecision decision)
+    private async Task<ErpInvoice> Save(CreateInvoiceRequest request, BehaviorDecision decision, int apiVersion)
     {
         var invoice = new ErpInvoice
         {
@@ -144,7 +145,8 @@ public sealed class SubmitInvoiceHandler(
             InvoiceDate = request.InvoiceDate!.Value,
             ReceivedAt = DateTimeOffset.UtcNow,
             Behavior = decision.Behavior.ToString(),
-            RequestSequence = decision.Sequence
+            RequestSequence = decision.Sequence,
+            ApiVersion = apiVersion
         };
 
         // A cancelled invoice number gets no events: the ERP does not approve or reject it later.
@@ -161,14 +163,15 @@ public sealed class SubmitInvoiceHandler(
         return deliveries;
     }
 
-    private SubmitInvoiceResult Duplicate(ErpInvoice existing, CreateInvoiceRequest request)
+    private SubmitInvoiceResult Duplicate(ErpInvoice existing, CreateInvoiceRequest request, int apiVersion)
     {
         var sameContent = existing.CustomerCode == request.CustomerCode
                           && existing.Amount == request.Amount
                           && existing.Currency == request.Currency
                           && existing.InvoiceDate == request.InvoiceDate;
 
-        if (!sameContent)
+        // v2 always answers with the existing record.
+        if (!sameContent && apiVersion == ErpApiVersion.V1)
         {
             _logger.LogInformation(
                 "ERP request invoice={InvoiceNumber} behavior=Conflict status=409 existing={ErpReference}",
