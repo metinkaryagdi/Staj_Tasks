@@ -1,5 +1,6 @@
 using InvoiceService.Application.Abstractions;
 using InvoiceService.Domain.Invoices;
+using InvoiceService.Domain.Outbox;
 using InvoiceService.Domain.Webhooks;
 
 namespace InvoiceService.Application.Webhooks;
@@ -47,6 +48,13 @@ public sealed class WebhookEventProcessor(
                 "ERP webhook stored event={EventId} type={EventType} invoice={InvoiceNumber} status={Status} invoiceStatus=- " +
                 "(invoice unknown here; waits for it)",
                 erpEvent.EventId, erpEvent.EventType, erpEvent.InvoiceNumber, erpEvent.Status);
+        }
+        else if (await IsAnotherRecordsCancellationAsync(invoice, erpEvent, ct))
+        {
+            logger.LogInformation(
+                "ERP webhook stored event={EventId} type={EventType} invoice={InvoiceNumber} status={Status} invoiceStatus={InvoiceStatus} " +
+                "(not the service's cancellation; reconciliation compares the ERP's record)",
+                erpEvent.EventId, erpEvent.EventType, erpEvent.InvoiceNumber, erpEvent.Status, invoice.Status);
         }
         else
         {
@@ -100,6 +108,15 @@ public sealed class WebhookEventProcessor(
         await outbox.CompleteFailedAsync(invoiceNumber, now, ct);
         await outbox.CompleteCancelAsync(invoiceNumber, now, ct);
     }
+
+    /// <summary>
+    /// A Başarısız invoice is not known to be at the ERP: the ERP's record of its number may be another invoice (other
+    /// content). Its cancellation is applied only if it is the service's own (sent after the record was found to be this
+    /// invoice); otherwise the event waits and reconciliation, which compares the record, decides.
+    /// </summary>
+    private async Task<bool> IsAnotherRecordsCancellationAsync(Invoice invoice, ErpWebhookEvent erpEvent, CancellationToken ct) =>
+        invoice.Status == InvoiceStatus.Failed && erpEvent.EventType == WebhookEventType.Cancelled
+        && (await outbox.FindAsync(invoice.InvoiceNumber, ct, OutboxKind.Cancel))?.Status != OutboxStatus.Completed;
 
     /// <summary>Lets the database itself stop this transaction if a lock wait or a statement takes too long.</summary>
     private Task LimitWaitsAsync(CancellationToken ct)

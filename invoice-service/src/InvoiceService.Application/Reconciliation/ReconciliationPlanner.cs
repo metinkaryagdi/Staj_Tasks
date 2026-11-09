@@ -57,6 +57,14 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
             if (records.Count > 1)
                 findings.Add(DuplicateInErp(number, records));
 
+            // A Başarısız invoice whose ERP record has other content: the record is another invoice, so neither its
+            // cancellation nor its decision is this invoice's.
+            if (invoice.Status == InvoiceStatus.Failed && Differences(invoice, records[0]) is { Count: > 0 } other)
+            {
+                findings.Add(new(number, FindingType.FieldMismatch, string.Join("; ", other) + "."));
+                continue;
+            }
+
             if (CancellationFinding(invoice, records, decisions) is { } cancellation)
             {
                 findings.Add(cancellation);

@@ -249,6 +249,17 @@ public class ReconciliationPlannerTests
     }
 
     [Fact]
+    public void A_cancelled_erp_record_of_other_content_is_not_applied_to_a_failed_invoice()
+    {
+        var snapshot = Snapshot([Invoice("F-1", InvoiceStatus.Failed)], [Erp("F-1", amount: 999m) with { Cancelled = true }]);
+
+        var finding = Assert.Single(Plan(snapshot).Findings);
+
+        Assert.Equal(FindingType.FieldMismatch, finding.FindingType);
+        Assert.Null(finding.Fix);
+    }
+
+    [Fact]
     public void A_failed_invoice_whose_date_alone_differs_from_the_erps_is_reported_not_recovered()
     {
         var snapshot = Snapshot([Invoice("F-1", InvoiceStatus.Failed, date: new DateOnly(2026, 10, 4))], [Erp("F-1")]);

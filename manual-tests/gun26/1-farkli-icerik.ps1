@@ -90,16 +90,27 @@ Check ((Get-SqlScalar "SELECT count(*) FROM cancellations WHERE invoice_number =
 Show-Rows 'Servis (erp_outbox):' "SELECT $OutboxColumns FROM erp_outbox WHERE invoice_number = '$n2' ORDER BY id"
 
 Write-Line ''
-Write-Line '5) Operatörün önünde: operasyon ekranının kullandığı liste, Başarısız süzgeciyle'
+Write-Line '5) ERP kendi kaydını iptal eder: haber gelir, fatura bu kaydın sahibi olmadığı için değişmez'
+$erpCancel = Send-Erp POST "/api/v2/invoices/$n2/cancel"
+Write-Line "  ERP'de doğrudan iptal (kaydın sahibi): HTTP $($erpCancel.Status) $($erpCancel.Json.cancelReference)"
+Wait-Until { [int](Invoke-InvoiceSql "SELECT count(*) FROM erp_webhook_events WHERE invoice_number = '$n2' AND event_type = 'invoice.cancelled'") -ge 1 } 120 "$n2 iptal haberi servise ulaştı"
+$row = (& $errorSql $n2) -split '\|', 3
+Check ($row[0] -eq 'Başarısız' -and $row[1] -eq '-') "Fatura değişmedi: durum $($row[0]), erp_reference $($row[1])"
+Check ($row[2] -like '*farklı içerikle kayıtlı*') "Son hata duruyor: $($row[2])"
+Show-Events $n2
+
+Write-Line ''
+Write-Line '6) Operatörün önünde: operasyon ekranının kullandığı liste, Başarısız süzgeciyle'
 $list = Send-Api GET "/api/v1/invoices?status=$([Uri]::EscapeDataString('Başarısız'))&pageSize=50" (Get-UserToken 'operator')
 $numbers = @($list.Json.items | ForEach-Object { $_.invoiceNumber })
 Check ($list.Status -eq 200 -and $numbers -contains $n1 -and $numbers -contains $n2) "GET /api/v1/invoices?status=Başarısız: HTTP $($list.Status), listede $($numbers -join ', ')"
 
 Write-Line ''
-Write-Line '6) Mutabakat bu faturaları kabul edilmiş saymaz'
+Write-Line '7) Mutabakat bu faturaları kabul edilmiş saymaz (ERP''deki iptal de uygulanmaz)'
 $run = Invoke-ReconciliationRetry
 Write-Line "  Mutabakat $($run.id): $($run.status), düzeltilen $($run.fixedCount), raporlanan $($run.reportedCount)"
 Show-Rows 'Bulgular:' "SELECT invoice_number, finding_type, action, left(details, 110) AS ayrinti FROM reconciliation_findings WHERE run_id = $($run.id) ORDER BY invoice_number"
 Check ((Invoke-InvoiceSql "SELECT count(*) FROM invoices WHERE invoice_number IN ('$n1','$n2') AND status = 'Başarısız' AND erp_reference IS NULL") -eq '2') 'Mutabakattan sonra iki fatura da Başarısız, erp_reference yok'
+Check ((Invoke-InvoiceSql "SELECT count(*) FROM reconciliation_findings WHERE invoice_number = '$n2' AND finding_type = 'ERP İptal Etmiş'") -eq '0') "$n2 için ERP İptal Etmiş bulgusu: 0"
 
 Save-Report

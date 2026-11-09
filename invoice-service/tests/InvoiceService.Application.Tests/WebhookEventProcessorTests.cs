@@ -41,6 +41,35 @@ public class WebhookEventProcessorTests
     }
 
     [Fact]
+    public async Task The_cancellation_of_a_failed_invoice_waits_when_it_is_not_the_services_own()
+    {
+        var invoice = _s.Invoices.Add(Number, InvoiceStatus.Failed);
+        invoice.LastError = "ERP'de bu numara farklı içerikle kayıtlı (ERP-9): tutar: serviste 10.50, ERP'de 99.00.";
+
+        var result = await Receive("e-1", WebhookEventType.Cancelled, reference: "ERP-9");
+
+        Assert.Equal(WebhookEventStatus.Pending, result.Status);
+        Assert.Equal(InvoiceStatus.Failed, invoice.Status);
+        Assert.Null(invoice.ErpReference);
+        Assert.Contains("farklı içerikle kayıtlı", invoice.LastError);
+    }
+
+    [Fact]
+    public async Task The_cancellation_of_a_failed_invoice_is_applied_when_the_service_cancelled_it()
+    {
+        _s.Invoices.Add(Number, InvoiceStatus.Failed);
+        _s.Outbox.CancelEntries[Number] = new Domain.Outbox.ErpOutboxEntry
+        {
+            InvoiceNumber = Number, Kind = Domain.Outbox.OutboxKind.Cancel, Status = Domain.Outbox.OutboxStatus.Completed
+        };
+
+        var result = await Receive("e-1", WebhookEventType.Cancelled);
+
+        Assert.Equal(WebhookEventStatus.Processed, result.Status);
+        Assert.Equal(InvoiceStatus.Cancelled, _s.Invoices.Invoices[Number].Status);
+    }
+
+    [Fact]
     public async Task Event_for_an_invoice_not_known_here_waits()
     {
         var result = await Receive("e-1", WebhookEventType.Approved);
