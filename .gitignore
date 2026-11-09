@@ -489,3 +489,6 @@ manual-tests/output/
 
 # Load test results (docker compose run --rm k6)
 load-test/results/
+
+# Chaos runs: results, plans, logs and database backups (chaos/kaos.ps1)
+chaos/results/

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using InvoiceService.Domain.Invoices;
 
@@ -7,10 +8,18 @@ namespace InvoiceService.Application.Abstractions;
 /// Outcome of one request to the ERP. <see cref="HttpStatus"/> is null when no answer came (timeout, ERP unreachable).
 /// <see cref="RetryAfter"/> is the Retry-After header as sent (seconds or an HTTP date), if there was one.
 /// <see cref="NoAnswer"/> says why no answer came; null when one did.
+/// <see cref="ContentMismatch"/>: the ERP has the invoice number with other content; refused like the ERP's own 409.
 /// </summary>
 public sealed record ErpSendResult(
     bool Accepted, string? ErpReference, int? HttpStatus, string? Error, TimeSpan Elapsed,
-    RetryConditionHeaderValue? RetryAfter = null, ErpNoAnswer? NoAnswer = null);
+    RetryConditionHeaderValue? RetryAfter = null, ErpNoAnswer? NoAnswer = null, bool ContentMismatch = false)
+{
+    /// <summary>The ERP answered with its record of the number and that record is not this invoice.</summary>
+    public static ErpSendResult DifferentContent(int? httpStatus, string? erpReference, IReadOnlyList<string> differences, TimeSpan elapsed) =>
+        new(false, null, httpStatus,
+            $"ERP'de bu numara farklı içerikle kayıtlı ({erpReference}): {string.Join("; ", differences)}.", elapsed,
+            ContentMismatch: true);
+}
 
 /// <summary>Why a request to the ERP got no answer.</summary>
 public enum ErpNoAnswer
@@ -68,7 +77,28 @@ public sealed record ErpLookupResult(
 /// <param name="Cancelled">The ERP has cancelled the invoice number.</param>
 public sealed record ErpRecord(
     string InvoiceNumber, string ErpReference, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate,
-    DateTimeOffset ReceivedAt, bool Cancelled = false);
+    DateTimeOffset ReceivedAt, bool Cancelled = false)
+{
+    /// <summary>
+    /// The fields in which this record is not the invoice: amount, currency, customer code and date, the ones the ERP's v1
+    /// compares before answering 409. Empty when it is the same invoice.
+    /// </summary>
+    public List<string> DifferencesFrom(Invoice invoice)
+    {
+        var differences = new List<string>();
+        if (invoice.Amount != Amount)
+            differences.Add($"tutar: serviste {Money(invoice.Amount)}, ERP'de {Money(Amount)}");
+        if (invoice.Currency != Currency)
+            differences.Add($"para birimi: serviste {invoice.Currency}, ERP'de {Currency}");
+        if (invoice.CustomerCode != CustomerCode)
+            differences.Add($"müşteri kodu: serviste {invoice.CustomerCode}, ERP'de {CustomerCode}");
+        if (invoice.InvoiceDate != InvoiceDate)
+            differences.Add($"tarih: serviste {invoice.InvoiceDate:yyyy-MM-dd}, ERP'de {InvoiceDate:yyyy-MM-dd}");
+        return differences;
+    }
+
+    private static string Money(decimal amount) => amount.ToString("0.00", CultureInfo.InvariantCulture);
+}
 
 /// <param name="Records">Every record in the range, oldest first; empty unless <see cref="Succeeded"/>.</param>
 /// <param name="Error">Why the list could not be read completely; null when it succeeded.</param>

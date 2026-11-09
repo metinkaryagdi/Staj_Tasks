@@ -24,7 +24,8 @@ public enum SendOutcome
 public sealed record RetryDecision(SendOutcome Outcome, TimeSpan Delay, string Reason, bool AttemptsUsedUp = false);
 
 /// <summary>
-/// What to do after one ERP attempt: 202 -> sent; 429 -> wait for Retry-After; other 4xx -> failed at once;
+/// What to do after one ERP attempt: 202 -> sent; 429 -> wait for Retry-After; other 4xx, or the number already at the
+/// ERP with other content -> failed at once;
 /// anything else -> exponential backoff with jitter. After the last attempt -> failed.
 /// </summary>
 public sealed class RetryPolicy(OutboxOptions options)
@@ -43,6 +44,9 @@ public sealed class RetryPolicy(OutboxOptions options)
     {
         if (result.Accepted)
             return new RetryDecision(SendOutcome.Sent, TimeSpan.Zero, "accepted");
+
+        if (result.ContentMismatch)
+            return new RetryDecision(SendOutcome.Failed, TimeSpan.Zero, "the ERP has this invoice number with other content, not retried");
 
         if (result.HttpStatus is >= 400 and < 500 and not 429)
             return new RetryDecision(SendOutcome.Failed, TimeSpan.Zero, $"ERP rejected the invoice with {result.HttpStatus}, not retried");

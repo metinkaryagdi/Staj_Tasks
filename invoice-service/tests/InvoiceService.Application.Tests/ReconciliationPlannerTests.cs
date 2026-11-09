@@ -19,10 +19,10 @@ public class ReconciliationPlannerTests
     }));
 
     private static Invoice Invoice(string number, string status, int minutesInStatus = 10, string? reference = null,
-        decimal amount = 100m, string currency = "TRY", string customer = "C-001") => new()
+        decimal amount = 100m, string currency = "TRY", string customer = "C-001", DateOnly? date = null) => new()
     {
         InvoiceNumber = number, Status = status, Amount = amount, Currency = currency, CustomerCode = customer,
-        ErpReference = reference, UpdatedAt = Now.AddMinutes(-minutesInStatus)
+        InvoiceDate = date ?? new DateOnly(2026, 10, 5), ErpReference = reference, UpdatedAt = Now.AddMinutes(-minutesInStatus)
     };
 
     private static ErpRecord Erp(string number, string reference = "ERP-1", decimal amount = 100m, string currency = "TRY",
@@ -245,6 +245,18 @@ public class ReconciliationPlannerTests
         var finding = Assert.Single(Plan(snapshot).Findings);
 
         Assert.Equal(FindingType.FieldMismatch, finding.FindingType);
+        Assert.Null(finding.Fix);
+    }
+
+    [Fact]
+    public void A_failed_invoice_whose_date_alone_differs_from_the_erps_is_reported_not_recovered()
+    {
+        var snapshot = Snapshot([Invoice("F-1", InvoiceStatus.Failed, date: new DateOnly(2026, 10, 4))], [Erp("F-1")]);
+
+        var finding = Assert.Single(Plan(snapshot).Findings);
+
+        Assert.Equal(FindingType.FieldMismatch, finding.FindingType);
+        Assert.Contains("tarih: serviste 2026-10-04, ERP'de 2026-10-05", finding.Details);
         Assert.Null(finding.Fix);
     }
 

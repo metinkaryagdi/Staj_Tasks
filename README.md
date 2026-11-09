@@ -193,6 +193,7 @@ veritabanındadır (`erp_version_setting`), yeniden başlatma gerekmez, her kopy
 
 - **v1 kapalıysa:** `410` alan istek aynı denemede v2 ile yapılır; deneme hakkı harcamaz, fatura ya da iptal Başarısız olmaz.
 - **ERP'nin kendi cevabı olmayan 404** (`Invoice not found` değilse) "kayıt yok" ya da kalıcı hata sayılmaz, tekrar denenir: v2 kurulmadan yüzde açılsa da fatura zarar görmez.
+- **Aynı numara farklı içerikle:** v2 kayıtlı numaraya `202` ile mevcut kaydı döner. Servis bu kaydı (ve sonraki denemelerde ERP'ye sorduğunda bulduğu kaydı) faturayla karşılaştırır: tutar, para birimi, müşteri kodu ya da tarih farklıysa fatura kabul edilmiş sayılmaz, v1'in `409`'u gibi yeniden denenmeden `Başarısız` olur ve hata bu farkları yazar. Operatörün yeniden göndermesi de aynı sonuca varır. Bu faturanın iptali ERP'ye gönderilmez (ERP'deki kayıt başka bir faturanındır); iptal `Başarısız` olur, fatura değişmez.
 - **Haberler:** webhook ucu iki biçimi de her zaman kabul eder; bilinmeyen `schema` `400`.
 - **Geçiş ve geri dönüş:** [ERP-GECIS.md](ERP-GECIS.md).
 
@@ -353,7 +354,10 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar (`MaxConcurrentSends`)
   (`404`) ERP'ye hiçbir şey gitmez: iptal `Tamamlandı`, fatura `İptal Edildi`, `Gönderim` satırı `Başarısız` ("Fatura iptal edildi,
   ERP'ye gönderilmedi."). `Başarısız` faturanın iptali de aynı sonuca varır, `Gönderim` satırında son gönderim hatası kalır. Fatura ERP'de varsa gönderim `Tamamlandı` olur, yalnız
   iptal gider. Servis faturayı ERP'de sanıyorsa (ör. `Onaylandı`) ve ERP `404` dönerse iptal `Başarısız` olur.
-- **Çift kayıt:** ilk POST ERP'de henüz kaydedilmeden timeout olursa sonraki `GET` `404` dönebilir ve ikinci POST çift
+- **Çift kayıt:** zaman aşımında ERP bağlantısı RST ile kapanır, çekirdek henüz ulaştıramadığı veriyi atar
+  ([`ErpConnections`](invoice-service/src/InvoiceService.Infrastructure/Erp/ErpConnections.cs)). Böylece ağ kopukken gönderilip
+  vazgeçilen POST, ağ geri gelince ERP'ye ulaşıp sonraki denemenin `GET`'inden sonra ikinci kayıt açamaz. Bu yalnız servisin
+  çekirdeğinde kalan veriyi kapsar: ERP isteği alıp kaydı zaman aşımından ve sonraki `GET`'ten sonra yazarsa ikinci POST yine çift
   kayıt oluşturabilir. v2 aynı numaraya yeni kayıt açmadığı için bu yalnız v1 açıkken mümkündür; v1'de `IdempotentInvoices=true` da önler.
 
 ### ERP webhook'ları
@@ -389,7 +393,7 @@ servis instance'ı aynı anda en fazla 10 gönderim yapar (`MaxConcurrentSends`)
 | `Serviste İptal Edilmiş`: serviste `İptal Edildi`, ERP'de kayıt var ama iptal yok | İptal yeniden kuyruğa alınır, bekleyen iptal sıfırlanmaz (**Düzeltildi**); ERP faturayı reddettiyse Raporlandı |
 | `Serviste Yok`: ERP'de var, serviste hiç yok | Raporlandı; ERP kaydı iptal edilmişse ayrıntıda yazar |
 | `ERP Çift Kayıt`: ERP'de birden fazla kaydı olan fatura | Raporlandı |
-| `Alan Farkı`: tutar, para birimi, müşteri kodu ya da `erp_reference` farklı | Raporlandı |
+| `Alan Farkı`: tutar, para birimi, müşteri kodu, tarih ya da `erp_reference` farklı | Raporlandı |
 | `ERP Kaydı Yok`: serviste `Gönderildi` ya da sonrası, ERP'de kayıt yok | Raporlandı |
 | `Cevap Alınamadı`: ERP bu fatura için cevap vermedi, karşılaştırılmadı | Raporlandı; cevap alınamadıkça her çalışmada yeniden yazılır ve operasyon ekranının Raporlanan bulgular bölümünde görünür |
 | `ERP Karar Vermedi`: takılı fatura `NoDecisionAfterMinutes`'tan uzun aynı durumda, ERP'ye soruldu ve cevap faturayı ilerletmiyor (`none`, ya da `İşleme Alındı` faturada `received`) | Raporlandı; ERP sessiz kaldıkça pencere içinde her çalışmada, eski faturada sırası geldiğinde yeniden yazılır, karar gelince sonraki çalışma `Takılı Fatura` olarak düzeltir |
@@ -633,8 +637,10 @@ trace'idir:
 |---|---|
 | Unit ve entegrasyon testleri | `dotnet test erp-simulator`, `dotnet test invoice-service/InvoiceService.slnx` (entegrasyon testleri için Docker gerekir), `npm test --prefix operations-ui` |
 | Yük testi | `docker compose run --rm k6` ([aşağıda](#yük-testi)) |
+| Kaos otomasyonu | `.\chaos\kaos.ps1` ([aşağıda](#kaos-otomasyonu)) |
 | Gün 21 kontrol listesi: kapatılan bulguların önce/sonra istekleri (Grafana, kaba kuvvet ve şifre politikası, offline token ve refresh token'ın ikinci kullanımı, ekranın başlıkları, veritabanı kullanıcıları, izleme araçlarına kimliksiz ve başka origin'den istek), yük testi | [`manual-tests/gun21/`](manual-tests/gun21/) |
 | Gün 24 kontrol listesi: mutabakat sorgu sınırı ve kaybolan iptal; dünkü yük testiyle iptal beklemesi; yük altında felaket ve geri dönüş | [`manual-tests/gun24/`](manual-tests/gun24/) |
+| Gün 26 kontrol listesi: yeni sürümde farklı içerikle kayıtlı numara; Gün 25'teki 1.000 Takılı Fatura'nın nedeni (o koşunun veritabanlarından, yalnız okuma); ağ kopukken vazgeçilen POST'un geç ulaşması (çift fatura) | [`manual-tests/gun26/`](manual-tests/gun26/) |
 | Gün 25 kontrol listesi: cevapsız fatura ekranda; v2 uçları; yük altında kademeli geçiş, geri dönüş ve v1'in kapatılması; doküman komutları | [`manual-tests/gun25/`](manual-tests/gun25/) |
 | Gün 23 kontrol listesi: yeniden deneme, ERP'de iptal edilen fatura, ERP'ye hiç gitmemiş fatura, iptal haberi, kayıp haber ve mutabakat; ekran verisi; yük testi | [`manual-tests/gun23/`](manual-tests/gun23/) |
 | Gün 22 kontrol listesi: hesap kilitleme, iptal (onaylanmış fatura, tekrar denemedeki fatura, iptal gönderilirken servisin öldürülmesi); ek canlı kontroller, dünkü veriyle migration, yük testi | [`manual-tests/gun22/`](manual-tests/gun22/) |
@@ -721,7 +727,7 @@ docker compose run --rm k6
 5 dakika olduğu için yenilemeyi görmek için süre uzatılır (`DURATION=7m`).
 
 Ortam değişkenleri: `BASE_URLS` (virgülle birden fazla adres; istekler sırayla dağıtılır), `RATE`, `DURATION`, `RUN_ID` (faturaların
-müşteri kodu; verilmezse `LOAD-<zaman>`). Sonuç ekrana ve `load-test/results/<RUN_ID>.json`'a yazılır (istek sayısı,
+müşteri kodu; verilmezse `LOAD-<zaman>`), `LOG_ACCEPTED=true` (202 alan her fatura için çıktıya `ACCEPTED <numara> <zaman>`; kaos otomasyonu kullanır). Sonuç ekrana ve `load-test/results/<RUN_ID>.json`'a yazılır (istek sayısı,
 `POST /api/v1/invoices` p50 / p95 / p99, VU, alınan token ve 401 alan istek sayısı; token istekleri süreye ve istek sayısına
 girmez); p95 200 ms'yi geçerse k6 hata koduyla biter. Kuyruk boşaldıktan sonraki sonuç tablosu:
 `.\manual-tests\gun8\6-yuk-olcum.ps1 -RunId <RUN_ID>`.
@@ -732,17 +738,72 @@ Invoice Service'inki önce operatörün (test client'ı eklendikten sonra) ve si
 loglar için `docker compose logs -f erp-simulator` / `docker compose logs -f invoice-service`.
 Script'ler engellenirse önce `Set-ExecutionPolicy -Scope Process Bypass`.
 
+### Kaos otomasyonu
+
+[`chaos/kaos.ps1`](chaos/kaos.ps1) bugüne kadar ayrı ayrı denenen sekiz arızayı yük altında, rastgele sırayla ve zamanla oluşturur,
+sistemin durulmasını bekler ve garantileri birlikte kontrol eder. Bir değişiklikten sonra önceki günlerin garantilerinin hâlâ tuttuğunu
+görmek için çalıştırılır. Docker ve Git Bash gerekir; çalışan compose kurulumunun yerine geçer (koşunun kendi boş volume'leriyle).
+
+```powershell
+.\chaos\kaos.ps1                        # yeni sıra; seed rastgele seçilir, sonuçta yazılır
+.\chaos\kaos.ps1 -Seed 4711             # aynı seed: aynı plan (aynı arızalar, aynı sırada, aynı planlanan başlangıç ve sürelerle)
+.\chaos\kaos.ps1 -Seed 4711 -PlanOnly   # yalnız planı gösterir, hiçbir şey çalıştırmaz
+```
+
+Bir koşu 18–26 dakika sürdü (ölçülen koşular): kurulum, 10 dakika yük (saniyede 20 fatura, iki kopyaya), durulma, iki mutabakat.
+Plan seed'den gelir; gerçekleşen başlangıç ve bitişler bundan kayabilir (ölçülen koşularda başlangıçlar en çok 19,6 sn, bitişler en çok 20,6 sn) (simülatörün yeniden başlatılması, aynı
+container'ı tutan önceki arızanın bitmesini beklemek), bu yüzden gerçekleşen bir arıza 90 sn'yi birkaç saniye aşabilir. Sıra değişmez.
+
+**Arızalar.** Her koşuda her biri bir kez: ERP çökmesi (`kill`, sonra `start`), ERP yavaşlaması (gönderimlerin %60'ı 30 sn sonra
+cevaplanır), ağın kopması (simülatör `apps` ağından çıkarılır), worker'ın ölmesi (kopya 1 `kill`), servis kopyasının ölmesi (kopya 2
+`kill`), haberlerin kaybolması (kararların %50'si kaybolur, %30'u çift gelir), veritabanı kaybı (volume silinir,
+[FELAKET-KITAPCIGI.md](FELAKET-KITAPCIGI.md)'deki gibi `scripts/restore-invoice-db.sh` ile son yedekten dönülür), ERP sürüm geçişi
+(yüzde 10, 50 ya da 100, bazı koşularda pencere boyunca v1 kapalı; sonunda yüzde 0). Yük sırasında her 5 sn'de rastgele üç faturanın
+iptali istenir.
+
+**Sınırlar** (parametreyle değişir): her arızanın planlanan süresi 20–90 sn (`-MinFaultSeconds`, `-MaxFaultSeconds`; 10 deneme ~5 dakikada bittiği için
+daha uzun kesinti faturayı meşru biçimde Başarısız yapar), aynı anda en çok 3 arıza (`-MaxOverlap`), aynı container'a dokunan iki arıza
+üst üste gelmez, hepsi yük bitmeden en az 30 sn önce biter, veritabanı kaybı yük başladıktan en erken 5,5 dk sonra (yedek aralığı 5 dk).
+Yük `-Rate` ve `-Duration`, durulma süresi `-SettleMinutes` (45).
+
+**Durulma:** outbox'ta `Bekliyor` satır ve ERP'de gönderilmeyi bekleyen haber kalmaz; süre son arızanın bitişinden sayılır. Durulunca
+mutabakat iki kez çalışır: ilki kaybolan kararları düzeltir, ikincisi son mutabakattır.
+
+**Garantiler:**
+
+| Garanti | Nasıl kontrol edilir |
+|---|---|
+| 202 almış hiçbir fatura kaybolmamış | k6'nın 202 aldığı her numara serviste var; serviste ERP referansı olan her fatura ERP'de var. Veritabanı kaybında 202'si son yedekten sonra, silmeden önce alınan kayıplar ayrı sayılır (saat farkı için yedekten 2 sn önce ile silmeden 10 sn sonrası arası) |
+| ERP'de çift fatura yok | ERP'de birden fazla kaydı olan numara yok |
+| Hiçbir iptal faturasından önce ERP'ye ulaşmamış | ERP'de faturasının kaydından önce oluşmuş iptal yok; simülatör logunda `status=404 reason=notRecorded` yok |
+| Takılı fatura ya da iptal kalmamış | ilk mutabakattan sonra `Gönderildi` / `İşleme Alındı` fatura ve `Bekliyor` outbox satırı yok |
+| Son mutabakat temiz | ikinci mutabakatta düzeltilen 0, raporlanan 0 (yedek aralığında kaybolan faturaların `Serviste Yok` ve `Tanınmayan Haber` bulguları hariç) |
+
+**Sonucun okunuşu:** `chaos/results/<zaman>-seed<seed>/sonuc.txt`, aynısı ekranda. İlk satır:
+
+- `SONUÇ: YEŞİL` — sistem durulmuş, beş garanti de tutmuş.
+- `SONUÇ: KIRMIZI` — en az bir garanti bozulmuş. "Bozulmalar" bölümünde her satır: garanti, fatura, an (yük başlangıcından dk:sn ve
+  saat), o an açık olan arızalar, ayrıntı.
+- `SONUÇ: DURULMADI` — sistem `-SettleMinutes` içinde durulmamış; kalan satır ve haber sayısı yazılır. Durulmaya bağlı olmayan garantiler
+  (kayıp, çift, iptal sırası) yine kontrol edilir, ikisi "kontrol edilmedi" olur. Garanti de bozulduysa `DURULMADI + KIRMIZI`.
+
+İkinci satır aynı sırayla yeniden çalıştırma komutudur. Ardından gerçekleşen arıza sırası (başlangıç–bitiş) ve bilgi satırları gelir:
+iptal isteklerinin cevapları, deneme hakkı bitip `Başarısız` olan faturalar (operatörün önündedir, garanti bozulması sayılmaz), iki
+mutabakatın sayıları, veritabanı kaybının yedek ve silme anı. Aynı klasörde `plan.json` (seed'in planı), `arizalar.csv` (gerçekleşen
+başlangıç ve bitişler; iki koşu karşılaştırılırken bu dosyalar yan yana konur), `k6.txt`, `simulator.log`, `veritabani-kaybi.txt`, `yedek/`.
+
 ---
 
-## Gün 25 — ERP Sürüm Değişikliği
+## Gün 26 — Kaos Otomasyonu
 
-Bugünün işi: Fatura Servisi'ni ERP'nin yeni sürümüne, servisi durdurmadan, fatura kaybetmeden ve çiftlemeden geçirmek; sorun çıkarsa eski sürüme dönebilmek. Dünden kalan iki konu.
+Bugünün işi: bugüne kadar ayrı günlerde denenen arızaları yük altında, rastgele sırayla ve tek komutla çalıştırıp sonunda bütün
+garantileri birlikte kontrol eden otomasyon. Dünden kalan iki konu.
 
-- **Cevapsız fatura:** `Cevap Alınamadı` bulgusu, operasyon ekranında ([Mutabakat](#mutabakat)).
-- **ERP'nin yeni sürümü:** [Yeni sürüm](#yeni-sürüm-apiv2).
-- **Geçiş:** [ERP sürümü](#erp-sürümü), [ERP-GECIS.md](ERP-GECIS.md).
+- **Yeni sürümde farklı içerikle kayıtlı numara:** [ERP sürümü](#erp-sürümü); mutabakatın `Alan Farkı` bulgusu tarihi de karşılaştırır ([Mutabakat](#mutabakat)).
+- **Kaos otomasyonu:** [Kaos otomasyonu](#kaos-otomasyonu).
+- **Otomasyonun bulduğu hata:** ağ kopukken gönderilip vazgeçilen POST, ağ geri gelince ERP'ye geç ulaşıp ERP'de çift fatura açıyordu (Gün 3'ten beri yazılı çift kayıt sınırının bir hali); ERP bağlantısı artık zaman aşımında RST ile kapanıyor ([Outbox Worker](#outbox-worker), "Çift kayıt").
 
-Kontrol listesi ([`manual-tests/gun25/`](manual-tests/gun25/)): 1 `3-cevapsiz-ekran.ps1`; 3-6 `2-gecis.ps1`; 7 `4-dokuman-komutlari.sh`; ERP Simulator maddeleri `1-v2-uclari.ps1`; 4 ayrıca `5-eski-fatura-iptalleri.py`; 8 [Testler](#testler).
+Kontrol listesi: 1 [`manual-tests/gun26/1-farkli-icerik.ps1`](manual-tests/gun26/1-farkli-icerik.ps1); 2 [`manual-tests/gun26/2-takili-neden.ps1`](manual-tests/gun26/2-takili-neden.ps1); 3-5 `chaos/kaos.ps1`; 6 `chaos/kaos.ps1` ve [`manual-tests/gun26/3-gec-gelen-post.ps1`](manual-tests/gun26/3-gec-gelen-post.ps1); 7 [Kaos otomasyonu](#kaos-otomasyonu); 8 [Testler](#testler).
 
 ---
 
@@ -775,3 +836,4 @@ Kontrol listesi ([`manual-tests/gun25/`](manual-tests/gun25/)): 1 `3-cevapsiz-ek
 | `gun-23` | İptal Faturası ve Sıra Garantisi (2/2) | [tree/gun-23](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-23) |
 | `gun-24` | Felaket Senaryosu | [tree/gun-24](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-24) |
 | `gun-25` | ERP Sürüm Değişikliği | [tree/gun-25](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-25) |
+| `gun-26` | Kaos Otomasyonu | [tree/gun-26](https://github.com/metinkaryagdi/Staj_Tasks/tree/gun-26) |

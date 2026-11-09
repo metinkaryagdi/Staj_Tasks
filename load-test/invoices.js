@@ -9,6 +9,8 @@
 //   RATE       saniyedeki fatura sayısı.   DURATION   süre (k6 biçimi: 5m, 30s).
 //   RUN_ID     faturaların müşteri kodu; verilmezse "LOAD-<başlangıç zamanı>". Ölçümler faturaları bununla bulur.
 //   VARY_AMOUNTS  "true": her faturanın tutarı farklı (kuruş çevrimini sınamak için); verilmezse hepsi 100,50.
+//   LOG_ACCEPTED  "true": 202 alan her fatura için çıktıya "ACCEPTED <numara> <zaman>" satırı yazılır (kaos otomasyonu
+//                 202 alan faturanın kaybolup kaybolmadığını ve ne zaman alındığını bundan okur); verilmezse yazılmaz.
 //
 // İstekler sipariş sisteminin token'ıyla gider (Keycloak, client credentials); her VU token'ı bitmeden yeniler. Token ömrü
 // 5 dakika: yenilemeyi görmek için süreyi uzatın (DURATION=7m).
@@ -26,6 +28,7 @@ const RATE = Number(__ENV.RATE || 50);
 const DURATION = __ENV.DURATION || '5m';
 // constant-arrival-rate sürenin tam sonunda bazen bir iterasyon fazla başlatır; RATE × süreden fazlası istek göndermez.
 const TOTAL = RATE * Number(DURATION.slice(0, -1)) * (DURATION.endsWith('m') ? 60 : 1);
+const LOG_ACCEPTED = __ENV.LOG_ACCEPTED === 'true';
 
 // Faturayı yalnızca sipariş sistemi oluşturabilir: token'ı onun client'ıyla alınır (keycloak/fatura-realm.json).
 const TOKEN_URL = 'http://keycloak:8080/realms/fatura/protocol/openid-connect/token';
@@ -81,6 +84,7 @@ export default function (data) {
     tags: { endpoint: 'invoices' },
   });
   check(res, { 'fatura alındı (202)': (r) => r.status === 202 });
+  if (LOG_ACCEPTED && res.status === 202) console.log(`ACCEPTED ${res.json('invoiceNumber')} ${new Date().toISOString()}`);
   // Her istekte 0 ya da 1: hiç 401 olmasa da sayaç özette 0 olarak görünür.
   unauthorized.add(res.status === 401 ? 1 : 0);
 }

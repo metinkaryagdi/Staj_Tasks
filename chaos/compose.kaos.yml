@@ -1,0 +1,7 @@
+# Kaos otomasyonu (chaos/kaos.ps1) docker-compose.yml'in üstüne bunu ekler: her koşu kendi adını taşıyan boş veritabanı
+# volume'leriyle başlar (KAOS_VOL), önceki koşuların ve normal kurulumun volume'lerine dokunulmaz.
+volumes:
+  erp-db-data:
+    name: staj-tasks_erp-db-data-kaos-${KAOS_VOL:?KAOS_VOL verilmeli}
+  invoice-db-data:
+    name: staj-tasks_invoice-db-data-kaos-${KAOS_VOL:?KAOS_VOL verilmeli}

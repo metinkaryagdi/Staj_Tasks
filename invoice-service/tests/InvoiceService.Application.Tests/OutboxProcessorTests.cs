@@ -185,6 +185,81 @@ public class OutboxProcessorTests
         Assert.Equal("ERP-7", _s.Invoices.Invoices[Number].ErpReference);
     }
 
+    private static ErpRecord RecordOf(Invoice invoice, decimal amount) => new(
+        invoice.InvoiceNumber, "ERP-7", invoice.CustomerCode, amount, invoice.Currency, invoice.InvoiceDate, Scenario.Start);
+
+    [Fact]
+    public async Task Later_attempt_that_finds_the_number_with_other_content_fails_the_invoice_without_posting()
+    {
+        var invoice = _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 2);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(ErpDecision.None, RecordOf(invoice, amount: 99m)));
+
+        await Send(Entry(2));
+
+        Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        var outcome = Assert.Single(_s.Outbox.Outcomes);
+        Assert.Equal(OutboxStatus.Failed, outcome.Status);
+        Assert.Contains("farklı içerikle kayıtlı (ERP-7): tutar: serviste 10.50, ERP'de 99.00", outcome.Error);
+        Assert.Equal(InvoiceStatus.Failed, _s.Invoices.Invoices[Number].Status);
+        Assert.Null(_s.Invoices.Invoices[Number].ErpReference);
+    }
+
+    [Fact]
+    public async Task Later_attempt_that_finds_the_number_with_the_same_content_takes_its_reference()
+    {
+        var invoice = _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 2);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(ErpDecision.None, RecordOf(invoice, invoice.Amount)));
+
+        await Send(Entry(2));
+
+        Assert.Equal(InvoiceStatus.Sent, _s.Invoices.Invoices[Number].Status);
+        Assert.Equal("ERP-7", _s.Invoices.Invoices[Number].ErpReference);
+    }
+
+    [Fact]
+    public async Task The_last_question_before_giving_up_does_not_accept_the_number_with_other_content()
+    {
+        var invoice = _s.Invoices.Add(Number, InvoiceStatus.Pending, sendAttempts: 3);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.Unknown());
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(ErpDecision.None, RecordOf(invoice, amount: 99m)));
+
+        await Send(Entry(3));
+
+        Assert.Equal(["GET " + Number, "GET " + Number], _s.Erp.Calls);
+        Assert.Equal(OutboxStatus.Failed, Assert.Single(_s.Outbox.Outcomes).Status);
+        Assert.Equal(InvoiceStatus.Failed, _s.Invoices.Invoices[Number].Status);
+        Assert.Null(_s.Invoices.Invoices[Number].ErpReference);
+    }
+
+    [Fact]
+    public async Task A_cancellation_is_not_posted_when_the_ERP_has_the_number_with_other_content()
+    {
+        var invoice = _s.Invoices.Add(Number, InvoiceStatus.Failed);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(ErpDecision.None, RecordOf(invoice, amount: 99m)));
+
+        await Send(CancelEntry(1));
+
+        Assert.Equal(["GET " + Number], _s.Erp.Calls);
+        var outcome = Assert.Single(_s.Outbox.Outcomes);
+        Assert.Equal(OutboxStatus.Failed, outcome.Status);
+        Assert.Contains("farklı içerikle kayıtlı", outcome.Error);
+        Assert.Equal(InvoiceStatus.Failed, _s.Invoices.Invoices[Number].Status);
+    }
+
+    [Fact]
+    public async Task The_last_question_of_a_cancellation_does_not_take_a_cancelled_record_of_other_content_as_its_own()
+    {
+        var invoice = _s.Invoices.Add(Number, InvoiceStatus.Failed);
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.Unknown());
+        _s.Erp.LookupResults.Enqueue(FakeErpGateway.FoundWith(ErpDecision.None, RecordOf(invoice, amount: 99m)) with { CancelReference = "IPT-9" });
+
+        await Send(CancelEntry(3));
+
+        Assert.Equal(["GET " + Number, "GET " + Number], _s.Erp.Calls);
+        Assert.Equal(OutboxStatus.Failed, Assert.Single(_s.Outbox.Outcomes).Status);
+        Assert.Equal(InvoiceStatus.Failed, _s.Invoices.Invoices[Number].Status);
+    }
+
     [Fact]
     public async Task Later_attempt_posts_only_when_the_ERP_clearly_does_not_have_the_invoice()
     {

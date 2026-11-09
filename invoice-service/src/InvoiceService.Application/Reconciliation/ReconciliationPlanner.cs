@@ -176,16 +176,11 @@ public sealed class ReconciliationPlanner(IOptions<ReconciliationOptions> option
         return transition.Outcome == TransitionOutcome.Apply ? transition.NewStatus : null;
     }
 
-    /// <summary>Amount, currency, customer code, and erp_reference when the service has one.</summary>
+    /// <summary>The content the sending compares (amount, currency, customer code, date), and erp_reference when the
+    /// service has one.</summary>
     private static List<string> Differences(Invoice invoice, ErpRecord erp)
     {
-        var differences = new List<string>();
-        if (invoice.Amount != erp.Amount)
-            differences.Add($"tutar: serviste {Money(invoice.Amount)}, ERP'de {Money(erp.Amount)}");
-        if (invoice.Currency != erp.Currency)
-            differences.Add($"para birimi: serviste {invoice.Currency}, ERP'de {erp.Currency}");
-        if (invoice.CustomerCode != erp.CustomerCode)
-            differences.Add($"müşteri kodu: serviste {invoice.CustomerCode}, ERP'de {erp.CustomerCode}");
+        var differences = erp.DifferencesFrom(invoice);
         if (invoice.ErpReference is not null && invoice.ErpReference != erp.ErpReference)
             differences.Add($"erp_reference: serviste {invoice.ErpReference}, ERP'de {erp.ErpReference}");
         return differences;

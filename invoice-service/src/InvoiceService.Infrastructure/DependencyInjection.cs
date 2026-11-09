@@ -23,7 +23,7 @@ public static class DependencyInjection
             var erp = sp.GetRequiredService<IOptions<ErpOptions>>().Value;
             http.BaseAddress = new Uri(erp.BaseUrl);
             http.Timeout = TimeSpan.FromSeconds(erp.TimeoutSeconds);
-        });
+        }).ConfigurePrimaryHttpMessageHandler(ErpConnections.CreateHandler);
 
         services.AddDbContext<InvoiceDbContext>(o =>
             o.UseNpgsql(configuration.GetConnectionString("InvoiceDb")));

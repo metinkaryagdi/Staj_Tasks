@@ -172,6 +172,37 @@ public class ErpClientTests
     }
 
     [Fact]
+    public async Task V2_answering_with_a_record_of_other_content_is_not_accepted()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.Accepted,
+            """{"erpReference":"ERP-00000009","invoiceNumber":"FTR-000001","customerCode":"C-001","amountKurus":99900,"currency":"TRY","invoiceDate":"2026-09-29","receivedAt":"2026-09-30T07:00:00+00:00"}"""),
+            v2Percent: 100);
+
+        var result = await client.SendAsync(SampleInvoice(), CancellationToken.None);
+
+        Assert.False(result.Accepted);
+        Assert.True(result.ContentMismatch);
+        Assert.Null(result.ErpReference);
+        Assert.Equal(
+            "ERP'de bu numara farklı içerikle kayıtlı (ERP-00000009): tutar: serviste 1250.50, ERP'de 999.00; tarih: serviste 2026-09-30, ERP'de 2026-09-29.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task V2_answering_with_a_record_of_the_same_content_is_accepted()
+    {
+        var (client, _) = Create((_, _) => Reply(HttpStatusCode.Accepted,
+            """{"erpReference":"ERP-00000009","invoiceNumber":"FTR-000001","customerCode":"C-001","amountKurus":125050,"currency":"TRY","invoiceDate":"2026-09-30","receivedAt":"2026-09-30T07:00:00+00:00"}"""),
+            v2Percent: 100);
+
+        var result = await client.SendAsync(SampleInvoice(), CancellationToken.None);
+
+        Assert.True(result.Accepted);
+        Assert.False(result.ContentMismatch);
+        Assert.Equal("ERP-00000009", result.ErpReference);
+    }
+
+    [Fact]
     public async Task Busy_is_failed_once_and_passes_retry_after_on()
     {
         var (client, handler) = Create((_, _) =>

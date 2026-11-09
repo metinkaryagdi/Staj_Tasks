@@ -85,7 +85,7 @@ public sealed class OutboxProcessor(
     /// </summary>
     private async Task<AttemptOutcome?> AttemptAsync(Invoice invoice, ClaimedEntry entry)
     {
-        var sent = entry.IsCancel ? await strategy.CancelOnceAsync(entry) : await strategy.SendOnceAsync(invoice, entry);
+        var sent = entry.IsCancel ? await strategy.CancelOnceAsync(invoice, entry) : await strategy.SendOnceAsync(invoice, entry);
         if (sent.Path == SendPath.NotHeld)
             return null;
         if (!entry.IsCancel && SendAttemptResult.Of(sent) is { } result)
@@ -133,7 +133,7 @@ public sealed class OutboxProcessor(
         attempt.Check, attempt.Result.HttpStatus);
 
     private Task<SendAttempt> ConfirmAsync(Invoice invoice, ClaimedEntry entry, string? lastError) => entry.IsCancel
-        ? strategy.ConfirmCancelAsync(entry.InvoiceNumber, lastError)
+        ? strategy.ConfirmCancelAsync(invoice, lastError)
         : strategy.ConfirmAsync(invoice, lastError);
 
     /// <summary>

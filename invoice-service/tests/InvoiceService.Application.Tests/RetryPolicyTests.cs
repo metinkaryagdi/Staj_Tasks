@@ -22,6 +22,17 @@ public class RetryPolicyTests
     }
 
     [Fact]
+    public void The_number_at_the_ERP_with_other_content_fails_at_once()
+    {
+        var result = ErpSendResult.DifferentContent(202, "ERP-1", ["tutar: serviste 1.00, ERP'de 2.00"], TimeSpan.Zero);
+
+        var decision = Policy.Decide(result, attempt: 1, Now, random: 0.5);
+
+        Assert.Equal(SendOutcome.Failed, decision.Outcome);
+        Assert.False(decision.AttemptsUsedUp);
+    }
+
+    [Fact]
     public void Busy_waits_exactly_the_retry_after_seconds()
     {
         var decision = Policy.Decide(Result(429, new RetryConditionHeaderValue(TimeSpan.FromSeconds(17))), 1, Now, 0.9);

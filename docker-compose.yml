@@ -280,6 +280,7 @@ services:
       DURATION:
       RUN_ID:
       VARY_AMOUNTS:
+      LOG_ACCEPTED:
       # The order system's secret, for the token the load test takes.
       ORDER_SYSTEM_CLIENT_SECRET: ${ORDER_SYSTEM_CLIENT_SECRET:?}
     volumes:

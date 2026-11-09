@@ -11,7 +11,7 @@ namespace InvoiceService.Infrastructure.Erp;
 /// Talks to the ERP over HTTP, in the API version <see cref="IErpVersionSetting"/> gives for each request. Amounts are
 /// kuruş only in v2, and only here. One request per call, except that a v1 request answered "closed" (410) is made again
 /// with v2 in the same call: it is not the invoice's fault and uses up no attempt. Only a 202 with an ERP reference counts
-/// as accepted; retrying is up to the outbox.
+/// as accepted, and in v2 only if the record it returns is this invoice; retrying is up to the outbox.
 /// </summary>
 public sealed class ErpClient(HttpClient http, IErpVersionSetting versions) : IErpGateway
 {
@@ -48,7 +48,35 @@ public sealed class ErpClient(HttpClient http, IErpVersionSetting versions) : IE
                 invoice.InvoiceNumber, invoice.CustomerCode, (long)(invoice.Amount * 100m), invoice.Currency, invoice.InvoiceDate), ct)
             : http.PostAsJsonAsync(Invoices(v), new ErpInvoiceRequest(
                 invoice.InvoiceNumber, invoice.CustomerCode, invoice.Amount, invoice.Currency, invoice.InvoiceDate), ct),
-            "erpReference", ct);
+            "erpReference", ct, body => DifferentRecord(invoice, body));
+    }
+
+    /// <summary>
+    /// v2 answers a number it already has with 202 and that record, whatever was sent: refused when the record is not this
+    /// invoice. v1's 202 carries no record (it saves what was sent): null, nothing to compare.
+    /// </summary>
+    private static ErpSendResult? DifferentRecord(Invoice invoice, string body)
+    {
+        ErpAcceptedRecord? answer;
+        try
+        {
+            answer = JsonSerializer.Deserialize<ErpAcceptedRecord>(body, JsonSerializerOptions.Web);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        if (answer?.CustomerCode is null || answer.Currency is null || answer.InvoiceDate is null
+            || (answer.AmountKurus is null && answer.Amount is null))
+            return null;
+
+        var record = new ErpRecord(invoice.InvoiceNumber, answer.ErpReference ?? "", answer.CustomerCode,
+            ReadAmount(answer.Amount, answer.AmountKurus), answer.Currency, answer.InvoiceDate.Value, answer.ReceivedAt ?? default);
+        var differences = record.DifferencesFrom(invoice);
+        return differences.Count == 0
+            ? null
+            : ErpSendResult.DifferentContent((int)HttpStatusCode.Accepted, answer.ErpReference, differences, TimeSpan.Zero);
     }
 
     public async Task<ErpSendResult> CancelAsync(string invoiceNumber, CancellationToken ct)
@@ -58,9 +86,11 @@ public sealed class ErpClient(HttpClient http, IErpVersionSetting versions) : IE
             v => http.PostAsync($"{Invoices(v)}/{Uri.EscapeDataString(invoiceNumber)}/cancel", null, ct), "cancelReference", ct);
     }
 
-    /// <summary>One POST; accepted only on 202 with <paramref name="referenceField"/> in the body.</summary>
+    /// <summary>One POST; accepted only on 202 with <paramref name="referenceField"/> in the body, and only if
+    /// <paramref name="refuseAccepted"/> (when given) finds nothing wrong with that body.</summary>
     private async Task<ErpSendResult> PostAsync(
-        int version, Func<int, Task<HttpResponseMessage>> post, string referenceField, CancellationToken ct)
+        int version, Func<int, Task<HttpResponseMessage>> post, string referenceField, CancellationToken ct,
+        Func<string, ErpSendResult?>? refuseAccepted = null)
     {
         var watch = Stopwatch.StartNew();
 
@@ -98,6 +128,9 @@ public sealed class ErpClient(HttpClient http, IErpVersionSetting versions) : IE
             var reference = ReadString(body, referenceField);
             if (reference is null)
                 return Failed(status, $"ERP 202 döndü ama cevapta {referenceField} yok: {Describe(body)}", watch);
+
+            if (refuseAccepted?.Invoke(body) is { } refused)
+                return refused with { Elapsed = watch.Elapsed };
 
             return new ErpSendResult(true, reference, status, null, watch.Elapsed);
         }
@@ -291,6 +324,10 @@ public sealed class ErpClient(HttpClient http, IErpVersionSetting versions) : IE
     private sealed record ErpListItem(
         string InvoiceNumber, string ErpReference, string CustomerCode, decimal? Amount, long? AmountKurus, string Currency,
         DateOnly InvoiceDate, DateTimeOffset ReceivedAt, string? CancelReference);
+
+    private sealed record ErpAcceptedRecord(
+        string? ErpReference, string? CustomerCode, decimal? Amount, long? AmountKurus, string? Currency, DateOnly? InvoiceDate,
+        DateTimeOffset? ReceivedAt);
 
     private sealed record ErpInvoiceRequest(
         string InvoiceNumber, string CustomerCode, decimal Amount, string Currency, DateOnly InvoiceDate);
